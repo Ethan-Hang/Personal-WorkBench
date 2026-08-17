@@ -45,6 +45,14 @@ describe('模块边界规则（架构守卫的回归测试）', () => {
     expect(messages.join('\n')).toContain('违反 spec §4.2 铁律 1');
   });
 
+  it('packages/ui 不得依赖领域层', async () => {
+    const messages = await messagesFor(
+      'packages/ui/src/__boundary_probe__.tsx',
+      "import '@workbench/core';\n",
+    );
+    expect(messages.join('\n')).toContain('违反 packages/ui 的边界');
+  });
+
   it('测试文件豁免不会波及生产文件', async () => {
     const exempt = await messagesFor(
       'modules/probe/src/probe.test.ts',

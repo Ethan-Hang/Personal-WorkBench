@@ -65,6 +65,37 @@ export default tseslint.config(
     },
   },
 
+  // packages/ui 是纯展示层：只依赖 react，不碰领域、数据、服务或任何模块。
+  // 它之所以独立成包而不放进 packages/web，是为了避免包级循环依赖——
+  // web 要 import 模块的 UI，模块的 UI 又要用共享原语。
+  {
+    files: ['packages/ui/**/*.ts', 'packages/ui/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@workbench/core',
+                '@workbench/core/*',
+                '@workbench/data',
+                '@workbench/data/*',
+                '@workbench/server',
+                '@workbench/server/*',
+                '@workbench/web',
+                '@workbench/web/*',
+                '@workbench/module-*',
+              ],
+              message:
+                '违反 packages/ui 的边界：它是纯展示原语，只能依赖 react。领域概念不得渗入。',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // 测试文件放宽。
   // no-restricted-imports 必须在此关掉：测试要造真实的 :memory: 库，
   // 必然 import @workbench/data（spec §12.2 不 mock 数据库）。

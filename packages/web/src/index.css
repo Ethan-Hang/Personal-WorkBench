@@ -1,2 +1,38 @@
 @import 'tailwindcss';
+
+/* Tailwind v4 的自动扫描以 Vite root（packages/web）为界，
+   模块的 UI 在这棵树之外，缺了这行它们的样式会静默消失。 */
 @source "../../../modules";
+/* 共享原语同理，它们的类名也在扫描范围之外。 */
+@source "../../ui";
+
+/* 「现代温暖」：暖中性打底，冷色做强调。
+   取值来自 prototype-workbench/styles.css —— 那是原型阶段已确认的方向，
+   不是在这里重新发明的。改配色请改这里，不要改各页面的 class。 */
+@theme {
+  --color-page: #f6f5f1;
+  --color-surface: #fcfcfb;
+  --color-surface-2: #f1f0eb;
+  --color-line: #deddd6;
+
+  --color-ink: #161715;
+  --color-secondary: #62635f;
+  --color-muted: #8a8b85;
+
+  --color-accent: #2a78d6;
+  --color-accent-soft: #e4eefb;
+
+  --color-good: #0a7a20;
+  --color-good-soft: #e5f3e7;
+  --color-warning: #8b5d00;
+  --color-warning-soft: #fff0cf;
+  --color-critical: #b52f35;
+  --color-critical-soft: #fbe8e8;
+
+  --radius-panel: 14px;
+  --radius-control: 9px;
+
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+}

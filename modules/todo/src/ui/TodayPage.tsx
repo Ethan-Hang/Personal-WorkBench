@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Importance } from '@workbench/core';
+import { Button, Chip, Field, PageHeader, Panel, controlClass } from '@workbench/ui';
 import type { TaskView } from '../contract.js';
 import { fetchToday, postComplete, postTask } from './api.js';
 
@@ -14,24 +15,27 @@ const URGENCY_LABEL: Record<TaskView['urgency'], string> = {
   none: '无死线',
 };
 
+/** 紧急度到色调的映射集中在这里，页面各处不再各自判断颜色。 */
+const URGENCY_TONE: Record<TaskView['urgency'], 'neutral' | 'warning' | 'critical'> = {
+  overdue: 'critical',
+  imminent: 'warning',
+  soon: 'warning',
+  later: 'neutral',
+  none: 'neutral',
+};
+
 function TaskRow({ task, onComplete }: { task: TaskView; onComplete: (id: string) => void }) {
   return (
-    <li className="flex items-center gap-3 border-b border-stone-200 py-3">
+    <li className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
       <input
         type="checkbox"
         aria-label={`完成 ${task.title}`}
         onChange={() => onComplete(task.id)}
-        className="size-4"
+        className="size-[18px] rounded-[6px] accent-accent"
       />
-      <span className="flex-1">{task.title}</span>
-      {task.isImportantQuadrant && (
-        <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">重要</span>
-      )}
-      <span
-        className={task.urgency === 'overdue' ? 'text-xs text-red-700' : 'text-xs text-stone-500'}
-      >
-        {URGENCY_LABEL[task.urgency]}
-      </span>
+      <span className="flex-1 text-[13px] font-semibold">{task.title}</span>
+      {task.isImportantQuadrant && <Chip tone="warning">重要</Chip>}
+      <Chip tone={URGENCY_TONE[task.urgency]}>{URGENCY_LABEL[task.urgency]}</Chip>
     </li>
   );
 }
@@ -63,18 +67,18 @@ export function TodayPage() {
     create.mutate({ title, importance, dueDate: dueDate === '' ? null : dueDate });
   }
 
-  if (today.isPending) return <p className="text-stone-500">加载中…</p>;
-  if (today.isError) return <p className="text-red-700">加载失败：{today.error.message}</p>;
+  if (today.isPending) return <p className="text-muted">加载中…</p>;
+  if (today.isError) return <p className="text-critical">加载失败：{today.error.message}</p>;
 
   const { date, tasks, overdue } = today.data;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">今日工作台 · {date}</h1>
+      <PageHeader eyebrow="今日工作台" title={date} />
 
       {overdue.length > 0 && (
-        <details className="rounded border border-red-200 bg-red-50 px-4 py-3">
-          <summary className="cursor-pointer text-red-800">
+        <details className="rounded-panel border border-critical-soft bg-critical-soft px-[18px] py-3">
+          <summary className="cursor-pointer text-[13px] font-semibold text-critical">
             有 {overdue.length} 项逾期任务，点击展开
           </summary>
           <ul className="mt-2">
@@ -85,52 +89,62 @@ export function TodayPage() {
         </details>
       )}
 
-      <form onSubmit={onSubmit} className="flex flex-wrap gap-2">
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="要做点什么？"
-          aria-label="任务标题"
-          className="flex-1 rounded border border-stone-300 px-3 py-2"
-        />
-        <select
-          value={importance}
-          onChange={(e) => setImportance(e.target.value as Importance)}
-          aria-label="重要程度"
-          className="rounded border border-stone-300 px-3 py-2"
-        >
-          <option value="high">重要</option>
-          <option value="normal">一般</option>
-          <option value="low">次要</option>
-        </select>
-        <input
-          type="date"
-          value={dueDate}
-          onChange={(e) => setDueDate(e.target.value)}
-          aria-label="截止日期"
-          className="rounded border border-stone-300 px-3 py-2"
-        />
-        <button
-          type="submit"
-          disabled={create.isPending}
-          className="rounded bg-amber-700 px-4 py-2 text-white disabled:opacity-50"
-        >
-          添加
-        </button>
-      </form>
+      <Panel>
+        <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2">
+          <Field label="要做点什么" className="min-w-48 flex-1">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="写点什么…"
+              aria-label="任务标题"
+              className={controlClass}
+            />
+          </Field>
+          <Field label="重要程度">
+            <select
+              value={importance}
+              onChange={(e) => setImportance(e.target.value as Importance)}
+              aria-label="重要程度"
+              className={controlClass}
+            >
+              <option value="high">重要</option>
+              <option value="normal">一般</option>
+              <option value="low">次要</option>
+            </select>
+          </Field>
+          <Field label="截止日期">
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              aria-label="截止日期"
+              className={controlClass}
+            />
+          </Field>
+          <Button type="submit" variant="primary" disabled={create.isPending}>
+            添加
+          </Button>
+        </form>
 
-      {create.isError && <p className="text-red-700">添加失败：{create.error.message}</p>}
-      {complete.isError && <p className="text-red-700">完成失败：{complete.error.message}</p>}
+        {create.isError && (
+          <p className="mt-3 text-[13px] text-critical">添加失败：{create.error.message}</p>
+        )}
+        {complete.isError && (
+          <p className="mt-3 text-[13px] text-critical">完成失败：{complete.error.message}</p>
+        )}
+      </Panel>
 
-      {tasks.length === 0 ? (
-        <p className="text-stone-500">今天还没有安排。</p>
-      ) : (
-        <ul>
-          {tasks.map((t) => (
-            <TaskRow key={t.id} task={t} onComplete={(id) => complete.mutate(id)} />
-          ))}
-        </ul>
-      )}
+      <Panel title="今天" hint={`${tasks.length} 项`}>
+        {tasks.length === 0 ? (
+          <p className="text-muted">今天还没有安排。</p>
+        ) : (
+          <ul>
+            {tasks.map((t) => (
+              <TaskRow key={t.id} task={t} onComplete={(id) => complete.mutate(id)} />
+            ))}
+          </ul>
+        )}
+      </Panel>
     </div>
   );
 }

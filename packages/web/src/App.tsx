@@ -9,16 +9,16 @@ export function App() {
   const firstPath = navEntries[0]?.path;
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900">
-      <header className="border-b border-stone-200 bg-white">
-        <nav className="mx-auto flex max-w-3xl gap-4 px-6 py-4">
-          <span className="font-semibold">个人工作台</span>
+    <div className="min-h-screen bg-page font-sans text-ink">
+      <header className="border-b border-line bg-surface">
+        <nav className="mx-auto flex max-w-3xl items-center gap-5 px-6 py-4">
+          <span className="font-bold tracking-tight">个人工作台</span>
           {navEntries.map((entry) => (
             <NavLink
               key={entry.path}
               to={entry.path}
               className={({ isActive }) =>
-                isActive ? 'text-amber-700 underline' : 'text-stone-600 hover:text-stone-900'
+                isActive ? 'font-semibold text-accent' : 'text-secondary hover:text-ink'
               }
             >
               {entry.label}
