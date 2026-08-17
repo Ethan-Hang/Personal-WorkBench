@@ -1,0 +1,17 @@
+{
+  "name": "@workbench/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/app.ts",
+  "types": "./src/app.ts",
+  "exports": {
+    ".": "./src/app.ts"
+  },
+  "dependencies": {
+    "@workbench/core": "*",
+    "@workbench/data": "*",
+    "@workbench/module-todo": "*",
+    "fastify": "^5.12.0"
+  }
+}
