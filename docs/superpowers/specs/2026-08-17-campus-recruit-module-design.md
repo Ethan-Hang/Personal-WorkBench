@@ -73,7 +73,7 @@ company            text not null       position   text not null
 company_type       text                industry   text        city  text
 channel            text                referral   text
 priority           text                S | A | B | C
-apply_deadline     text                网申截止（UTC instant）
+apply_deadline_date text               网申截止（浮动日期 YYYY-MM-DD）
 applied_at         text                投递日期（instant，null = 未投递）
 outcome            text                null | offer | oc | rejected | declined
 outcome_at         text
@@ -140,37 +140,47 @@ created_at, updated_at
 
 ### 6.1 投影规则
 
-| 模块中的事实 | 投影为                                                         | 触发条件             |
-| ------------ | -------------------------------------------------------------- | -------------------- |
-| 网申截止     | `kind=task`，`due_at`=截止，title「投递 {company} {position}」 | 填写截止日期且未投递 |
-| 某轮时间     | `kind=event`，`scheduled` 定时，title「{company} {name}」      | 填写该轮时间         |
+| 模块中的事实 | 投影为                                                                                       | 触发条件             |
+| ------------ | -------------------------------------------------------------------------------------------- | -------------------- |
+| 网申截止     | `kind=task`，`due_at`=本地日末，`scheduled`=全天截止日期，title「投递 {company} {position}」 | 填写截止日期且未投递 |
+| 某轮时间     | `kind=event`，`scheduled` 定时，title「{company} {name}」                                    | 填写该轮时间         |
 
 其余字段（公司类型、行业、内推码、薪资）**一律不投影**——它们不是有时间的事。
 
 `importance` 由 `priority` 映射：S/A → high，B → normal，C → low。四档压三档仅损失在 Item 一侧；模块列表页仍按 S/A/B/C 排序。
 
+`apply_deadline_date` 保存用户选择的浮动日期，不转 UTC。投影时才以当前系统时区调用
+`endOfLocalDayUtc()` 生成 core `dueAt`，并同时写入同日的 all-day `scheduled`。因此截止任务
+会在当天进入今日工作台，未完成时沿用既有规则带到后续日期；模块表本身仍只有一个日期真相。
+
 ### 6.2 联动行为
 
-| 动作                | Item 变化                                                                      |
-| ------------------- | ------------------------------------------------------------------------------ |
-| 填写投递日期        | 截止任务标记 `done`                                                            |
-| 某轮标记 `failed`   | 该轮 Item 标记 `done`；`sequence` 更大的所有未来、未完成 Item 标记 `cancelled` |
-| 投递标记 `rejected` | 该投递所有未来、未完成的 Item 标记 `cancelled`                                 |
-| 投递标记 `declined` | 同上                                                                           |
-| 某轮标记 `passed`   | 该轮 Item 标记 `done`，不影响其他                                              |
-| 删除某轮            | 删除其 Item                                                                    |
-| 删除整条投递        | 级联删除全部轮次及其 Item                                                      |
+| 动作                           | Item 变化                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| 填写投递日期                   | 截止任务标记 `done`                                                            |
+| 新增首轮或设置结果，且尚未投递 | 自动写入 `applied_at = now`，截止任务标记 `done`                               |
+| 某轮标记 `failed`              | 该轮 Item 标记 `done`；`sequence` 更大的所有未来、未完成 Item 标记 `cancelled` |
+| 投递标记 `rejected`            | 该投递所有未来、未完成的 Item 标记 `cancelled`                                 |
+| 投递标记 `declined`            | 同上                                                                           |
+| 某轮标记 `passed`              | 该轮 Item 标记 `done`，不影响其他                                              |
+| 删除某轮                       | 删除其 Item                                                                    |
+| 删除整条投递                   | 级联删除全部轮次及其 Item                                                      |
 
 失败轮次自身使用 `done`，因为面试已经发生，只是结果未通过；标为 `cancelled` 会错误表达成
 “面试没有发生”。后续尚未发生的轮次才使用 `cancelled`。出局后日历上不应继续挂着未来面试，
 否则幽灵条目会迅速摧毁用户对日历的信任。
+
+轮次或终局结果存在即证明已经投递。若用户直接新增首轮或设置结果而忘记点击“标记已投递”，
+service 自动补写 `applied_at = now`；否则会出现“状态仍是待投递、统计却已进入技术面/Offer”
+的不可能组合。
 
 ### 6.3 投影一致性与恢复
 
 模块表是领域真相，core Item 是可重建的时间轴投影。首版不为此重构 core 的异步 Repository
 事务边界，也不增加 Outbox 表；采用**即时同步 + 幂等对账**：
 
-1. 投递或轮次变更写入模块表后，立即调用 `reconcileProjections()`。
+1. 投递或轮次变更写入模块表后，立即调用 `reconcileProjections()`；调用方传入当前系统时区，
+   用于把 `apply_deadline_date` 投影成 core 的日末 instant。
 2. 对每个应存在的截止任务或面试事件：关联 Item 存在且归属本模块时更新；不存在、已被删，
    或错误指向其他模块时创建新的本模块 Item，并回写关联 ID。
 3. 收集所有仍被投递或轮次引用的 Item ID，再查询
