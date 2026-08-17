@@ -1,0 +1,556 @@
+# 个人工作台 — 开发流程与架构设计
+
+日期：2026-08-17
+状态：已确认，待转实现计划
+
+---
+
+## 1. 项目定位
+
+一个供本人长期使用的个人工作台。第一批功能是日历与 todo；此后会持续加入深度定制的领域模块（秋招管理、社招管理等），且**需求增长没有终点**。
+
+因此本设计的首要目标不是"实现这些功能"，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。**
+
+所有架构选择都服务于这一条。
+
+### 已有产出
+
+`prototype-workbench/` 是一个已完成使命的抛弃式 UI 原型，其 `NOTES.md` 记录了已确认的产品结论，本设计直接继承：
+
+- 导航主线：**目标规划 → 周日历排程 → 今日工作台执行**
+- 首页：今日执行舱（聚焦今天 + 当前任务 + 快速收集，目标/习惯/总结作为上下文）
+- 逾期任务：首页顶部摘要，按需展开，不强制打断
+- 周日历：独立一级页面，右侧常驻"待排程任务"抽屉，可拖拽排程
+- 目标页：独立一级页面，规划画布形态
+- 视觉方向：现代温暖
+
+原型代码不作为生产代码延用，仅作视觉与信息架构参考。
+
+---
+
+## 2. 前提约束
+
+| 约束 | 取值 | 来源 |
+|---|---|---|
+| 运行形态 | 本地优先，架构上预留同步层 | 已确认 |
+| 开发者背景 | C / 嵌入式，Web 不熟但愿学，**要求成熟主流方案** | 已确认 |
+| 模块联动强度 | 模块事项自动出现在日历与今日工作台 | 已确认 |
+| 开发节奏 | 每周固定投入，可跑周迭代 | 已确认 |
+| 编码原则 | 尽量遵守 SOLID | 已确认 |
+
+其中"要求成熟主流方案"是硬约束：遇到选型分歧时，优先选生态大、文档全、搜得到答案的一方，而非更精巧的一方。
+
+---
+
+## 3. 开发流程
+
+### 3.1 裁剪原则
+
+"敏捷"包含两类互不相干的东西，本项目区别对待：
+
+- **Scrum 的协作仪式**（站会、故事点、燃尽图、Sprint 计划会、PO/SM 角色）——**全部去除**。它们解决的是多人信息同步问题，单人项目中只产生开销。
+- **XP 的工程实践**（测试先行、持续集成、小步重构、简单设计、YAGNI）——**全部保留**。它们解决的是代码腐化问题，正是"稳定迭代"的实际答案。单人项目因无人 review，反而更依赖它们。
+
+最终形态：**个人看板流 + XP 工程实践 + ADR 决策记录**。
+
+### 3.2 保留的实践
+
+| 实践 | 说明 |
+|---|---|
+| 看板流 + 周迭代 | 每周产出一个可运行的增量版本 |
+| 垂直切片（Tracer Bullet） | 每个任务都从 UI 打通到数据库，不留半个功能 |
+| Trunk-based + 短分支 | 分支存活不超过 3 天 |
+| CI：类型 + lint + 测试 | 开发者 Web 不熟，CI 是主要安全网 |
+| ADR 架构决策记录 | 见 §9 |
+| 分层测试策略 | 见 §8 |
+
+### 3.3 去除的实践
+
+站会、故事点估算、燃尽图、Scrum 角色、详尽需求文档（由 ADR + 模块 README 替代）、覆盖率指标。
+
+---
+
+## 4. 架构总览
+
+### 4.1 分层
+
+```
+packages/core     纯领域逻辑，零 IO 依赖，不知道任何模块存在
+packages/data     SQLite + Drizzle + 迁移 + 仓储实现
+packages/server   Fastify，装配 core + data + 已注册模块
+packages/web      React 外壳、导航、主题
+modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
+```
+
+### 4.2 三条铁律
+
+1. **模块只能依赖 core，模块之间零依赖。**
+2. **core 永不感知模块。** 加十个模块，core 一行不改。
+3. **模块自带迁移与注册项。** 删模块 = 删一个目录 + 删一行注册。
+
+### 4.3 铁律靠 lint 强制，不靠自觉
+
+架构约束若只写在文档里，数月后必破。以下规则通过 ESLint import 边界规则实现，违反即 CI 失败：
+
+| 规则 |
+|---|
+| `packages/core/**` 不得 import `data` / `server` / `web` / `modules` |
+| `modules/A/**` 不得 import `modules/B/**` |
+| `modules/**` 不得直接 import `packages/data`，只能经由 `ModuleContext` |
+
+这三条规则是本项目性价比最高的一次性投入：它把"随时加模块不塌房"从愿望变成机器保证的事实。
+
+---
+
+## 5. 核心数据模型
+
+### 5.1 core 只有三个实体
+
+"core 永不感知模块"要守得住，前提是 core 足够小。范围压缩到只有真正跨模块共享的东西：
+
+| 实体 | 职责 |
+|---|---|
+| **Item** | 统一事项。任务、日程、笔试、面试等一切都是它 |
+| **Goal** | 目标与里程碑，Item 可挂到目标下 |
+| **Tag** | 跨模块标签 |
+
+**不在 core 中**：习惯、每日总结、todo 收集箱、周日历。这些一律是模块。即使 todo 与 calendar 属第一批功能，它们也只是 Item 的两种视图，不进 core。
+
+### 5.2 Item 字段
+
+```
+Item
+  id
+  kind              task | event
+  title, notes
+  status            inbox | todo | doing | done | cancelled
+  importance        high | normal | low          （默认 normal）
+  due_at            DDL，恒为 UTC ISO8601 时刻（见下方说明）
+  is_all_day        boolean，仅影响 scheduled_* 的解释，与 due_at 无关
+  scheduled_start   排程起点（解释随 is_all_day 变化，见 §6.3）
+  scheduled_end     排程终点
+  estimate_minutes
+  goal_id           → Goal
+  source_module     创建它的模块 id
+  created_at, updated_at, completed_at
+```
+
+### 5.3 四个关键决策
+
+**① `due_at` 与 `scheduled_*` 是两个不同概念，不得合并。**
+
+`due_at` 是死线（必须在此之前完成）；`scheduled_*` 是"我打算什么时候做"。原型确认的"待排程任务抽屉"本质就是 `due_at` 有值而 `scheduled_start` 为空的 Item，拖到日历上即为其填入 `scheduled_start`。将两者混为单一 "date" 字段是许多 todo 应用无法做好排程的根因。
+
+**② task 与 event 共用一张表，靠 `kind` 区分。**
+
+两者共享约 90% 字段，且必须显示在同一条时间轴上。拆表会使日历查询永久性地变成 union。
+
+**③ `due_at` 恒为时刻，不使用浮动日期。**
+
+死线本质上是一个时刻。UI 上若只选到"某天"，由前端补成该本地日 `23:59:59` 对应的 UTC 时刻后再存。这样 `due_at` 的类型始终单一，urgency 派生（§7.1）无需分支处理。浮动日期只用于全天**排程**，不用于死线。
+
+**④ `source_module` 是模块卸载的清理凭据。**
+
+停用某模块时，需要能用一条 SQL 定位它产生的全部 Item。
+
+### 5.4 模块如何扩展字段：扩展表 + 单向外键
+
+模块自建表，以 `item_id` **指向** core：
+
+```
+campus_recruit_applications
+  id, company, position, channel, stage, applied_at
+
+campus_recruit_events
+  id, application_id, item_id → items.id, event_type
+```
+
+**表名前缀规则**：模块表前缀由 `moduleId` 将连字符替换为下划线后加 `_` 得到。`campus-recruit` → 前缀 `campus_recruit_`。`ModuleDatabase` 按此规则做访问校验（见 §8.2）。
+
+外键方向恒为**模块 → core**；core 的建表语句中不存在任何模块名称。这不是约定，是物理保证。
+
+否决 EAV（万能键值表）方案：它会同时牺牲类型安全与查询性能，且随模块增多迅速不可维护。
+
+### 5.5 联动机制
+
+"秋招记的笔试 9/20 19:00 自动出现在日历"的实现是平淡的：
+
+秋招模块创建一条 `kind=event, scheduled_start=9/20 19:00, source_module='campus-recruit'` 的 core Item；日历模块查询 Item 表即可见到。**日历完全不知道秋招存在。**
+
+### 5.6 模块卸载
+
+删除模块 = 删除其扩展表 + `DELETE FROM items WHERE source_module = '<id>'` + 删除注册行 + 删除目录。可验证、无残留。
+
+---
+
+## 6. 时间存储
+
+三类时间，三种存法。混用是日历类应用的经典事故来源。
+
+### 6.1 时刻（instant）
+
+适用：`created_at` / `updated_at` / `completed_at` / `due_at` / 定时事件的起止。
+
+存储：UTC ISO8601 文本，如 `2026-09-20T11:00:00.000Z`，SQLite 列类型 `TEXT`。
+
+理由：ISO8601 UTC 的字典序恰好等于时间序，`ORDER BY` / `BETWEEN` 可直接使用并吃到索引，无需任何日期函数。
+
+### 6.2 浮动日期（floating date）
+
+适用：全天事件。
+
+存储：`YYYY-MM-DD`，**绝不转 UTC**。
+
+理由：全天事件"9月20日"在任何时区都是9月20日。若按 `2026-09-20T00:00:00+08:00` 转 UTC 存为 `2026-09-19T16:00:00Z`，该记录在伦敦打开会变成 19 号。iCalendar 规范（RFC 5545）为此严格区分 `DATE` 与 `DATE-TIME` 两种类型。
+
+### 6.3 数据库表示与类型安全
+
+数据库层采用**一组列 + `is_all_day` 标记**（而非两组列），保持查询简单；类型安全由 core 的值对象保证：
+
+```ts
+type ScheduledTime =
+  | { kind: 'all-day'; date: string }                // '2026-09-20'
+  | { kind: 'timed'; start: string; end?: string };   // UTC ISO8601
+```
+
+应用代码只接触该 discriminated union，永不直接操作原始字符串。TypeScript 强制穷尽处理两个分支，漏一个即编译失败。
+
+附带收益：`'2026-09-20'` 的字典序小于 `'2026-09-20T09:00:00.000Z'`，同列排序时全天事件天然排在当天定时事件之前——正是日历应有的顺序。
+
+### 6.4 本地日边界查询
+
+**禁止在 SQL 中做时区转换。** 在应用层先将本地日期换算为 UTC 区间，再以区间查询：
+
+```
+今天 = 2026-09-20（本地 Asia/Shanghai）
+  → [2026-09-19T16:00:00Z, 2026-09-20T16:00:00Z)
+  → WHERE scheduled_start >= ? AND scheduled_start < ?
+     OR   (is_all_day = 1 AND scheduled_start = '2026-09-20')
+```
+
+SQL 保持纯字符串比较；时区逻辑集中于 core 的单个函数，可单测。
+
+### 6.5 每记录时区：暂不存储（已知限制）
+
+展示一律使用系统当前时区。已知限制：跨时区旅行时，此前排定的"9 点会议"会显示为当地时间的另一时刻。
+
+将来补法：增加 `tz` 列存 IANA 时区名（如 `Asia/Shanghai`，对应 iCalendar 的 TZID）。这是纯增量迁移，不推翻既有数据。此限制须写入 ADR-0004。
+
+### 6.6 时间库
+
+选用 **Luxon**（Context7 ID `/moment/luxon`）。理由：时区转换是一等公民（`DateTime.fromISO(s).setZone(...)`），而 date-fns 需额外安装 `date-fns-tz` 且 API 分散于多包，对 Web 不熟者更易出错。
+
+原生 `Temporal` API 为未来方向；实现阶段须用 ctx7 复核其在 Node 中的落地状态后再最终敲定。
+
+---
+
+## 7. 优先级模型（重要 × 紧急）
+
+### 7.1 importance 手动存储，urgency 自动派生
+
+四象限法在长期使用中有一条几乎必然的腐化路径：两个维度都手工维护，紧急度随即失真——没有人会回头逐条更新紧急度。
+
+而"紧急"的定义本就是时间压力 = 距 DDL 的距离。既已有 `due_at`，urgency 应由其算出，永远新鲜、零维护。
+
+```
+importance   high | normal | low        手动，默认 normal，入库
+due_at       手动，入库
+urgency      派生，不入库：
+               due_at 为空        → none
+               now > due_at       → overdue
+               ≤ 24h              → imminent
+               ≤ 72h              → soon
+               否则                → later
+```
+
+### 7.2 四象限视图映射
+
+- 纵轴（重要）：`high` 在上半；`normal` / `low` 在下半
+- 横轴（紧急）：`overdue` / `imminent` / `soon` 在右；`later` / `none` 在左
+- 象限内部按完整三档 importance + 精确 `due_at` 排序，使 normal 与 low 保持有序
+
+`24h` / `72h` 阈值定义为 core 中的具名常量，调整只改一处。
+
+### 7.3 派生排序分
+
+`priorityScore = importance 权重 + urgency 权重`，用于列表默认排序，不入库，纯计算。
+
+### 7.4 已接受的副作用
+
+本模型会迫使"我觉得这事很急"翻译为"它哪天必须做完"；无 DDL 即不算紧急。这被视为特性而非缺陷。
+
+若实际使用中确需"无死线但紧急"的表达，可增加手动 urgency override 字段——纯增量，届时再议。
+
+---
+
+## 8. 模块系统
+
+### 8.1 ModuleDefinition（刻意最小）
+
+```ts
+export interface ModuleDefinition {
+  id: string;            // 'campus-recruit'
+  title: string;         // '秋招管理'
+
+  migrations: Migration[];
+  registerRoutes?(app: FastifyInstance, ctx: ModuleContext): void;
+  nav?: NavEntry[];
+  routes?: RouteDefinition[];
+}
+```
+
+### 8.2 ModuleContext（受限能力）
+
+模块拿不到数据库句柄，只拿到受限上下文：
+
+```ts
+interface ModuleContext {
+  moduleId: string;
+  items: ItemRepository;    // 读写 core Item，自动打上 source_module
+  goals: GoalRepository;
+  tags:  TagRepository;
+  db:    ModuleDatabase;    // 仅可访问模块自身前缀的表（前缀规则见 §5.4）
+}
+```
+
+`db` 被限制在自身表前缀内，使"模块间零依赖"在接口层面即不可违反。
+
+### 8.3 刻意未纳入的能力
+
+| 未纳入 | 理由 | 将来加入是否安全 |
+|---|---|---|
+| `itemDecorators`（日历上显示模块特有信息） | 基础联动无需它；Item 出现在日历是免费的 | 安全，纯增量，不动已有模块 |
+| `settings` / 权限 / 事件总线 | 对未来的猜测 | 安全，可选字段不破坏已实现模块 |
+
+接口能保持最小本身即是设计成立的信号：core 的 Item 模型足够抽象，模块无需大量钩子即可接入。
+
+### 8.4 重复规则（习惯模块）的归属
+
+**不在 core Item 上增加 `recurrence` 字段。**
+
+重复规则归模块所有：习惯模块自存 RRULE，按需展开为一条条具体的 core Item。core 只认"一件有具体时间的具体事"，日历无需理解 RRULE。
+
+这是一条通用模式：**复杂性向模块推，core 保持愚蠢。** 今后遇到"要不要给 Item 加字段"的问题，先问"能否在模块内解决"。
+
+---
+
+## 9. SOLID 在本项目的落地
+
+SOLID 在此不是口号，而是已内建于上述设计中。下表把每条原则落到具体形态与**可验证信号**：
+
+| 原则 | 本项目中的具体形态 | 可验证信号 |
+|---|---|---|
+| **S** 单一职责 | core / data / server / web 四层分工；一个模块一个领域；`ScheduledTime` 只负责时间表示 | 文件显著变大即为职责膨胀警报；模块目录中出现其他领域的名词 |
+| **O** 开闭 | ⭐ `ModuleDefinition` 注册机制。对扩展开放（加模块），对修改关闭（不动 core） | **加第 N 个模块的 diff 中，`packages/core/` 改动应为 0 行** |
+| **L** 里氏替换 | `ScheduledTime` 的所有消费者必须正确处理两个分支；`ItemRepository` 的任何实现（SQLite 版 / 将来的同步版）行为一致 | 禁止 `if (kind === 'all-day') throw`；Repository 用同一套契约测试跑所有实现 |
+| **I** 接口隔离 | `ModuleContext` 只暴露 items / goals / tags 与自身命名空间的 db，拿不到全局句柄或他模块数据 | 模块代码中出现对 `packages/data` 的直接 import 即违规（lint 拦截） |
+| **D** 依赖倒置 | core 定义 `ItemRepository` 接口，data 提供实现；依赖方向恒为 data → core | lint 规则：core 不得 import data。这正是"core 零 IO 依赖"得以成立的机制 |
+
+### 9.1 SOLID 的裁剪（重要）
+
+**不给每个类都抽接口。** 只在下列两种情况下引入抽象：
+
+1. 已存在或明确将存在第二个实现（如 `ItemRepository`：SQLite 版 + 将来的同步版）
+2. 需要保护一条架构边界（如 `ModuleContext`）
+
+其余一律直接写具体实现。单人项目中投机性抽象是纯负债：它增加间接层，却换不到任何解耦收益。教条式 SOLID 会使代码量爆炸而可维护性下降——本项目明确拒绝这一点。
+
+---
+
+## 10. 技术栈
+
+| 层 | 选型 | 理由 |
+|---|---|---|
+| 语言 | TypeScript（strict） | 静态类型对 C 背景亲切；前后端共享类型定义 |
+| 运行时 / 仓库 | Node LTS + npm workspaces | 最成熟，不引入额外工具链概念 |
+| 后端 | Fastify | 类型支持显著优于 Express，文档扎实 |
+| 数据库 | SQLite + better-sqlite3 | 单文件、同步 API、零运维；本地优先的标准答案 |
+| ORM | Drizzle | schema 即 TS 代码，生成 SQL 可读可控；drizzle-kit 迁移成熟；无需 Prisma 那样的引擎二进制，利于将来打包桌面版 |
+| 前端 | React + Vite + React Router | 生态最大，问题一定搜得到 |
+| 数据获取 | TanStack Query | 替代手写 loading / error / 缓存 / 失效，新手 bug 重灾区 |
+| 样式 / 组件 | Tailwind + shadcn/ui | 组件源码进本仓库而非黑盒依赖，可直接改造为"现代温暖"方向 |
+| 校验 | Zod | API 边界一份 schema，前后端共用，运行时校验 + 类型推导一次到位 |
+| 时间 | Luxon | 见 §6.6 |
+| 测试 | Vitest | 单测 + 集成 |
+| 端到端 | Playwright | **推迟**，待页面达 3 个以上再引入 |
+
+TanStack Query、Tailwind、Zod 三者第一批即引入。它们并非锦上添花，而是替代易错手写代码：不用 Query 就要手写缓存失效，不用 Zod 就要手写校验且前后端类型会漂移。对不熟 Web 者，其省下的调试时间远超学习成本。
+
+明确推迟：Playwright、Electron 打包。
+
+---
+
+## 11. 目录结构
+
+```
+personal-workbench/
+├── docs/
+│   ├── adr/                        架构决策记录
+│   └── superpowers/specs/          设计文档
+├── packages/
+│   ├── core/
+│   │   ├── item.ts                 Item 实体 + ScheduledTime 值对象
+│   │   ├── goal.ts  tag.ts
+│   │   ├── priority.ts             importance / urgency 派生
+│   │   ├── time.ts                 时区与日边界换算
+│   │   ├── repository.ts           ItemRepository 等接口定义（DIP）
+│   │   └── module.ts               ModuleDefinition / ModuleContext 接口
+│   ├── data/                       SQLite + Drizzle + 迁移 + 仓储实现
+│   ├── server/                     Fastify 装配
+│   └── web/                        React 外壳、导航、主题
+├── modules/
+│   ├── todo/
+│   ├── calendar/
+│   ├── goals/
+│   └── campus-recruit/
+│       ├── module.ts               注册定义
+│       ├── schema.ts               自有表（Drizzle）
+│       ├── migrations/
+│       ├── api/                    后端路由
+│       ├── service.ts              业务逻辑
+│       └── ui/                     React 页面与组件
+└── prototype-workbench/            已归档的抛弃式 UI 原型（仅供参考）
+```
+
+模块目录内**同时含前端与后端代码**，这是垂直切片的物理形态：一个功能的全部代码在一个目录内，删模块即 `rm -rf` 一个目录加删一行注册。
+
+---
+
+## 12. 测试策略
+
+### 12.1 分层投入
+
+| 层 | 投入 | 测什么 |
+|---|---|---|
+| **core 领域逻辑** | 接近全覆盖 | 纯函数零 IO，最便宜且价值最高。重点：urgency 派生边界（恰好 24h / 72h、无 DDL、已逾期）、本地日边界换算（跨时区、跨月）、`ScheduledTime` 两分支 |
+| **data 迁移** | 必测 | 建空库 → 迁移至版本 N → 塞入数据 → 迁移至 N+1 → 断言数据仍在且形状正确 |
+| **模块 service** | 关键路径 | 用 `:memory:` SQLite 跑真实集成测试。必测："模块创建事项 → core Item 表出现 → 日历查询可见"这一跨边界承诺 |
+| **UI** | 少量冒烟 | 页面稳定后由 Playwright 跑主流程 |
+
+迁移层必测的理由：这是唯一"写错会毁掉真实数据"的地方。本工具承载开发者本人的真实秋招记录与日程，数据丢失不可恢复。
+
+### 12.2 明确不做
+
+- **不 mock 数据库。** `:memory:` SQLite 建库为毫秒级；mock 只会让测试与真实行为脱节
+- **不测 React 组件渲染细节。** 该类测试最脆、维护成本最高、发现 bug 最少
+- **不设覆盖率门槛。** 覆盖率会诱导测试 getter 而非边界条件
+
+### 12.3 TDD 的适用范围
+
+core 与 service 层采用 TDD（测试便宜、规格清晰，先写测试反而更快）；UI 层不采用（探索性强，先实现再看效果更合理）。对 UI 教条式 TDD 属于浪费。
+
+---
+
+## 13. CI、分支与 ADR
+
+### 13.1 CI
+
+GitHub Actions 单 workflow，push 与 PR 均触发，四步：
+
+```
+npm ci  →  tsc --noEmit  →  eslint（含 §4.3 三条边界规则）  →  vitest run
+```
+
+失败即不合并。这是开发者不熟 Web 时的主要安全网。
+
+### 13.2 分支
+
+Trunk-based：`main` 恒可运行；功能开短分支 `feat/xxx`，存活不超过 3 天；CI 通过后 squash merge。
+
+单人开 PR 并非形式主义：它为 CI 提供触发点，并留下可读的变更历史。
+
+### 13.3 本地 hook
+
+仅用 lint-staged 跑 Prettier 格式化。**不在 commit 时跑测试**——那会抑制提交意愿，导致憋出巨大提交，反而更危险。测试归 CI。
+
+### 13.4 ADR
+
+位置：`docs/adr/NNNN-标题.md`。模板（Nygard 格式）：**背景 / 决策 / 后果**。
+
+书写标准：**只记录"破坏它就要大改"的决定。** "用了 Fastify"不必记（随时可换）；"core 不感知模块"必须记（破坏即架构瓦解）。
+
+第一批五条，全部来自本设计：
+
+- `0001` 本地优先 + 预留同步层
+- `0002` 统一 Item 模型 + 模块扩展表（须记录否决 EAV 的理由）
+- `0003` urgency 由 due_at 派生而非存储
+- `0004` 时间存储：instant vs 浮动日期；暂不存每记录时区（须含已知限制与将来补法）
+- `0005` 模块边界三条铁律 + lint 强制
+
+代码只说明"是什么"，ADR 说明"为什么，以及不要去动它"。
+
+---
+
+## 14. 迭代路线
+
+### 14.1 迭代 1：Walking Skeleton
+
+**不是 MVP。** MVP 追求功能价值最小化；Walking Skeleton 追求**技术链路贯通**——功能极少，但从界面到磁盘每一环都真实跑通。
+
+验收标准：
+
+1. 浏览器打开 localhost，看到"今日工作台"页面
+2. 可创建任务（title + importance + due_at）
+3. 数据存入 SQLite，**进程重启后仍在**
+4. 页面显示今日任务，按 `priorityScore` 排序，逾期项有标记
+5. 可勾选完成
+6. CI 全绿：类型检查 + lint（含边界规则）+ 测试
+7. `docs/adr/` 中已有 0001–0005
+
+贯通链路：
+
+```
+React → TanStack Query → Fastify → Zod 校验 → 模块 service
+      → ModuleContext → ItemRepository → Drizzle → SQLite 文件
+```
+
+外加 core 的 `priority` 派生与 `time` 日边界换算被真实调用且有单测覆盖。
+
+**刻意不含**：日历、目标、习惯、拖拽、秋招。
+
+理由：链路上任何一环卡住（构建配置、类型不通、迁移失败、CI 配错）都会在第一周暴露，而非在已写五个模块之后。对不熟 Web 者此步价值最大——一次性打通全部陌生环节，此后每加功能都在已知轨道上。
+
+隐藏收益：todo 将被实现为**真正的模块**（`modules/todo/`）而非硬编码进 server，故迭代 1 结束时"加模块"这条路已完整走过一遍。
+
+### 14.2 后续迭代（建议顺序，不锁死）
+
+| 迭代 | 内容 | 顺带验证 |
+|---|---|---|
+| 2 | 周日历（指挥台形态）+ 待排程抽屉 + 拖拽排程 | `ScheduledTime` 两个分支 |
+| 3 | 目标页（规划画布形态）+ Item 挂 Goal | 跨实体关联 |
+| 4 | 视觉统一至"现代温暖"，自原型移植样式 | 主题层 |
+| 5 | **秋招模块** | ⭐ 整个架构的真正考试 |
+| 6+ | 习惯、每日总结、社招…… | |
+
+迭代 5 是刻意的早期压力测试：那是首次以"外部模块"身份接入一个 core 完全未预料的领域。**顺利 = 架构成立；若必须修改 core = 前述某个假设有误**——而此时修正代价仍然可控。
+
+---
+
+## 15. YAGNI 清单（明确不做）
+
+| 不做 | 何时重新评估 |
+|---|---|
+| 账号 / 认证体系 | 需要多用户时（可能永不） |
+| 云端同步实现 | 确实需要多端时；架构已预留位置 |
+| Electron / Tauri 打包 | 想要"双击即开"时；不影响业务代码 |
+| Playwright 端到端 | 页面达 3 个以上 |
+| `itemDecorators` 等模块钩子 | 真正需要时；纯增量 |
+| core 上的 recurrence 字段 | 永不（归模块所有，见 §8.4） |
+| 手动 urgency override | 实际使用中确实碰到"无死线但紧急" |
+| 每记录时区（`tz` 列） | 有跨时区使用需求时 |
+
+---
+
+## 16. 已知限制
+
+1. **跨时区显示漂移**：见 §6.5。已记入 ADR-0004，补法明确。
+2. **无同步 = 单设备**：手机与其他电脑暂不可访问。后端已是独立进程，部署至 NAS 即可多端，不改业务代码。
+3. **无 DDL 即不算紧急**：见 §7.4，为已接受的取舍。
+
+---
+
+## 17. 起步动作
+
+1. `git init`（已完成）+ `.gitignore`（已完成，含排除无关的 `lancedb/`）
+2. 提交本设计文档
+3. 转入 writing-plans 技能，产出迭代 1 的详细实现计划

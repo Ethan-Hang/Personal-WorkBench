@@ -1,0 +1,39 @@
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# 本地数据（用户真实数据，永不入库）
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/local/
+
+# 与本项目无关的本地索引
+lancedb/
+
+# 环境与密钥
+.env
+.env.*
+!.env.example
+
+# 编辑器 / 系统
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# 测试与覆盖率产物
+coverage/
+playwright-report/
+test-results/
+
+# 日志
+*.log
+npm-debug.log*

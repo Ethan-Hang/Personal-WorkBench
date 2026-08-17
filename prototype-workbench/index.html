@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>个人工作台 · UI 原型</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- PROTOTYPE ONLY: 三个个人工作台方案，通过 ?variant=A|B|C 切换。 -->
+  <div id="app"></div>
+  <div class="prototype-note">抛弃式原型 · 数据不会保存</div>
+  <nav class="switcher" aria-label="原型方案切换">
+    <button id="previous" aria-label="上一个方案">←</button>
+    <div><small>方案</small><strong id="variant-label"></strong></div>
+    <button id="next" aria-label="下一个方案">→</button>
+  </nav>
+  <script src="app.js"></script>
+</body>
+</html>

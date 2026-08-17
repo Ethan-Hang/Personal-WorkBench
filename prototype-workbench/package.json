@@ -1,0 +1,7 @@
+{
+  "name": "personal-workbench-ui-prototype",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}
