@@ -1,0 +1,23 @@
+{
+  "name": "@workbench/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
+    "@workbench/core": "*",
+    "@workbench/module-todo": "*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^4.7.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^6.4.3",
+    "vite-tsconfig-paths": "^5.1.4"
+  }
+}
