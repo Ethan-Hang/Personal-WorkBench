@@ -34,6 +34,9 @@ coverage/
 playwright-report/
 test-results/
 
+# Agent 隔离工作区
+.worktrees/
+
 # 日志
 *.log
 npm-debug.log*
