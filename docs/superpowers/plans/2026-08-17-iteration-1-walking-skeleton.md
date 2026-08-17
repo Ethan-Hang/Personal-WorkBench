@@ -21,6 +21,11 @@
 - **优先级（spec §7）：** `importance` 手动存储（`high|normal|low`，默认 `normal`）；`urgency` **派生、不入库**；阈值 `IMMINENT_HOURS = 24`、`SOON_HOURS = 72` 为 core 中的具名常量。
 - **SOLID 裁剪（spec §9.1）：** 只在"已有第二个实现"或"需保护架构边界"时抽接口，其余直接写具体实现。禁止投机性抽象。
 - **测试策略（spec §12）：** 不 mock 数据库（用 `:memory:` SQLite）；不测 React 渲染细节；不设覆盖率门槛。core 与 service 层用 TDD，UI 层不用。
+- **工作区包必须声明自身依赖：** 每个 `packages/*` 与 `modules/*` 的 `package.json` 都要在自己的
+  `dependencies` / `devDependencies` 里声明它实际 import 的东西（本地包写 `"*"`，npm workspaces 会
+  解析到本地）。安装一律用 `npm install <pkg> -w <workspace>`，**不得**装到根 manifest 靠 hoisting
+  生效。理由：不声明依赖的包没有可读边界——读它的 manifest 看不出它被允许碰什么，而本项目的全部
+  前提是硬模块边界。例外：仅由根 npm script 调用的 CLI 工具（如 `drizzle-kit`）留在根 devDependencies。
 - **提交规范：** 分支 `feat/iteration-1-walking-skeleton`；commit message 使用 Conventional Commits；每个 Task 至少一次提交。
 
 ## 相对 spec 的两处有意偏离
@@ -122,10 +127,12 @@ personal-workbench/
 建立 workspaces、TypeScript、ESLint（含三条边界规则）、Prettier、Vitest、CI。本任务的交付物是**一条能跑绿的质量流水线**，后续每个任务都依赖它。
 
 **Files:**
+
 - Create: `package.json`, `tsconfig.json`, `eslint.config.js`, `.prettierrc.json`, `.prettierignore`, `vitest.config.ts`, `.github/workflows/ci.yml`, `.husky/pre-commit`
 - Create: `packages/core/package.json`, `packages/core/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: 无（首个任务）
 - Produces: npm 脚本 `npm run check`（= format:check + typecheck + lint + test）；workspace 包名约定 `@workbench/<name>`；tsconfig paths 别名
 
@@ -264,7 +271,14 @@ const CORE_FORBIDDEN = [
 ];
 
 export default tseslint.config(
-  { ignores: ['node_modules/**', '**/dist/**', 'packages/data/migrations/**', 'prototype-workbench/**'] },
+  {
+    ignores: [
+      'node_modules/**',
+      '**/dist/**',
+      'packages/data/migrations/**',
+      'prototype-workbench/**',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
 
@@ -297,13 +311,11 @@ export default tseslint.config(
           patterns: [
             {
               group: ['@workbench/module-*'],
-              message:
-                '违反 spec §4.2 铁律 1：模块之间零依赖。需要共享的东西应上提到 core。',
+              message: '违反 spec §4.2 铁律 1：模块之间零依赖。需要共享的东西应上提到 core。',
             },
             {
               group: ['@workbench/data', '@workbench/data/*'],
-              message:
-                '违反 spec §4.2 铁律 3：模块不得直连数据层，只能经由 ModuleContext。',
+              message: '违反 spec §4.3：模块不得直连数据层，只能经由 ModuleContext。',
             },
           ],
         },
@@ -483,10 +495,12 @@ git commit -m "chore: 搭建 workspaces 骨架与质量门禁
 spec §6 全部落到这一个文件。这是整个项目里最容易出微妙 bug、也最值得 TDD 的地方。
 
 **Files:**
+
 - Create: `packages/core/src/time.ts`, `packages/core/src/time.test.ts`
 - Modify: `packages/core/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: 无
 - Produces:
   - `type IsoInstant = string`（UTC ISO8601，如 `'2026-09-20T11:00:00.000Z'`）
@@ -668,10 +682,12 @@ instant 用 UTC ISO8601，浮动日期不转 UTC；时区换算集中于此，SQ
 ## Task 3: core — Item 模型与 ScheduledTime
 
 **Files:**
+
 - Create: `packages/core/src/item.ts`, `packages/core/src/item.test.ts`
 - Modify: `packages/core/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: `IsoInstant`, `PlainDate`（Task 2）
 - Produces:
   - `type ItemKind = 'task' | 'event'`
@@ -743,8 +759,7 @@ export const IMPORTANCES = ['high', 'normal', 'low'] as const;
  * 消费者必须穷尽处理两个分支（spec §9 LSP）。
  */
 export type ScheduledTime =
-  | { kind: 'all-day'; date: PlainDate }
-  | { kind: 'timed'; start: IsoInstant; end?: IsoInstant };
+  { kind: 'all-day'; date: PlainDate } | { kind: 'timed'; start: IsoInstant; end?: IsoInstant };
 
 export interface Item {
   id: string;
@@ -801,7 +816,13 @@ npx vitest run packages/core/src/item.test.ts
 
 ```ts
 export type { ItemKind, ItemStatus, Importance, ScheduledTime, Item } from './item.js';
-export { ITEM_KINDS, ITEM_STATUSES, IMPORTANCES, IMPORTANCE_RANK, scheduledSortKey } from './item.js';
+export {
+  ITEM_KINDS,
+  ITEM_STATUSES,
+  IMPORTANCES,
+  IMPORTANCE_RANK,
+  scheduledSortKey,
+} from './item.js';
 ```
 
 - [ ] **Step 6: 全量门禁 + 提交**
@@ -821,10 +842,12 @@ ScheduledTime 用 discriminated union 强制穷尽处理全天/定时两分支�
 spec §7 全部落到这一个文件。`importance` 入库，`urgency` **永不入库**。
 
 **Files:**
+
 - Create: `packages/core/src/priority.ts`, `packages/core/src/priority.test.ts`
 - Modify: `packages/core/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: `IsoInstant`（Task 2）、`Importance` / `IMPORTANCE_RANK`（Task 3）
 - Produces:
   - `const IMMINENT_HOURS = 24`、`const SOON_HOURS = 72`
@@ -1025,10 +1048,12 @@ urgency 由 due_at 派生且不入库；重要性权重压过紧急性（spec §
 本任务只产出**抽象**，是 DIP 与 ISP 的落点。同时产出 `ItemRepository` 的契约测试套件 —— spec §9 明确要求"Repository 用同一套契约测试跑所有实现"，这是 LSP 的可验证信号。
 
 **Files:**
+
 - Create: `packages/core/src/repository.ts`, `packages/core/src/module.ts`, `packages/core/src/testing/item-repository-contract.ts`
 - Modify: `packages/core/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: `Item`、`ScheduledTime`、`Importance`、`ItemKind`、`IsoInstant`、`PlainDate`
 - Produces:
   - `interface CreateItemInput` / `interface UpdateItemPatch`
@@ -1195,7 +1220,11 @@ export function runItemRepositoryContract(
       const created = await repo.create('campus-recruit', {
         kind: 'event',
         title: '笔试',
-        scheduled: { kind: 'timed', start: '2026-09-20T11:00:00.000Z', end: '2026-09-20T13:00:00.000Z' },
+        scheduled: {
+          kind: 'timed',
+          start: '2026-09-20T11:00:00.000Z',
+          end: '2026-09-20T13:00:00.000Z',
+        },
       });
       const found = await repo.getById(created.id);
       expect(found!.scheduled).toEqual({
@@ -1231,21 +1260,44 @@ export function runItemRepositoryContract(
       });
 
       const found = await repo.list({
-        scheduledWithin: { startUtc: '2026-09-19T16:00:00.000Z', endUtc: '2026-09-20T16:00:00.000Z' },
+        scheduledWithin: {
+          startUtc: '2026-09-19T16:00:00.000Z',
+          endUtc: '2026-09-20T16:00:00.000Z',
+        },
       });
       expect(found.map((i) => i.title)).toEqual(['区间内']);
     });
 
-    it('list 的区间是左闭右开', async () => {
+    it('list 的区间右端点是排除的', async () => {
       await repo.create('todo', {
         kind: 'event',
         title: '恰在右端点',
         scheduled: { kind: 'timed', start: '2026-09-20T16:00:00.000Z' },
       });
       const found = await repo.list({
-        scheduledWithin: { startUtc: '2026-09-19T16:00:00.000Z', endUtc: '2026-09-20T16:00:00.000Z' },
+        scheduledWithin: {
+          startUtc: '2026-09-19T16:00:00.000Z',
+          endUtc: '2026-09-20T16:00:00.000Z',
+        },
       });
       expect(found).toHaveLength(0);
+    });
+
+    // 左端点必须单独测：只测右端点排除的话，实现把 >= 写成 > 也照样通过，
+    // 而那会让恰好排在本地零点的事项从"今天"里静默消失。
+    it('list 的区间左端点是包含的', async () => {
+      await repo.create('todo', {
+        kind: 'event',
+        title: '恰在左端点',
+        scheduled: { kind: 'timed', start: '2026-09-19T16:00:00.000Z' },
+      });
+      const found = await repo.list({
+        scheduledWithin: {
+          startUtc: '2026-09-19T16:00:00.000Z',
+          endUtc: '2026-09-20T16:00:00.000Z',
+        },
+      });
+      expect(found.map((i) => i.title)).toEqual(['恰在左端点']);
     });
 
     it('list 同时给出 scheduledWithin 与 scheduledOnDate 时取并集', async () => {
@@ -1261,7 +1313,10 @@ export function runItemRepositoryContract(
       });
 
       const found = await repo.list({
-        scheduledWithin: { startUtc: '2026-09-19T16:00:00.000Z', endUtc: '2026-09-20T16:00:00.000Z' },
+        scheduledWithin: {
+          startUtc: '2026-09-19T16:00:00.000Z',
+          endUtc: '2026-09-20T16:00:00.000Z',
+        },
         scheduledOnDate: '2026-09-20',
       });
       expect(found.map((i) => i.title).sort()).toEqual(['全天', '定时']);
@@ -1277,8 +1332,16 @@ export function runItemRepositoryContract(
     });
 
     it('list 按 dueBefore 过滤，用于逾期摘要', async () => {
-      await repo.create('todo', { kind: 'task', title: '已逾期', dueAt: '2026-09-01T00:00:00.000Z' });
-      await repo.create('todo', { kind: 'task', title: '未逾期', dueAt: '2026-12-01T00:00:00.000Z' });
+      await repo.create('todo', {
+        kind: 'task',
+        title: '已逾期',
+        dueAt: '2026-09-01T00:00:00.000Z',
+      });
+      await repo.create('todo', {
+        kind: 'task',
+        title: '未逾期',
+        dueAt: '2026-12-01T00:00:00.000Z',
+      });
 
       const found = await repo.list({ dueBefore: '2026-09-20T00:00:00.000Z' });
       expect(found.map((i) => i.title)).toEqual(['已逾期']);
@@ -1345,11 +1408,17 @@ ItemRepository 的行为契约独立成套件，所有实现须原样通过（sp
 ## Task 6: data — items 表、迁移与迁移测试
 
 **Files:**
+
 - Create: `packages/data/package.json`, `packages/data/drizzle.config.ts`, `packages/data/src/schema.ts`, `packages/data/src/db.ts`, `packages/data/src/db.test.ts`, `packages/data/src/index.ts`
 - Generated: `packages/data/migrations/*.sql`
 
 **Interfaces:**
-- Consumes: core 的类型（仅类型，运行期不依赖）
+
+- Consumes: core 的类型，以及 `ITEM_KINDS` / `ITEM_STATUSES` / `IMPORTANCES` 三个**运行期常量数组**
+  —— drizzle 的 `text(col, { enum })` 需要真实数组值，这是刻意的：数据库枚举与领域类型共用
+  同一真相来源，改一处两边同步。依赖方向 data → core，合规。
+  因此 `packages/data/package.json` 必须声明 `@workbench/core` / `drizzle-orm` / `better-sqlite3`
+  为自身依赖（与 `packages/core` 声明 `luxon` 同一模式），不得依赖 workspace 提升。
 - Produces:
   - `items`（drizzle 表对象）
   - `type Db = BetterSQLite3Database<typeof schema>`
@@ -1527,7 +1596,9 @@ describe('core 迁移', () => {
 
   it('items 表的默认值生效', () => {
     const { db, sqlite } = openTestDatabase();
-    db.insert(items).values({ id: 'x1', kind: 'task', title: '默认值', sourceModule: 'todo' }).run();
+    db.insert(items)
+      .values({ id: 'x1', kind: 'task', title: '默认值', sourceModule: 'todo' })
+      .run();
     const row = db.select().from(items).all()[0]!;
     expect(row.status).toBe('todo');
     expect(row.importance).toBe('normal');
@@ -1561,12 +1632,7 @@ npx vitest run packages/data/src/db.test.ts
 ```ts
 export { items } from './schema.js';
 export type { Db } from './db.js';
-export {
-  openDatabase,
-  openTestDatabase,
-  runCoreMigrations,
-  runMigrationsFrom,
-} from './db.js';
+export { openDatabase, openTestDatabase, runCoreMigrations, runMigrationsFrom } from './db.js';
 export { SqliteItemRepository } from './item-repository.js';
 ```
 
@@ -1592,10 +1658,12 @@ git commit -m "feat(data): items 表、迁移与迁移测试
 实现 core 定义的接口，并用 Task 5 的契约套件验证 LSP。
 
 **Files:**
+
 - Create: `packages/data/src/item-repository.ts`, `packages/data/src/item-repository.test.ts`
 - Modify: `packages/data/src/index.ts`（放开 Task 6 Step 8 注释掉的那行）
 
 **Interfaces:**
+
 - Consumes: `ItemRepository` / `CreateItemInput` / `UpdateItemPatch` / `ListItemsQuery` / `Item` / `ScheduledTime`（core）；`items` / `Db`（Task 6）；`runItemRepositoryContract`（Task 5）
 - Produces: `class SqliteItemRepository implements ItemRepository`，构造签名 `new SqliteItemRepository(db: Db)`
 
@@ -1826,7 +1894,7 @@ export class SqliteItemRepository implements ItemRepository {
 npx vitest run packages/data/src/item-repository.test.ts
 ```
 
-预期：PASS，契约套件 13 项 + 存储细节 1 项全绿。
+预期：PASS，契约套件 14 项 + 存储细节 1 项全绿。
 
 - [ ] **Step 5: 放开 index 导出并跑全量门禁**
 
@@ -1850,9 +1918,11 @@ ScheduledTime 双向映射用 switch 穷尽两分支；全天排程在 SQL 层�
 ## Task 8: server — Fastify 装配与模块注册表
 
 **Files:**
+
 - Create: `packages/server/package.json`, `packages/server/src/registry.ts`, `packages/server/src/app.ts`, `packages/server/src/app.test.ts`, `packages/server/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: `ServerModuleDefinition` / `ModuleContext` / `ItemRepository`（core）；`openDatabase` / `openTestDatabase` / `runCoreMigrations` / `runMigrationsFrom` / `SqliteItemRepository`（data）
 - Produces:
   - `buildApp(opts: { db: Db; modules: ServerModuleDefinition[] }): Promise<FastifyInstance>`
@@ -1913,7 +1983,10 @@ describe('buildApp', () => {
   it('为每个模块调用 registerRoutes，并传入以自身 id 构造的 ModuleContext', async () => {
     const { db } = openTestDatabase();
     const calls: string[] = [];
-    const app = await buildApp({ db, modules: [fakeModule('alpha', calls), fakeModule('beta', calls)] });
+    const app = await buildApp({
+      db,
+      modules: [fakeModule('alpha', calls), fakeModule('beta', calls)],
+    });
 
     expect(calls).toEqual(['alpha:alpha', 'beta:beta']);
 
@@ -2071,9 +2144,11 @@ git commit -m "feat(server): Fastify 装配与模块注册表
 第一个真正的模块。注意它**不 import `@workbench/data`** —— 只经 `ModuleContext` 触达 core。
 
 **Files:**
+
 - Create: `modules/todo/package.json`, `modules/todo/src/contract.ts`, `modules/todo/src/contract.test.ts`, `modules/todo/src/server/service.ts`, `modules/todo/src/server/service.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ModuleContext`、`deriveUrgency`、`priorityScore`、`localDayRange`、`localDayOf`、`endOfLocalDayUtc`、`nowIso`、`Item`
 - Produces:
   - `TODO_MODULE_ID = 'todo'`
@@ -2227,7 +2302,11 @@ describe('createTask', () => {
   });
 
   it('创建的任务默认排在今天', async () => {
-    const task = await createTask(ctx, { title: '写周报', importance: 'normal', dueDate: null }, { zone: SH, now: NOW });
+    const task = await createTask(
+      ctx,
+      { title: '写周报', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
     const today = await listToday(ctx, { zone: SH, now: NOW });
     expect(today.tasks.map((t) => t.id)).toContain(task.id);
   });
@@ -2242,7 +2321,11 @@ describe('createTask', () => {
   });
 
   it('无 dueDate 时 urgency 为 none（spec §7.4）', async () => {
-    const task = await createTask(ctx, { title: '无死线', importance: 'high', dueDate: null }, { zone: SH, now: NOW });
+    const task = await createTask(
+      ctx,
+      { title: '无死线', importance: 'high', dueDate: null },
+      { zone: SH, now: NOW },
+    );
     expect(task.urgency).toBe('none');
   });
 });
@@ -2260,9 +2343,21 @@ describe('listToday', () => {
   });
 
   it('按 priorityScore 降序排列', async () => {
-    await createTask(ctx, { title: '低', importance: 'low', dueDate: null }, { zone: SH, now: NOW });
-    await createTask(ctx, { title: '高', importance: 'high', dueDate: null }, { zone: SH, now: NOW });
-    await createTask(ctx, { title: '中', importance: 'normal', dueDate: null }, { zone: SH, now: NOW });
+    await createTask(
+      ctx,
+      { title: '低', importance: 'low', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    await createTask(
+      ctx,
+      { title: '高', importance: 'high', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    await createTask(
+      ctx,
+      { title: '中', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
 
     const today = await listToday(ctx, { zone: SH, now: NOW });
     expect(today.tasks.map((t) => t.title)).toEqual(['高', '中', '低']);
@@ -2294,7 +2389,11 @@ describe('listToday', () => {
 describe('completeTask', () => {
   it('把状态置为 done 并写入 completedAt', async () => {
     const ctx = makeCtx();
-    const task = await createTask(ctx, { title: '做完它', importance: 'normal', dueDate: null }, { zone: SH, now: NOW });
+    const task = await createTask(
+      ctx,
+      { title: '做完它', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
     const done = await completeTask(ctx, task.id, { zone: SH, now: NOW });
     expect(done.status).toBe('done');
 
@@ -2448,7 +2547,7 @@ npx vitest run modules/todo/src/server/service.test.ts
 npm run lint
 ```
 
-预期：PASS。若 `service.ts` 里不慎写了 `import ... from '@workbench/data'`，lint 会报"违反 spec §4.2 铁律 3"。测试文件 import data 是允许的（要造真实的 `:memory:` 库），Task 1 Step 6 的测试文件段落已把该规则关掉。
+预期：PASS。若 `service.ts` 里不慎写了 `import ... from '@workbench/data'`，lint 会报"违反 spec §4.3"。测试文件 import data 是允许的（要造真实的 `:memory:` 库），Task 1 Step 6 的测试文件段落已把该规则关掉。
 
 - [ ] **Step 10: 全量门禁 + 提交**
 
@@ -2465,10 +2564,12 @@ git commit -m "feat(todo): Zod 契约与 service 层
 ## Task 10: modules/todo — HTTP 路由并接入 server
 
 **Files:**
+
 - Create: `modules/todo/src/server/routes.ts`, `modules/todo/src/server/routes.test.ts`, `modules/todo/src/server/index.ts`
 - Modify: `packages/server/src/index.ts`
 
 **Interfaces:**
+
 - Consumes: Task 9 的 service 与 contract；`ServerModuleDefinition`、`ModuleContext`
 - Produces:
   - `todoServerModule: ServerModuleDefinition`
@@ -2694,9 +2795,11 @@ todo 作为真正的模块注册，而非硬编码进 server（spec §14.1 隐�
 ## Task 11: web — React 外壳
 
 **Files:**
+
 - Create: `packages/web/package.json`, `packages/web/vite.config.ts`, `packages/web/index.html`, `packages/web/src/main.tsx`, `packages/web/src/App.tsx`, `packages/web/src/modules.ts`, `packages/web/src/index.css`
 
 **Interfaces:**
+
 - Consumes: `UiModuleDefinition`（core）
 - Produces: 可运行的 Vite 开发服务器（默认 5173），`/api` 代理到 `127.0.0.1:3000`；导航由 `uiModules` 驱动
 
@@ -2793,7 +2896,9 @@ import { uiModules } from './modules';
 
 export function App() {
   const navEntries = uiModules.flatMap((m) => m.nav);
-  const firstPath = navEntries[0]?.path ?? '/today';
+  // 首页重定向到「第一个模块的第一个导航项」。注册表为空时不注册这条重定向——
+  // 外壳不得对任何具体模块的 URL 命名做假设，哪怕只是一个兜底默认值。
+  const firstPath = navEntries[0]?.path;
 
   return (
     <div className="min-h-screen bg-stone-50 text-stone-900">
@@ -2816,7 +2921,9 @@ export function App() {
 
       <main className="mx-auto max-w-3xl px-6 py-8">
         <Routes>
-          <Route path="/" element={<Navigate to={firstPath} replace />} />
+          {firstPath !== undefined && (
+            <Route path="/" element={<Navigate to={firstPath} replace />} />
+          )}
           {uiModules.flatMap((m) =>
             m.routes.map((r) => (
               <Route key={r.path} path={r.path} element={r.element as ReactNode} />
@@ -2880,10 +2987,12 @@ git commit -m "feat(web): React 外壳、Tailwind v4 与前端模块注册表
 ## Task 12: modules/todo — 今日工作台页面
 
 **Files:**
+
 - Create: `modules/todo/src/ui/api.ts`, `modules/todo/src/ui/TodayPage.tsx`, `modules/todo/src/ui/index.tsx`
 - Modify: `packages/web/src/modules.ts`（把 Task 11 的空数组换成含 todoUiModule 的版本）
 
 **Interfaces:**
+
 - Consumes: `TodayResponse` / `TaskView` / `createTaskInputSchema`（`@workbench/module-todo/contract`）；`UiModuleDefinition`（core）
 - Produces: `todoUiModule: UiModuleDefinition`，挂载路径 `/today`
 
@@ -2915,7 +3024,9 @@ export async function fetchToday(): Promise<TodayResponse> {
   return todayResponseSchema.parse(await request('/api/todo/today'));
 }
 
-export async function postTask(input: Pick<CreateTaskInput, 'title' | 'importance' | 'dueDate'>): Promise<TaskView> {
+export async function postTask(
+  input: Pick<CreateTaskInput, 'title' | 'importance' | 'dueDate'>,
+): Promise<TaskView> {
   return taskViewSchema.parse(
     await request('/api/todo/tasks', { method: 'POST', body: JSON.stringify(input) }),
   );
@@ -2959,11 +3070,7 @@ function TaskRow({ task, onComplete }: { task: TaskView; onComplete: (id: string
         <span className="rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800">重要</span>
       )}
       <span
-        className={
-          task.urgency === 'overdue'
-            ? 'text-xs text-red-700'
-            : 'text-xs text-stone-500'
-        }
+        className={task.urgency === 'overdue' ? 'text-xs text-red-700' : 'text-xs text-stone-500'}
       >
         {URGENCY_LABEL[task.urgency]}
       </span>
@@ -3133,9 +3240,11 @@ git commit -m "feat(todo): 今日工作台页面
 把本次设计中"以后会忘记为什么"的部分固化。spec §13.4 要求这五条，是验收标准 7。
 
 **Files:**
+
 - Create: `docs/adr/0001-local-first-architecture.md` … `docs/adr/0005-module-boundaries.md`
 
 **Interfaces:**
+
 - Consumes: 无
 - Produces: 无代码接口
 
@@ -3187,6 +3296,7 @@ git commit -m "feat(todo): 今日工作台页面
 今日工作台。需要一种既支持自动联动、又允许每个模块有自己专属字段的数据模型。
 
 候选方案：
+
 1. 每个模块完全独立建表，互不相干
 2. 统一 Item 表 + 模块扩展表，扩展表以 item_id 指向 core
 3. 统一 Item 表 + EAV（万能键值表）承载模块字段
@@ -3311,9 +3421,16 @@ git commit -m "feat(todo): 今日工作台页面
 2. core 永不感知模块
 3. 模块自带迁移与注册项；删模块 = 删一个目录 + 删一行注册
 
-三条均由 `eslint.config.js` 的 `no-restricted-imports` 规则实现，
-违反即 CI 失败。同时 `ModuleContext` 在接口层面就不暴露数据库句柄，
-使铁律 3 在类型层面即不可违反。
+铁律 1 与铁律 2 由 `eslint.config.js` 的三条 `no-restricted-imports` 规则强制
+（§4.3 的强制表），违反即 CI 失败。同时 `ModuleContext` 在接口层面就不暴露数据库句柄，
+使铁律 1「模块只能依赖 core」在类型层面即不可违反 —— 模块拿不到数据层的句柄，
+不是因为它不该用，而是因为它根本够不着。
+
+**铁律 3 没有、也不可能有对应的 lint 规则。** 它不是一条 import 约束，而是一个结构性质：
+由 `ServerModuleDefinition.migrations` 字段与注册表的形状保证 —— 模块把自己的迁移带在
+定义里，注册表逐个执行。这一条靠的是结构，不是 CI。若将来有人把某个模块的迁移搬进
+core 的集中目录，没有任何自动检查会拦住他，而模块的自包含性就此丢失。**这是三条铁律里
+唯一需要人来守的一条。**
 
 `ModuleDefinition` 拆分为 `ServerModuleDefinition` 与 `UiModuleDefinition`
 两个接口，避免 web 打包时把 Fastify 拉进浏览器产物，同时符合接口隔离原则。
@@ -3344,10 +3461,12 @@ git commit -m "docs(adr): 记录 0001-0005 五条架构决策
 ## Task 14: 验收、README 与合并
 
 **Files:**
+
 - Create: `README.md`
 - Modify: 无
 
 **Interfaces:**
+
 - Consumes: 前 13 个任务的全部产出
 - Produces: 无
 
@@ -3360,15 +3479,15 @@ rm -rf data/local
 npm run dev
 ```
 
-| # | 标准 | 怎么验 |
-|---|---|---|
-| 1 | 浏览器看到今日工作台 | 打开 `http://localhost:5173`，看到"今日工作台 · <日期>" |
-| 2 | 可创建任务（title + importance + due_at） | 表单三个字段都能填，提交成功 |
-| 3 | 存入 SQLite，重启后仍在 | Ctrl+C，重新 `npm run dev`，刷新页面，任务仍在 |
-| 4 | 按 priorityScore 排序，逾期有标记 | 重要的排前面；逾期项在顶部红色摘要里 |
-| 5 | 可勾选完成 | 勾选后从列表消失 |
-| 6 | CI 全绿 | `npm run check` 四步全过 |
-| 7 | ADR 0001–0005 齐全 | `ls docs/adr` 有五个文件 |
+| #   | 标准                                      | 怎么验                                                  |
+| --- | ----------------------------------------- | ------------------------------------------------------- |
+| 1   | 浏览器看到今日工作台                      | 打开 `http://localhost:5173`，看到"今日工作台 · <日期>" |
+| 2   | 可创建任务（title + importance + due_at） | 表单三个字段都能填，提交成功                            |
+| 3   | 存入 SQLite，重启后仍在                   | Ctrl+C，重新 `npm run dev`，刷新页面，任务仍在          |
+| 4   | 按 priorityScore 排序，逾期有标记         | 重要的排前面；逾期项在顶部红色摘要里                    |
+| 5   | 可勾选完成                                | 勾选后从列表消失                                        |
+| 6   | CI 全绿                                   | `npm run check` 四步全过                                |
+| 7   | ADR 0001–0005 齐全                        | `ls docs/adr` 有五个文件                                |
 
 任何一条不过，回到对应 Task 修复后再继续。
 
@@ -3386,11 +3505,11 @@ import '@workbench/data';
 npm run lint
 ```
 
-预期：FAIL，报"违反 spec §4.2 铁律 3"。确认后删除该行。
+预期：FAIL，报"违反 spec §4.3"。确认后删除该行。
 
 - [ ] **Step 3: 写 `README.md`**
 
-```markdown
+````markdown
 # 个人工作台
 
 本地优先的个人工作台。当前处于迭代 1（Walking Skeleton），已实现今日工作台的
@@ -3402,6 +3521,7 @@ npm run lint
 npm install
 npm run dev
 ```
+````
 
 打开 http://localhost:5173
 
@@ -3409,11 +3529,11 @@ npm run dev
 
 ## 常用命令
 
-| 命令 | 作用 |
-|---|---|
-| `npm run dev` | 同时启动后端与前端 |
-| `npm run check` | 格式 + 类型 + lint + 测试（提交前跑这个） |
-| `npm run test` | 只跑测试 |
+| 命令                  | 作用                                          |
+| --------------------- | --------------------------------------------- |
+| `npm run dev`         | 同时启动后端与前端                            |
+| `npm run check`       | 格式 + 类型 + lint + 测试（提交前跑这个）     |
+| `npm run test`        | 只跑测试                                      |
 | `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移 |
 
 ## 数据在哪
@@ -3430,22 +3550,32 @@ npm run dev
 1. 在 `modules/<name>/` 建目录，参照 `modules/todo/` 的结构
 2. 在 `packages/server/src/index.ts` 的 modules 数组加一项
 3. 在 `packages/web/src/modules.ts` 的 uiModules 数组加一项
+4. 在该模块的 `package.json` 里声明它自己的依赖：本地工作区包写 `"*"`，
+   安装用 `npm install <pkg> -w <workspace>`；运行期真正 import 的进 `dependencies`，
+   仅测试或仅类型用途的进 `devDependencies`。见
+   `docs/adr/0006-workspace-dependency-declaration.md`
+5. 模块自己的迁移放在自己目录下、写进 `ServerModuleDefinition.migrations`，
+   **不要放进 core 的集中目录**
 
-三条铁律由 ESLint 强制，违反会在 `npm run lint` 时报错：
+三条铁律里，**前两条由 ESLint 强制**，违反会在 `npm run lint` 时报错：
 
-- 模块之间零依赖
-- core 不感知模块
-- 模块不得直连数据层，只能经 ModuleContext
+- **模块只能依赖 core，模块之间零依赖** —— import 别的模块或直连 `@workbench/data` 会被拦
+- **core 永不感知模块** —— 在 core 里 import 任何外层都会被拦
+
+第三条 **模块自带迁移与注册项** 没有任何自动检查，只能靠人守。把某个模块的迁移
+搬进 core 的集中目录，lint 和 CI 都不会报错，但「删模块 = 删一个目录 + 删一行注册」
+这个承诺就此失效。详见 `docs/adr/0005-module-boundaries.md`。
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着
 某个 core 的假设错了，值得记一条新的 ADR。
-```
+
+````
 
 - [ ] **Step 4: 最终门禁**
 
 ```bash
 npm run check
-```
+````
 
 预期：四步全绿。
 
