@@ -37,7 +37,9 @@ packages/web      React 外壳、导航、主题
 modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
 ```
 
-依赖箭头**恒指向内层**：`data → core`，`server → core/data`，`modules → core`（且只经 `ModuleContext`）。core 定义 `ItemRepository` 接口，data 提供实现（DIP）。
+项目内依赖箭头**恒指向内层**：`data → core`，`server → core/data`，`modules → core`。
+模块可依赖 React、Zod、Drizzle 等外部库，但不得依赖其他模块或 `@workbench/data`。
+core 定义 `ItemRepository` 接口，data 提供实现（DIP）。
 
 ### 三条铁律
 
@@ -58,13 +60,19 @@ modules/*         全栈垂直切片：每个模块含自己的表、迁移、AP
 
 `ModuleDefinition` **刻意拆成 `ServerModuleDefinition` 与 `UiModuleDefinition` 两个接口**——合并会让 web 打包时把 Fastify 拉进浏览器产物，拆分同时也是 ISP 的正确应用。
 
-模块拿不到数据库句柄，只拿到受限的 `ModuleContext`（仅 `moduleId` + `items`）。「模块不得直连数据层」因此在接口层面就不可违反，lint 是第二道防线而非第一道。
+模块的 service/routes 拿不到数据库句柄，只拿到受限的 `ModuleContext`（仅 `moduleId` +
+`items`）与模块自有 Repository。需要自有表时，模块在 storage 目录实现 Repository 的
+SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连接。该适配器不得 import
+`@workbench/data`，连接不得继续向业务代码扩散。详见 ADR-0008。
 
 `registerRoutes(app: unknown)` 与 `UiRoute.element: unknown` 里的 `unknown` 是**刻意的**：core 不得依赖 Fastify 或 React，类型断言在各自消费侧完成。不要「改进」成具体类型。
 
 ### 模块如何扩展数据
 
 模块自建表，以 `item_id` **指向** core 的 `items` 表。外键方向恒为**模块 → core**；core 的建表语句里不存在任何模块名称。表名前缀 = `moduleId` 把连字符换成下划线再加 `_`（`campus-recruit` → `campus_recruit_`）。
+
+模块自有表的 Drizzle schema、迁移、Repository 接口与 SQLite 实现全部放在模块目录内。
+`packages/data` 不得出现任何模块表或模块 Repository。
 
 已否决 EAV（万能键值表）：同时牺牲类型安全与查询性能。
 

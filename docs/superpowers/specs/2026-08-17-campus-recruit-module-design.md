@@ -24,6 +24,8 @@
 | 当前状态   | **派生，不存储**                                | 已确认 |
 | 泡池子阈值 | **90 天**                                       | 已确认 |
 | 优先级映射 | S/A → high，B → normal，C → low                 | 已确认 |
+| 存储边界   | 模块自有 Repository；SQLite 适配器由组合根注入  | 已确认 |
+| 投影一致性 | 模块表为真相；即时同步 + 启动时幂等对账         | 已确认 |
 
 ## 3. 核心张力与方案选择
 
@@ -41,6 +43,26 @@
 
 **给 core 增加"长期实体"概念** —— 这是改 core 去适配模块，恰是 ADR-0002 判定为"假设错了"的信号。一个模块有需求不构成证据。
 
+### 存储能力：模块自有 Repository + 组合根注入
+
+设计复核时发现，现有 `ModuleContext` 只有 `moduleId + items`：模块迁移能建出自有表，
+但业务代码没有读写这些表的能力。把通用 `ModuleDatabase` 塞进 core 会迫使 core 定义一套
+数据库抽象；把秋招 Repository 放进 `packages/data` 又会让 data 感知具体模块，二者都破坏
+既有边界。
+
+采用以下分层：
+
+1. `CampusRecruitRepository` 接口归秋招模块所有，service/routes 只依赖该接口。
+2. 模块内的 SQLite 适配器定义自有 Drizzle schema，并只通过该 schema 访问
+   `campus_recruit_` 前缀表。
+3. `packages/server/src/index.ts` 作为组合根，把已打开的 SQLite 连接交给适配器，再以
+   `createCampusRecruitServerModule(repository)` 注册模块。
+4. 生产模块仍不得 import `@workbench/data`；`ModuleContext` 保持最小，不增加数据库句柄。
+
+SQLite 适配器是模块内唯一可信的数据基础设施边界。它物理上持有共享连接，因此“不能用
+裸 SQL 越界访问其他表”无法完全由类型系统证明；约束方式是让连接不再向 service/routes
+扩散，并由 lint 将 Drizzle/SQLite 依赖限制在模块的 storage 目录。该取舍记入 ADR-0008。
+
 ## 4. 数据模型
 
 ### 4.1 `campus_recruit_applications`
@@ -53,7 +75,7 @@ channel            text                referral   text
 priority           text                S | A | B | C
 apply_deadline     text                网申截止（UTC instant）
 applied_at         text                投递日期（instant，null = 未投递）
-outcome            text                null | offer | oc | rejected | declined | shelved
+outcome            text                null | offer | oc | rejected | declined
 outcome_at         text
 salary             text                offer 后填，自由文本（"14k·15薪"）
 link               text                notes  text
@@ -68,6 +90,7 @@ created_at, updated_at
 ```
 id                 text pk
 application_id     text not null       → campus_recruit_applications.id
+sequence           integer not null    同一投递内从 1 递增，唯一
 kind               text not null       assessment | written | technical | hr | other
 name               text not null       自由文本："一面" / "交叉面" / "主管面"
 scheduled_at       text                instant，null = 知道有这轮但未约时间
@@ -81,6 +104,11 @@ created_at, updated_at
 ```
 
 **`kind` 与 `name` 分离**是统计得以成立的前提：任意多轮之后，"进入一面"无法靠名称判断（可能写作"技术一面""交叉面""主管面"）。`kind` 在用户选择常见轮次名时**自动带出默认值**，但它是**存储字段而非持续派生**——选定即固定，不存在"这个值是算的还是改的"的歧义。
+
+**`sequence` 是流程顺序的唯一依据**，并受 `unique(application_id, sequence)` 约束。
+新轮次默认取该投递当前最大序号 + 1；首版可在编辑轮次时调整序号，但不做拖拽。
+`scheduled_at` 只表达日历时间，不能承担流程顺序——后补录一面、或二面尚未约时间时，
+按时间排序都会失真。
 
 ### 4.3 表名前缀
 
@@ -103,7 +131,8 @@ created_at, updated_at
 
 **「已挂」的两个来源不会冲突**：标记某轮 `failed` 与将投递标为 `rejected` 都推出"已挂"，二者指向同一状态，因此不存在 Excel 那种"状态说 Offer、统计说仍在一面"的矛盾。前者额外提供**挂在哪一轮**的信息，而那正是统计所需。
 
-**「最新一轮」排序**：有时间的按时间降序，无时间的排最后。故"一面已过、二面未约时间"显示为"二面"。
+**「最新一轮」**取 `sequence` 最大的轮次。故“一面已过、二面未约时间”仍显示“二面”；
+补录较早轮次时也不会扰乱当前进度。
 
 **`SHELVED_DAYS = 90`**，定义为模块内的具名常量。泡池子采用派生而非手动标记，理由与 ADR-0003 的 urgency 一致：手动状态无人回头更新。
 
@@ -122,16 +151,39 @@ created_at, updated_at
 
 ### 6.2 联动行为
 
-| 动作                                     | Item 变化                                            |
-| ---------------------------------------- | ---------------------------------------------------- |
-| 填写投递日期                             | 截止任务标记 `done`                                  |
-| 某轮标记 `failed`，或投递标记 `rejected` | 该投递**所有未来的、未完成的** Item 标记 `cancelled` |
-| 投递标记 `declined`                      | 同上                                                 |
-| 某轮标记 `passed`                        | 该轮 Item 标记 `done`，不影响其他                    |
-| 删除某轮                                 | 删除其 Item                                          |
-| 删除整条投递                             | 级联删除全部轮次及其 Item                            |
+| 动作                | Item 变化                                                                      |
+| ------------------- | ------------------------------------------------------------------------------ |
+| 填写投递日期        | 截止任务标记 `done`                                                            |
+| 某轮标记 `failed`   | 该轮 Item 标记 `done`；`sequence` 更大的所有未来、未完成 Item 标记 `cancelled` |
+| 投递标记 `rejected` | 该投递所有未来、未完成的 Item 标记 `cancelled`                                 |
+| 投递标记 `declined` | 同上                                                                           |
+| 某轮标记 `passed`   | 该轮 Item 标记 `done`，不影响其他                                              |
+| 删除某轮            | 删除其 Item                                                                    |
+| 删除整条投递        | 级联删除全部轮次及其 Item                                                      |
 
-第二条是关键：**出局后日历上不应再挂着该公司的面试**，否则幽灵条目会迅速摧毁用户对日历的信任。使用 `cancelled` 而非删除，是因为记录本身要留作统计——挂在哪一轮是重要数据。
+失败轮次自身使用 `done`，因为面试已经发生，只是结果未通过；标为 `cancelled` 会错误表达成
+“面试没有发生”。后续尚未发生的轮次才使用 `cancelled`。出局后日历上不应继续挂着未来面试，
+否则幽灵条目会迅速摧毁用户对日历的信任。
+
+### 6.3 投影一致性与恢复
+
+模块表是领域真相，core Item 是可重建的时间轴投影。首版不为此重构 core 的异步 Repository
+事务边界，也不增加 Outbox 表；采用**即时同步 + 幂等对账**：
+
+1. 投递或轮次变更写入模块表后，立即调用 `reconcileProjections()`。
+2. 对每个应存在的截止任务或面试事件：关联 Item 存在且归属本模块时更新；不存在、已被删，
+   或错误指向其他模块时创建新的本模块 Item，并回写关联 ID。
+3. 收集所有仍被投递或轮次引用的 Item ID，再查询
+   `sourceModules: ['campus-recruit']`；未被引用的 Item 是孤儿投影，通过
+   `delete('campus-recruit', id)` 删除。
+4. 删除轮次或投递时先处理其投影，再删除领域记录；若进程在任一步中断，下一次全量对账
+   仍以尚存的领域真相恢复或清除投影。
+5. 模块注册、迁移完成后执行一次全量对账；每次业务变更后执行目标投递的局部对账。
+
+对账必须幂等：连续运行两次，不得重复创建 Item，也不得改变第二次运行前已经正确的状态。
+这同时覆盖“创建 Item 后、关联 ID 回写前进程退出”的窗口——旧 Item 会在孤儿扫描中被清除。
+强事务需要重构 core 与 SQLite 的异步边界；Outbox 则为本地单用户场景引入第三张协调表，
+两者都留到真实故障证明当前方案不足时再评估。
 
 ## 7. 架构发现：今日工作台是跨模块视图
 
@@ -147,7 +199,7 @@ created_at, updated_at
 
 第 3 条是关键：勾掉一条秋招的"网申截止"在语义上是"我投了"，属于秋招的动作而非"把 Item 标完成"。让 todo 的端点去改秋招的数据，恰会被 `sourceModule` 归属校验拦下（拦得正确）。正确做法是不提供勾选框，用户到秋招页面填写投递日期，截止任务自动消失。
 
-**不引入 `itemDecorators`**：只读显示已解决"看不见"的问题；深度跳转是锦上添花，留待真正需要时（spec §8.3 已注明其为纯增量）。
+**不引入 `itemDecorators`**：只读显示已解决"看不见"的问题；深度跳转是锦上添花，留待真正需要时（spec §8.4 已注明其为纯增量）。
 
 ## 8. 统计口径
 
@@ -191,10 +243,15 @@ modules/campus-recruit/
 └── src/
     ├── contract.ts       Zod schema，前后端共用
     ├── server/
-    │   ├── index.ts      campusRecruitServerModule
-    │   ├── service.ts    投递/轮次增删改 + 状态派生 + 投影联动
+    │   ├── index.ts      createCampusRecruitServerModule(repository)
+    │   ├── repository.ts CampusRecruitRepository 接口
+    │   ├── service.ts    投递/轮次增删改 + 状态派生
+    │   ├── projections.ts 幂等 Item 对账与联动
     │   ├── stats.ts      统计查询
     │   └── routes.ts
+    ├── storage/
+    │   ├── schema.ts     模块自有 Drizzle schema
+    │   └── sqlite-repository.ts 组合根注入连接的唯一存储适配器
     └── ui/
         ├── index.tsx     campusRecruitUiModule，挂载 /campus
         ├── ApplicationsPage.tsx
@@ -207,12 +264,13 @@ modules/campus-recruit/
 
 沿用既有分层，重点在两处纯逻辑：
 
-| 测什么         | 怎么测                                                                                                                      |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| **状态派生**   | 纯函数；8 条规则逐条覆盖 + 优先级顺序（同时有 offer 与 failed 轮时应为 Offer）+ 90 天边界                                   |
-| **统计口径**   | 纯函数；给定投递与轮次数组算出各指标，含除零                                                                                |
-| **投影联动**   | `:memory:` 真实库集成测试：填投递日期 → 截止 Item 变 `done`；标 `failed` → 未来 Item 变 `cancelled`；删投递 → Item 确已删除 |
-| **跨模块隔离** | ⭐ 秋招创建的 Item 带 `source_module='campus-recruit'`；秋招删不掉 todo 的 Item                                             |
+| 测什么         | 怎么测                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **状态派生**   | 纯函数；8 条规则逐条覆盖 + 优先级顺序（同时有 offer 与 failed 轮时应为 Offer）+ 90 天边界 + 最新轮次按 `sequence` 选择                                 |
+| **统计口径**   | 纯函数；给定投递与轮次数组算出各指标，含除零                                                                                                           |
+| **投影联动**   | `:memory:` 真实库集成测试：填投递日期 → 截止 Item 变 `done`；标 `failed` → 本轮 `done`、更大 `sequence` 的未来轮次 `cancelled`；删投递 → Item 确已删除 |
+| **投影恢复**   | 对账连续跑两次不重复；缺失 Item 会补建；无引用的 campus Item 会删除；错误指向 todo Item 时不得更新或删除 todo Item                                     |
+| **跨模块隔离** | ⭐ 秋招创建的 Item 带 `source_module='campus-recruit'`；秋招删不掉 todo 的 Item                                                                        |
 
 最后一项是本迭代最有价值的测试：它首次以**两个真实模块**实证边界，而非依靠单模块加 lint 规则推断。
 

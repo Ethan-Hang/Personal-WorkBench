@@ -165,7 +165,9 @@ campus_recruit_events
   id, application_id, item_id → items.id, event_type
 ```
 
-**表名前缀规则**：模块表前缀由 `moduleId` 将连字符替换为下划线后加 `_` 得到。`campus-recruit` → 前缀 `campus_recruit_`。`ModuleDatabase` 按此规则做访问校验（见 §8.2）。
+**表名前缀规则**：模块表前缀由 `moduleId` 将连字符替换为下划线后加 `_` 得到。
+`campus-recruit` → 前缀 `campus_recruit_`。模块 storage 适配器的 schema 与迁移只能声明
+此前缀的表（见 §8.3）。
 
 外键方向恒为**模块 → core**；core 的建表语句中不存在任何模块名称。这不是约定，是物理保证。
 
@@ -301,21 +303,30 @@ export interface ModuleDefinition {
 
 ### 8.2 ModuleContext（受限能力）
 
-模块拿不到数据库句柄，只拿到受限上下文：
+模块的 service/routes 拿不到数据库句柄，只拿到受限上下文：
 
 ```ts
 interface ModuleContext {
   moduleId: string;
   items: ItemRepository; // 读写 core Item，自动打上 source_module
-  goals: GoalRepository;
-  tags: TagRepository;
-  db: ModuleDatabase; // 仅可访问模块自身前缀的表（前缀规则见 §5.4）
 }
 ```
 
-`db` 被限制在自身表前缀内，使"模块间零依赖"在接口层面即不可违反。
+需要自有表的模块在模块内定义领域 Repository 接口与存储适配器。组合根把共享 SQLite
+连接交给该适配器，再把 Repository 注入模块工厂；连接不进入 `ModuleContext`，也不向
+service/routes 扩散。详见 §8.3 与 ADR-0008。
 
-### 8.3 刻意未纳入的能力
+### 8.3 模块自有数据的存储边界
+
+模块的表、Drizzle schema、迁移、Repository 接口与 SQLite 实现全部留在模块目录内。
+生产模块不得 import `@workbench/data`；SQLite 适配器只依赖外部驱动/ORM，并由
+`packages/server/src/index.ts` 在组合根注入已打开的连接。
+
+这保住三条性质：core 不感知模块，data 不感知模块，删除模块时不遗留领域实现。
+代价是 SQLite 适配器成为可信基础设施边界：它物理上持有共享连接，命名空间隔离无法完全
+由类型系统证明。因此连接只能出现在 storage 目录，业务代码只依赖模块自有 Repository。
+
+### 8.4 刻意未纳入的能力
 
 | 未纳入                                     | 理由                                    | 将来加入是否安全               |
 | ------------------------------------------ | --------------------------------------- | ------------------------------ |
@@ -324,7 +335,7 @@ interface ModuleContext {
 
 接口能保持最小本身即是设计成立的信号：core 的 Item 模型足够抽象，模块无需大量钩子即可接入。
 
-### 8.4 重复规则（习惯模块）的归属
+### 8.5 重复规则（习惯模块）的归属
 
 **不在 core Item 上增加 `recurrence` 字段。**
 
@@ -338,13 +349,13 @@ interface ModuleContext {
 
 SOLID 在此不是口号，而是已内建于上述设计中。下表把每条原则落到具体形态与**可验证信号**：
 
-| 原则           | 本项目中的具体形态                                                                                                | 可验证信号                                                                  |
-| -------------- | ----------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| **S** 单一职责 | core / data / server / web 四层分工；一个模块一个领域；`ScheduledTime` 只负责时间表示                             | 文件显著变大即为职责膨胀警报；模块目录中出现其他领域的名词                  |
-| **O** 开闭     | ⭐ `ModuleDefinition` 注册机制。对扩展开放（加模块），对修改关闭（不动 core）                                     | **加第 N 个模块的 diff 中，`packages/core/` 改动应为 0 行**                 |
-| **L** 里氏替换 | `ScheduledTime` 的所有消费者必须正确处理两个分支；`ItemRepository` 的任何实现（SQLite 版 / 将来的同步版）行为一致 | 禁止 `if (kind === 'all-day') throw`；Repository 用同一套契约测试跑所有实现 |
-| **I** 接口隔离 | `ModuleContext` 只暴露 items / goals / tags 与自身命名空间的 db，拿不到全局句柄或他模块数据                       | 模块代码中出现对 `packages/data` 的直接 import 即违规（lint 拦截）          |
-| **D** 依赖倒置 | core 定义 `ItemRepository` 接口，data 提供实现；依赖方向恒为 data → core                                          | lint 规则：core 不得 import data。这正是"core 零 IO 依赖"得以成立的机制     |
+| 原则           | 本项目中的具体形态                                                                                                | 可验证信号                                                                    |
+| -------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **S** 单一职责 | core / data / server / web 四层分工；一个模块一个领域；`ScheduledTime` 只负责时间表示                             | 文件显著变大即为职责膨胀警报；模块目录中出现其他领域的名词                    |
+| **O** 开闭     | ⭐ `ModuleDefinition` 注册机制。对扩展开放（加模块），对修改关闭（不动 core）                                     | **加第 N 个模块的 diff 中，`packages/core/` 改动应为 0 行**                   |
+| **L** 里氏替换 | `ScheduledTime` 的所有消费者必须正确处理两个分支；`ItemRepository` 的任何实现（SQLite 版 / 将来的同步版）行为一致 | 禁止 `if (kind === 'all-day') throw`；Repository 用同一套契约测试跑所有实现   |
+| **I** 接口隔离 | service/routes 只拿 `ModuleContext` 与模块自有 Repository；共享 SQLite 连接只进入 storage 适配器                  | 模块 import `@workbench/data` 即违规；SQLite/Drizzle 依赖只允许出现在 storage |
+| **D** 依赖倒置 | core 定义 `ItemRepository` 接口，data 提供实现；依赖方向恒为 data → core                                          | lint 规则：core 不得 import data。这正是"core 零 IO 依赖"得以成立的机制       |
 
 ### 9.1 SOLID 的裁剪（重要）
 
@@ -535,7 +546,7 @@ React → TanStack Query → Fastify → Zod 校验 → 模块 service
 | Electron / Tauri 打包       | 想要"双击即开"时；不影响业务代码 |
 | Playwright 端到端           | 页面达 3 个以上                  |
 | `itemDecorators` 等模块钩子 | 真正需要时；纯增量               |
-| core 上的 recurrence 字段   | 永不（归模块所有，见 §8.4）      |
+| core 上的 recurrence 字段   | 永不（归模块所有，见 §8.5）      |
 | 手动 urgency override       | 实际使用中确实碰到"无死线但紧急" |
 | 每记录时区（`tz` 列）       | 有跨时区使用需求时               |
 
