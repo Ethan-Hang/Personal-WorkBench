@@ -1,6 +1,12 @@
 import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router';
 import type { ReactNode } from 'react';
-import { ModuleLabelProvider, ThemeProvider, AppShell, type ShellNavGroup } from '@workbench/ui';
+import {
+  ModuleLabelProvider,
+  ThemeProvider,
+  TimezoneProvider,
+  AppShell,
+  type ShellNavGroup,
+} from '@workbench/ui';
 import { uiModules } from './modules.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
@@ -37,27 +43,29 @@ export function App() {
 
   return (
     <ThemeProvider defaultMode="system" defaultPalette="warm">
-      <ModuleLabelProvider labels={MODULE_LABELS}>
-        <AppShell
-          navGroups={navGroups}
-          activePath={location.pathname}
-          LinkComponent={NavLink}
-          dbStatus="本地 SQLite 已就绪 · 零延迟"
-        >
-          <Routes>
-            {firstPath !== undefined && (
-              <Route path="/" element={<Navigate to={firstPath} replace />} />
-            )}
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            {uiModules.flatMap((m) =>
-              m.routes.map((r) => (
-                <Route key={r.path} path={r.path} element={r.element as ReactNode} />
-              )),
-            )}
-          </Routes>
-        </AppShell>
-      </ModuleLabelProvider>
+      <TimezoneProvider>
+        <ModuleLabelProvider labels={MODULE_LABELS}>
+          <AppShell
+            navGroups={navGroups}
+            activePath={location.pathname}
+            LinkComponent={NavLink}
+            dbStatus="本地 SQLite 已就绪 · 零延迟"
+          >
+            <Routes>
+              {firstPath !== undefined && (
+                <Route path="/" element={<Navigate to={firstPath} replace />} />
+              )}
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/about" element={<AboutPage />} />
+              {uiModules.flatMap((m) =>
+                m.routes.map((r) => (
+                  <Route key={r.path} path={r.path} element={r.element as ReactNode} />
+                )),
+              )}
+            </Routes>
+          </AppShell>
+        </ModuleLabelProvider>
+      </TimezoneProvider>
     </ThemeProvider>
   );
 }

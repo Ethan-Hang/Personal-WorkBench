@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { fetchToday, fetchUnscheduled, patchSchedule } from './api.js';
+import { fetchToday, fetchUnscheduled, fetchCalendar, patchSchedule } from './api.js';
 
 type CapturedCall = { url: string; init: RequestInit | undefined };
 
@@ -83,7 +83,32 @@ describe('workbench ui api', () => {
     expect(data.items).toHaveLength(1);
   });
 
-  it('patchSchedule 发送带有 Content-Type 的 PATCH 请求', async () => {
+  it('fetchCalendar 请求 /api/workbench/calendar?from=...&to=...', async () => {
+    globalThis.fetch = ((url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            from: '2026-08-18',
+            to: '2026-08-24',
+            zone: 'Asia/Taipei',
+            items: [mockItem],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      );
+    }) as typeof globalThis.fetch;
+
+    const data = await fetchCalendar('2026-08-18', '2026-08-24');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('/api/workbench/calendar?from=2026-08-18&to=2026-08-24');
+    expect(data.from).toBe('2026-08-18');
+    expect(data.to).toBe('2026-08-24');
+    expect(data.items).toHaveLength(1);
+  });
+
+  it('patchSchedule 发送全天/定时/取消排程 PATCH 请求', async () => {
     globalThis.fetch = ((url: string, init?: RequestInit) => {
       calls.push({ url, init });
       return Promise.resolve(
@@ -94,13 +119,17 @@ describe('workbench ui api', () => {
       );
     }) as typeof globalThis.fetch;
 
-    const item = await patchSchedule('wb-1', { date: '2026-08-20' });
+    const item = await patchSchedule('wb-1', {
+      scheduled: { kind: 'all-day', date: '2026-08-20' },
+    });
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe('/api/workbench/items/wb-1/schedule');
     expect(calls[0]!.init?.method).toBe('PATCH');
     expect(headerOf(calls[0]!.init, 'Content-Type')).toBe('application/json');
-    expect(calls[0]!.init?.body).toBe(JSON.stringify({ date: '2026-08-20' }));
+    expect(calls[0]!.init?.body).toBe(
+      JSON.stringify({ scheduled: { kind: 'all-day', date: '2026-08-20' } }),
+    );
     expect(item.id).toBe('wb-1');
   });
 

@@ -8,6 +8,7 @@ import {
   useTheme,
   PALETTES,
   type ThemeMode,
+  TimezoneMapSelector,
   IconSun,
   IconMoon,
   IconMonitor,
@@ -19,7 +20,7 @@ import {
   IconBriefcase,
 } from '@workbench/ui';
 
-type SettingsTab = 'appearance' | 'preferences' | 'storage' | 'modules';
+type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'storage' | 'modules';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -70,6 +71,7 @@ export function SettingsPage() {
     badge?: string;
   }> = [
     { id: 'appearance', label: '主题与外观', icon: IconPalette },
+    { id: 'timezone', label: '时区与时间', icon: IconClock },
     { id: 'preferences', label: '工作台偏好', icon: IconSparkles },
     { id: 'storage', label: '数据与存储', icon: IconDatabase },
     { id: 'modules', label: '已安装模块', icon: IconBriefcase, badge: '2' },
@@ -80,7 +82,7 @@ export function SettingsPage() {
       <PageHeader
         eyebrow="系统设置"
         title="偏好与个性化"
-        subtitle="调整主题配色、工作台行为习惯、本地数据引擎与模块状态"
+        subtitle="调整主题配色、时区与夏令时、工作台习惯与本地数据引擎"
       />
 
       {/* 嵌套式设置布局：左侧二级导航栏（靠左对齐） + 右侧设置详情面板 */}
@@ -257,6 +259,20 @@ export function SettingsPage() {
             </div>
           )}
 
+          {activeTab === 'timezone' && (
+            <div key="timezone" className="space-y-6 animate-slide-right-in">
+              <div>
+                <h2 className="text-base font-bold text-ink">时区与国际时间</h2>
+                <p className="text-xs text-secondary">
+                  配置工作区生效时区与夏/冬令时计算策略。所有定时排程与日程数据均以 UTC
+                  国际标准存储。
+                </p>
+              </div>
+
+              <TimezoneMapSelector />
+            </div>
+          )}
+
           {activeTab === 'preferences' && (
             <div key="preferences" className="space-y-6 animate-slide-right-in">
               <div>
@@ -350,9 +366,9 @@ export function SettingsPage() {
                   </div>
 
                   <div className="pt-1 text-muted leading-relaxed">
-                    <strong>本地优先承诺</strong>
+                    <strong>本地存储保障</strong>
                     ：所有待办事项、日历排程与秋招投递数据均存储在本地 SQLite 数据库中。
-                    即使断网亦能秒级操作，进程重启数据不丢失。
+                    即使断网亦能顺畅操作，数据持久安全。
                   </div>
                 </div>
               </Panel>

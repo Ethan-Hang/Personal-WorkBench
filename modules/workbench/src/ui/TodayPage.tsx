@@ -4,6 +4,9 @@ import {
   Button,
   Chip,
   DatePicker,
+  ScheduleRangePicker,
+  type ScheduleRangeValue,
+  useTimezone,
   EmptyState,
   Field,
   Modal,
@@ -27,7 +30,7 @@ import {
   IconCalendar,
   IconX,
 } from '@workbench/ui';
-import { type WorkbenchItem, type TodayResponse } from '../contract.js';
+import { type WorkbenchItem, type TodayResponse, type ScheduleInput } from '../contract.js';
 import {
   fetchToday,
   fetchUnscheduled,
@@ -404,7 +407,7 @@ export function TodayPage() {
   const [detailTask, setDetailTask] = useState<WorkbenchItem | null>(null);
   const [editingTask, setEditingTask] = useState<WorkbenchItem | null>(null);
   const [schedulingTask, setSchedulingTask] = useState<WorkbenchItem | null>(null);
-  const [scheduleDateInput, setScheduleDateInput] = useState('');
+  const [scheduleRangeValue, setScheduleRangeValue] = useState<ScheduleRangeValue | null>(null);
   const [isTrashOpen, setIsTrashOpen] = useState(false);
   const [isUnscheduledDrawerOpen, setIsUnscheduledDrawerOpen] = useState(false);
 
@@ -419,6 +422,8 @@ export function TodayPage() {
   // 撤销 Toast
   const [undoToast, setUndoToast] = useState<{ id: string; title: string } | null>(null);
 
+  const { formatUtcToLocal } = useTimezone();
+
   useEffect(() => {
     if (editingTask) {
       setEditTitle(editingTask.title);
@@ -426,18 +431,6 @@ export function TodayPage() {
       setEditDueDate(editingTask.dueAt ? editingTask.dueAt.slice(0, 10) : '');
     }
   }, [editingTask]);
-
-  useEffect(() => {
-    if (schedulingTask) {
-      if (schedulingTask.scheduled?.kind === 'all-day') {
-        setScheduleDateInput(schedulingTask.scheduled.date);
-      } else if (schedulingTask.scheduled?.kind === 'timed') {
-        setScheduleDateInput(schedulingTask.scheduled.start.slice(0, 10));
-      } else {
-        setScheduleDateInput('');
-      }
-    }
-  }, [schedulingTask]);
 
   // 查询：今日工作台数据（正主 /api/workbench/today）
   const today = useQuery({ queryKey: TODAY_KEY, queryFn: fetchToday });
@@ -457,6 +450,7 @@ export function TodayPage() {
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: TODAY_KEY });
     void queryClient.invalidateQueries({ queryKey: UNSCHEDULED_KEY });
+    void queryClient.invalidateQueries({ queryKey: ['workbench', 'calendar'] });
     void queryClient.invalidateQueries({ queryKey: TRASH_KEY });
   };
 
@@ -484,7 +478,7 @@ export function TodayPage() {
   });
 
   const scheduleMut = useMutation({
-    mutationFn: ({ id, date }: { id: string; date: string | null }) => patchSchedule(id, { date }),
+    mutationFn: ({ id, input }: { id: string; input: ScheduleInput }) => patchSchedule(id, input),
     onSuccess: () => {
       setSchedulingTask(null);
       invalidate();
@@ -1072,16 +1066,42 @@ export function TodayPage() {
         isOpen={Boolean(schedulingTask)}
         onClose={() => setSchedulingTask(null)}
         title="安排事项排程"
-        description="将事项排定在指定日期（YYYY-MM-DD），或取消排程退回待排程抽屉"
+        description="设定事项的排程日期或具体时间段，帮助您合理规划日程节奏。"
+        maxWidth="max-w-lg"
       >
         {schedulingTask && (
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              scheduleMut.mutate({
-                id: schedulingTask.id,
-                date: scheduleDateInput.trim() || null,
-              });
+              if (!scheduleRangeValue) {
+                scheduleMut.mutate({
+                  id: schedulingTask.id,
+                  input: { scheduled: null },
+                });
+                return;
+              }
+              if (scheduleRangeValue.kind === 'all-day') {
+                scheduleMut.mutate({
+                  id: schedulingTask.id,
+                  input: {
+                    scheduled: {
+                      kind: 'all-day',
+                      date: scheduleRangeValue.date || '',
+                    },
+                  },
+                });
+              } else {
+                scheduleMut.mutate({
+                  id: schedulingTask.id,
+                  input: {
+                    scheduled: {
+                      kind: 'timed',
+                      start: scheduleRangeValue.startUtc!,
+                      end: scheduleRangeValue.endUtc,
+                    },
+                  },
+                });
+              }
             }}
             className="space-y-4 text-xs"
           >
@@ -1092,21 +1112,33 @@ export function TodayPage() {
               </div>
             </div>
 
-            <Field label="排程日期">
-              <DatePicker
-                value={scheduleDateInput}
-                onChange={setScheduleDateInput}
-                placeholder="年 / 月 / 日"
-                className="w-full"
-                showTime={false}
-              />
-            </Field>
+            <ScheduleRangePicker
+              key={schedulingTask.id}
+              initialKind={schedulingTask.scheduled?.kind ?? 'all-day'}
+              initialDate={
+                schedulingTask.scheduled?.kind === 'all-day' ? schedulingTask.scheduled.date : ''
+              }
+              initialStartLocal={
+                schedulingTask.scheduled?.kind === 'timed'
+                  ? formatUtcToLocal(schedulingTask.scheduled.start).full
+                  : ''
+              }
+              initialEndLocal={
+                schedulingTask.scheduled?.kind === 'timed' && schedulingTask.scheduled.end
+                  ? formatUtcToLocal(schedulingTask.scheduled.end).full
+                  : ''
+              }
+              onChange={setScheduleRangeValue}
+            />
 
             <div className="flex justify-between items-center pt-3 border-t border-line">
               <button
                 type="button"
                 onClick={() => {
-                  scheduleMut.mutate({ id: schedulingTask.id, date: null });
+                  scheduleMut.mutate({
+                    id: schedulingTask.id,
+                    input: { scheduled: null },
+                  });
                 }}
                 className="text-critical hover:underline"
               >
@@ -1126,7 +1158,7 @@ export function TodayPage() {
                   type="submit"
                   variant="primary"
                   size="sm"
-                  disabled={scheduleMut.isPending || !scheduleDateInput}
+                  disabled={scheduleMut.isPending || !scheduleRangeValue}
                 >
                   {scheduleMut.isPending ? '排程中…' : '确认排程'}
                 </Button>
@@ -1167,7 +1199,10 @@ export function TodayPage() {
                       variant="primary"
                       size="sm"
                       onClick={() => {
-                        scheduleMut.mutate({ id: item.id, date });
+                        scheduleMut.mutate({
+                          id: item.id,
+                          input: { scheduled: { kind: 'all-day', date } },
+                        });
                       }}
                       disabled={scheduleMut.isPending}
                     >

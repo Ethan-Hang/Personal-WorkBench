@@ -3,8 +3,11 @@ import {
   todayResponseSchema,
   unscheduledResponseSchema,
   workbenchItemSchema,
+  calendarResponseSchema,
+  calendarPath,
   type TodayResponse,
   type UnscheduledResponse,
+  type CalendarResponse,
   type WorkbenchItem,
   type ScheduleInput,
 } from '../contract.js';
@@ -43,7 +46,14 @@ export async function fetchUnscheduled(): Promise<UnscheduledResponse> {
 }
 
 /**
- * 为事项排程到指定日期（YYYY-MM-DD），或传 null 取消排程退回抽屉
+ * 获取日历区间聚合数据（from / to 为本地浮动日期 YYYY-MM-DD，含两端）
+ */
+export async function fetchCalendar(from: string, to: string): Promise<CalendarResponse> {
+  return calendarResponseSchema.parse(await request(calendarPath(from, to)));
+}
+
+/**
+ * 为事项排程（全天、定时或传 null 取消排程退回抽屉，颗粒度 1 分钟）
  */
 export async function patchSchedule(id: string, input: ScheduleInput): Promise<WorkbenchItem> {
   return workbenchItemSchema.parse(

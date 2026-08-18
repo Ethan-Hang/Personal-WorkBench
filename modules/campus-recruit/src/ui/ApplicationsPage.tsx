@@ -4,6 +4,7 @@ import {
   Button,
   Chip,
   DatePicker,
+  useTimezone,
   EmptyState,
   Field,
   IconBriefcase,
@@ -481,6 +482,7 @@ function AddRoundForm({
   onCreate: (input: CreateRoundInput) => Promise<void>;
   disabled: boolean;
 }) {
+  const { toUtcIso } = useTimezone();
   const [name, setName] = useState('');
   const [kind, setKind] = useState<RoundKind>('other');
   const [kindWasChosen, setKindWasChosen] = useState(false);
@@ -495,8 +497,7 @@ function AddRoundForm({
       await onCreate({
         name: name.trim(),
         kind,
-        scheduledAt:
-          scheduledLocal === '' ? null : new Date(scheduledLocal.replace(' ', 'T')).toISOString(),
+        scheduledAt: scheduledLocal === '' ? null : toUtcIso(scheduledLocal),
         format: nullableText(format),
         durationMin: duration === '' ? null : Number(duration),
       });
