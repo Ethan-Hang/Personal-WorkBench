@@ -19,6 +19,10 @@ export default tseslint.config(
       '**/dist/**',
       'packages/data/migrations/**',
       'prototype-workbench/**',
+      // 嵌套的 git worktree 是独立检出，有自己的 lint 运行，父仓库不该伸进去。
+      // 必须显式写：ESLint 9 的 flat config 不读 .gitignore（Prettier 读，
+      // tsc/vitest 的 glob 也够不着），所以这是唯一会被 worktree 绊倒的一环。
+      '.worktrees/**',
     ],
   },
   js.configs.recommended,
