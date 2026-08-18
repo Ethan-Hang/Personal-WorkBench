@@ -1,0 +1,360 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "6107c95b-86e7-4827-9449-678f2f2dc4bf",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "todo_recurrence_items": {
+      "name": "todo_recurrence_items",
+      "columns": {
+        "recurrence_id": {
+          "name": "recurrence_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "occurrence_date": {
+          "name": "occurrence_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_todo_recurrence_items_item_id": {
+          "name": "idx_todo_recurrence_items_item_id",
+          "columns": ["item_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "todo_recurrence_items_recurrence_id_todo_recurrences_id_fk": {
+          "name": "todo_recurrence_items_recurrence_id_todo_recurrences_id_fk",
+          "tableFrom": "todo_recurrence_items",
+          "tableTo": "todo_recurrences",
+          "columnsFrom": ["recurrence_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "todo_recurrence_items_recurrence_id_occurrence_date_pk": {
+          "columns": ["recurrence_id", "occurrence_date"],
+          "name": "todo_recurrence_items_recurrence_id_occurrence_date_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "todo_recurrences": {
+      "name": "todo_recurrences",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "importance": {
+          "name": "importance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'normal'"
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "freq": {
+          "name": "freq",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "interval": {
+          "name": "interval",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "by_weekday": {
+          "name": "by_weekday",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "by_monthday": {
+          "name": "by_monthday",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "start_date": {
+          "name": "start_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "until_date": {
+          "name": "until_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "materialized_through": {
+          "name": "materialized_through",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_todo_recurrences_freq": {
+          "name": "ck_todo_recurrences_freq",
+          "value": "\"todo_recurrences\".\"freq\" IN ('daily', 'weekly', 'monthly')"
+        },
+        "ck_todo_recurrences_interval": {
+          "name": "ck_todo_recurrences_interval",
+          "value": "\"todo_recurrences\".\"interval\" > 0"
+        },
+        "ck_todo_recurrences_monthday": {
+          "name": "ck_todo_recurrences_monthday",
+          "value": "\"todo_recurrences\".\"by_monthday\" IS NULL OR (\"todo_recurrences\".\"by_monthday\" >= 1 AND \"todo_recurrences\".\"by_monthday\" <= 31)"
+        }
+      }
+    },
+    "todo_subtasks": {
+      "name": "todo_subtasks",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "done": {
+          "name": "done",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "position": {
+          "name": "position",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_todo_subtasks_item_id": {
+          "name": "idx_todo_subtasks_item_id",
+          "columns": ["item_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_todo_subtasks_done": {
+          "name": "ck_todo_subtasks_done",
+          "value": "\"todo_subtasks\".\"done\" IN (0, 1)"
+        },
+        "ck_todo_subtasks_position": {
+          "name": "ck_todo_subtasks_position",
+          "value": "\"todo_subtasks\".\"position\" >= 0"
+        }
+      }
+    },
+    "todo_tags": {
+      "name": "todo_tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "todo_tags_name_unique": {
+          "name": "todo_tags_name_unique",
+          "columns": ["name"],
+          "isUnique": true
+        },
+        "idx_todo_tags_name": {
+          "name": "idx_todo_tags_name",
+          "columns": ["name"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "todo_task_tags": {
+      "name": "todo_task_tags",
+      "columns": {
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_todo_task_tags_tag_id": {
+          "name": "idx_todo_task_tags_tag_id",
+          "columns": ["tag_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "todo_task_tags_tag_id_todo_tags_id_fk": {
+          "name": "todo_task_tags_tag_id_todo_tags_id_fk",
+          "tableFrom": "todo_task_tags",
+          "tableTo": "todo_tags",
+          "columnsFrom": ["tag_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "todo_task_tags_item_id_tag_id_pk": {
+          "columns": ["item_id", "tag_id"],
+          "name": "todo_task_tags_item_id_tag_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

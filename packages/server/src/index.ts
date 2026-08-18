@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path';
 import { openDatabase, runCoreMigrations } from '@workbench/data';
 import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
-import { todoServerModule } from '@workbench/module-todo';
+import { createTodoServerModule } from '@workbench/module-todo';
+import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
 import { buildApp } from './app.js';
 
@@ -14,6 +15,7 @@ const PORT = Number(process.env.PORT ?? 3000);
 const { db, sqlite } = openDatabase(DB_PATH);
 runCoreMigrations(db);
 
+const todoServerModule = createTodoServerModule(new SqliteTodoRepository(sqlite));
 const campusRecruitServerModule = createCampusRecruitServerModule(
   new SqliteCampusRecruitRepository(sqlite),
 );

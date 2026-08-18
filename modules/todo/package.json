@@ -8,16 +8,20 @@
   "exports": {
     ".": "./src/server/index.ts",
     "./contract": "./src/contract.ts",
+    "./storage": "./src/storage/sqlite-repository.ts",
     "./ui": "./src/ui/index.tsx"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
     "@workbench/core": "*",
     "@workbench/ui": "*",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
     "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
     "@workbench/data": "*",
     "@workbench/server": "*",
     "fastify": "^5.12.0"

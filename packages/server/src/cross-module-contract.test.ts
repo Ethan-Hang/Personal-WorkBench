@@ -20,8 +20,15 @@ describe('跨模块接缝：todo 的 TaskView 能被工作台消费', () => {
     kind: 'task',
     status: 'todo',
     importance: 'normal',
+    // todo 独有的字段。工作台的 schema 没有它，z.object 默认剥掉多余键，
+    // 因此「todo 加字段」不会打断工作台——与缺字段的方向刚好相反。
+    notes: '带身份证',
     dueAt: null,
     scheduled: { kind: 'all-day', date: '2026-08-18' },
+    // todo 独有的三项。工作台的 schema 同样没有它们，一并验证「加字段安全」
+    subtasks: [],
+    tags: [],
+    recurrenceId: null,
     urgency: 'none',
     priorityScore: 1,
     isImportantQuadrant: false,

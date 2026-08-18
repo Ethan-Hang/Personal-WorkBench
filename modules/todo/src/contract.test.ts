@@ -90,8 +90,12 @@ describe('taskViewSchema 的 kind 字段', () => {
       kind: 'task',
       status: 'todo',
       importance: 'normal',
+      notes: null,
       dueAt: null,
       scheduled: { kind: 'all-day', date: '2026-08-18' },
+      subtasks: [],
+      tags: [],
+      recurrenceId: null,
       urgency: 'none',
       priorityScore: 1,
       isImportantQuadrant: false,
@@ -115,5 +119,54 @@ describe('taskViewSchema 的 kind 字段', () => {
       isUrgentQuadrant: false,
     };
     expect(taskViewSchema.safeParse(withoutKind).success).toBe(false);
+  });
+});
+
+describe('备注（notes）', () => {
+  it('createTaskInputSchema 不传 notes 时为 undefined，服务端会归一成 null', () => {
+    expect(createTaskInputSchema.parse({ title: '写周报' }).notes).toBeUndefined();
+  });
+
+  it('备注会被 trim', () => {
+    expect(createTaskInputSchema.parse({ title: '写周报', notes: '  带身份证  ' }).notes).toBe(
+      '带身份证',
+    );
+  });
+
+  it('超过 2000 字被拒', () => {
+    const tooLong = 'x'.repeat(2001);
+    expect(createTaskInputSchema.safeParse({ title: '写周报', notes: tooLong }).success).toBe(
+      false,
+    );
+  });
+
+  it('updateTaskInputSchema 缺省时 notes 为 undefined，表示不动它', () => {
+    expect(updateTaskInputSchema.parse({ title: '改标题' }).notes).toBeUndefined();
+  });
+
+  it('updateTaskInputSchema 允许显式传 null 以清空', () => {
+    expect(updateTaskInputSchema.parse({ notes: null }).notes).toBeNull();
+  });
+
+  it('taskViewSchema 透出 notes', () => {
+    const parsed = taskViewSchema.parse({
+      id: 'a',
+      title: '写周报',
+      sourceModule: 'todo',
+      kind: 'task',
+      status: 'todo',
+      importance: 'normal',
+      dueAt: null,
+      notes: '带身份证',
+      scheduled: null,
+      subtasks: [],
+      tags: [],
+      recurrenceId: null,
+      urgency: 'none',
+      priorityScore: 1,
+      isImportantQuadrant: false,
+      isUrgentQuadrant: false,
+    });
+    expect(parsed.notes).toBe('带身份证');
   });
 });
