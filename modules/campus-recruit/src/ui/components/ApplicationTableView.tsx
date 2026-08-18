@@ -74,9 +74,10 @@ export function ApplicationTableView({
     <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-xs">
       {/* 每一行投递记录列表 */}
       <div>
-        {applications.map((app) => (
+        {applications.map((app, index) => (
           <ApplicationTableRow
             key={app.id}
+            index={index}
             application={app}
             isExpanded={expandedIds.has(app.id)}
             onToggleExpand={() => onToggleExpand(app.id)}

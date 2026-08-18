@@ -174,7 +174,7 @@ export function HiringProcessStepper({
   const progressPercent = Math.round((completedCount / steps.length) * 100);
 
   return (
-    <div className="rounded-lg border border-line bg-surface p-3.5 space-y-3 shadow-2xs">
+    <div className="rounded-lg border border-line bg-surface p-3.5 space-y-3 shadow-2xs animate-item-enter">
       {/* 流程顶栏：推进概述与阶段状态 */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-2">
         <div className="flex items-center gap-2">

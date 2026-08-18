@@ -121,13 +121,14 @@ export function ApplicationKanbanView({
 
   return (
     <div className="flex gap-3.5 overflow-x-auto pb-4 pt-1">
-      {KANBAN_COLUMNS.map((column) => {
+      {KANBAN_COLUMNS.map((column, colIdx) => {
         const columnApps = grouped[column.id];
 
         return (
           <div
             key={column.id}
-            className="flex min-w-[280px] max-w-[320px] flex-1 flex-col rounded-lg border border-line bg-surface-2/40 p-2.5 shadow-2xs"
+            style={{ animationDelay: `${colIdx * 90}ms` }}
+            className="flex min-w-[280px] max-w-[320px] flex-1 flex-col rounded-lg border border-line bg-surface-2/40 p-2.5 shadow-2xs animate-slide-left-in"
           >
             {/* 列头 */}
             <div className="mb-2.5 flex items-center justify-between px-1">
@@ -166,7 +167,7 @@ export function ApplicationKanbanView({
                     <div
                       key={app.id}
                       onClick={() => onSelectApplication(app.id)}
-                      className={`group cursor-pointer rounded-md border bg-surface p-3 shadow-xs transition-all hover:border-accent/40 hover:shadow-sm ${
+                      className={`group cursor-pointer rounded-md border bg-surface p-3 shadow-xs transition-all hover:border-accent/40 hover:shadow-sm hover-lift animate-item-enter ${
                         isSelected ? 'border-accent ring-1 ring-accent' : 'border-line'
                       }`}
                     >

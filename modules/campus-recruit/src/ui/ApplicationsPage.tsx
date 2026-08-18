@@ -187,7 +187,7 @@ export function ApplicationsPage() {
 
   if (applicationsQuery.isPending) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 animate-slide-down-in">
         <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
         <p role="status" className="text-[13px] text-muted">
           正在加载你的投递记录...
@@ -198,7 +198,7 @@ export function ApplicationsPage() {
 
   if (applicationsQuery.isError) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 animate-slide-down-in">
         <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
         <Panel>
           <p className="text-[13px] text-critical">
@@ -219,8 +219,8 @@ export function ApplicationsPage() {
 
   return (
     <div className="space-y-4">
-      {/* 顶部固定吸顶区：标题、工具栏、以及表格表头（向下滚动时永不滚出视口） */}
-      <div className="sticky top-14 z-20 -mx-4 -mt-6 bg-page/95 px-4 pt-4 pb-2.5 backdrop-blur-md sm:-mx-8 sm:-mt-8 sm:px-8 sm:pt-6 space-y-3 transition-colors border-b border-line/30 shadow-xs">
+      {/* 顶部固定吸顶区：标题、工具栏、以及表格表头（向下滚动时永不滚出视口，加载时从上方滑入） */}
+      <div className="sticky top-14 z-20 -mx-4 -mt-6 bg-page/95 px-4 pt-4 pb-2.5 backdrop-blur-md sm:-mx-8 sm:-mt-8 sm:px-8 sm:pt-6 space-y-3 transition-colors border-b border-line/30 shadow-xs animate-slide-down-in">
         <div className="mx-auto max-w-6xl space-y-2.5">
           <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
           <ApplicationsToolbar
@@ -262,7 +262,7 @@ export function ApplicationsPage() {
       )}
 
       {/* 主视图内容区域 */}
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-6xl animate-fade-in">
         {rawApplications.length === 0 ? (
           <EmptyState
             icon={IconBriefcase}

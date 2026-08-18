@@ -463,27 +463,27 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-down-in {
-  animation: slideDownIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideDownIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-right-in {
-  animation: slideRightIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideRightIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-left-in {
-  animation: slideLeftIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideLeftIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-up-in {
-  animation: slideUpIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideUpIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-spin-ring {
@@ -592,7 +592,7 @@
 }
 
 .animate-item-enter {
-  animation: itemSlideDownIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: itemSlideDownIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* ==========================================================================
