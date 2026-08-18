@@ -23,16 +23,22 @@ export function Modal({
     if (isOpen) {
       setShouldRender(true);
       setIsClosing(false);
+
+      const prevOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
-    } else if (shouldRender) {
-      setIsClosing(true);
-      const timer = setTimeout(() => {
-        setShouldRender(false);
-        setIsClosing(false);
-      }, 200);
-      document.body.style.overflow = '';
-      return () => clearTimeout(timer);
+      return () => {
+        document.body.style.overflow = prevOverflow;
+      };
     }
+
+    if (!shouldRender) return;
+
+    setIsClosing(true);
+    const timer = setTimeout(() => {
+      setShouldRender(false);
+      setIsClosing(false);
+    }, 200);
+    return () => clearTimeout(timer);
   }, [isOpen, shouldRender]);
 
   useEffect(() => {
