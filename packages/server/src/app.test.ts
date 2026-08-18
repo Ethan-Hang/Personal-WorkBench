@@ -205,3 +205,56 @@ describe('buildApp', () => {
     compositionTestTimeoutMs,
   );
 });
+
+describe('统一错误出口', () => {
+  /** 注册一个会抛异常的探针路由，模拟「意料外的错误」。 */
+  function throwingModule(message: string): ServerModuleDefinition {
+    return {
+      id: 'probe',
+      migrations: [],
+      registerRoutes(app) {
+        (app as FastifyInstance).get('/api/probe/boom', async () => {
+          throw new Error(message);
+        });
+      },
+    };
+  }
+
+  it('意料外的错误返回真实消息与请求编号', async () => {
+    const { db } = openTestDatabase();
+    const app = await buildApp({ db, modules: [throwingModule('数据库连接断了')] });
+
+    const res = await app.inject({ method: 'GET', url: '/api/probe/boom' });
+
+    expect(res.statusCode).toBe(500);
+    // 本地单用户工具，不遮蔽 5xx 的真实消息——遮蔽只会让自己排查更难。
+    expect(res.json().error).toBe('数据库连接断了');
+    // 编号是界面报错与日志堆栈之间唯一的桥。
+    expect(res.json().requestId).toBeTruthy();
+
+    await app.close();
+  });
+
+  /**
+   * 路由里显式 `reply.code(400).send(...)` 不经过 setErrorHandler，因此不带编号。
+   * 这是刻意的，不是遗漏：编号的用途是把界面上的报错和日志里的堆栈连起来，
+   * 而预期内的 4xx 既不记日志、消息本身也已经具体（「标题不能为空」）。
+   * 在没有日志行可对的地方给出编号，只会让人去 grep 一个不存在的东西。
+   */
+  it('预期内的 4xx 保留自己的消息，且不带编号', async () => {
+    const { db } = openTestDatabase();
+    const app = await buildApp({ db, modules: [todoServerModule] });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/todo/tasks',
+      payload: { title: '   ' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toBeTruthy();
+    expect(res.json().requestId).toBeUndefined();
+
+    await app.close();
+  });
+});

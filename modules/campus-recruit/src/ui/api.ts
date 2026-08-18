@@ -16,8 +16,11 @@ async function request(url: string, init?: RequestInit): Promise<unknown> {
   const body = response.status === 204 ? undefined : await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    const payload = body as { error?: string; requestId?: string } | undefined;
+    const message = payload?.error ?? `请求失败（${response.status}）`;
+    // 附上服务端的请求编号：界面上这一句报错据此才能和日志里的整段堆栈对上号。
     throw new Error(
-      (body as { error?: string } | undefined)?.error ?? `请求失败（${response.status}）`,
+      payload?.requestId === undefined ? message : `${message}（编号 ${payload.requestId}）`,
     );
   }
 

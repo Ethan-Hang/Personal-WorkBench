@@ -76,3 +76,29 @@ describe('request 的 Content-Type 处理', () => {
     expect(task.sourceModule).toBe('todo');
   });
 });
+
+describe('错误信息携带请求编号', () => {
+  function respondWith(status: number, payload: unknown): void {
+    globalThis.fetch = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify(payload), {
+          status,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )) as typeof globalThis.fetch;
+  }
+
+  it('服务端给了编号时，把编号带进错误消息', async () => {
+    respondWith(500, { error: '数据库连接断了', requestId: 'req-42' });
+
+    // 编号是界面报错与日志堆栈之间唯一的桥，丢了它就只能靠猜。
+    await expect(postComplete('x1')).rejects.toThrow('数据库连接断了（编号 req-42）');
+  });
+
+  it('没有编号时不凭空编造', async () => {
+    respondWith(400, { error: '标题不能为空' });
+
+    await expect(postComplete('x1')).rejects.toThrow('标题不能为空');
+    await expect(postComplete('x1')).rejects.not.toThrow('编号');
+  });
+});
