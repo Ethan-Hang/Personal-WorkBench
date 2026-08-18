@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { localDayOf, nowIso, type ServerModuleDefinition } from '@workbench/core';
-import { openTestDatabase } from '@workbench/data';
+import { openTestDatabase, runMigrationsFrom } from '@workbench/data';
 import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
-import { todoServerModule } from '@workbench/module-todo';
+import { createTodoServerModule } from '@workbench/module-todo';
+import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
 
@@ -126,8 +127,10 @@ describe('buildApp', () => {
 
   it('注册 todo 与 campus 模块后，今日工作台可见秋招截止事项', async () => {
     const { db, sqlite } = openTestDatabase();
+    runMigrationsFrom(db, 'modules/todo/migrations');
     const campus = createCampusRecruitServerModule(new SqliteCampusRecruitRepository(sqlite));
-    const app = await buildApp({ db, modules: [todoServerModule, campus] });
+    const todo = createTodoServerModule(new SqliteTodoRepository(sqlite));
+    const app = await buildApp({ db, modules: [todo, campus] });
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const todayDate = localDayOf(nowIso(), zone);
 
@@ -242,8 +245,12 @@ describe('统一错误出口', () => {
    * 在没有日志行可对的地方给出编号，只会让人去 grep 一个不存在的东西。
    */
   it('预期内的 4xx 保留自己的消息，且不带编号', async () => {
-    const { db } = openTestDatabase();
-    const app = await buildApp({ db, modules: [todoServerModule] });
+    const { db, sqlite } = openTestDatabase();
+    runMigrationsFrom(db, 'modules/todo/migrations');
+    const app = await buildApp({
+      db,
+      modules: [createTodoServerModule(new SqliteTodoRepository(sqlite))],
+    });
 
     const res = await app.inject({
       method: 'POST',

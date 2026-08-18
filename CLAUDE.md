@@ -19,18 +19,45 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **工作台模块**：模块也可以**零自有表**（`migrations: []`），纯粹是 core 之上的一个
   视图 + 一个动作。core 只多了一个通用查询维度 `unscheduled`。
 
-三条铁律均未破。
+**todo 已不再是零自有表模块。** 2026-08 加入子任务 / 标签 / 重复任务，它长出了四张
+自有表与一份迁移，模块定义随之从常量导出改为接收 Repository 的工厂函数（与秋招同形）。
+三条铁律仍未破：core 一行未改。理由与全部取舍见 `docs/adr/0014`。
+
+**一处仍在的不对称，动 todo 前必须知道：`GET /api/todo/today` 不按 `sourceModule`
+过滤**，秋招的事项也会出现在它的结果里；而所有写操作（完成、编辑、回收站、子任务、
+标签）只认 `sourceModule === 'todo'` 的项。这个端点已无消费者、待退休，但只要它还在，
+这条不对称就还在。
+
+`modules/workbench` 的 UI 搬迁**已经完成**——`packages/web/src/modules.ts` 现在只注册
+`workbenchUiModule` 与 `campusRecruitUiModule`，`modules/todo/src/ui/` 已不再挂载
+（1380 行的 `TodayPage.tsx` 就此成为死代码）。两个 `today` 端点仍并存：
+
+| 端点                       | 状态                                                 |
+| -------------------------- | ---------------------------------------------------- |
+| `GET /api/workbench/today` | 正主。跨模块聚合，带 `scheduled` 两分支形状与 `kind` |
+| `GET /api/todo/today`      | 待退休。已无消费者，随 itemActions 那一轮一并删除    |
+
+**注意：`modules/todo/src/ui/TodayPage.tsx` 虽已不再挂载，但仍在被改动**
+（`1d16a57 时钟组件` 同时改了两份 TodayPage）。**删它之前必须先与对方对齐**，
+不要因为「它是死代码」就单方面删。
+
+**不要再往 todo 里加跨模块能力。** 跨模块视图调用源模块写操作的正确机制是 core 的
+`itemActions` 能力槽，方案见
+`docs/superpowers/specs/2026-08-18-item-actions-registry-design.md`。
+`modules/workbench/src/ui/api.ts` 里那 12 条硬编码的 `/api/todo/...` 是待还的债，
+文件顶部有 TODO 标注，并已由 lint 规则封住新增（见下）。
 
 ## 命令
 
-| 命令                           | 用途                                                                            |
-| ------------------------------ | ------------------------------------------------------------------------------- |
-| `npm run dev`                  | 同时启动后端（:3000）与前端（:5173）。Vite 代理 `/api` 到后端，浏览器只见一个源 |
-| `npm run check`                | 提交前跑这个：format:check → typecheck → lint → test，四步全绿才算过            |
-| `npm run test`                 | 只跑测试                                                                        |
-| `npx vitest run <路径>`        | 跑单个测试文件，例如 `npx vitest run packages/core/src/time.test.ts`            |
-| `npx vitest run -t "<用例名>"` | 按用例名筛选                                                                    |
-| `npm run db:generate`          | 改完 `packages/data/src/schema.ts` 后生成迁移                                   |
+| 命令                                                                 | 用途                                                                            |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `npm run dev`                                                        | 同时启动后端（:3000）与前端（:5173）。Vite 代理 `/api` 到后端，浏览器只见一个源 |
+| `npm run check`                                                      | 提交前跑这个：format:check → typecheck → lint → test，四步全绿才算过            |
+| `npm run test`                                                       | 只跑测试                                                                        |
+| `npx vitest run <路径>`                                              | 跑单个测试文件，例如 `npx vitest run packages/core/src/time.test.ts`            |
+| `npx vitest run -t "<用例名>"`                                       | 按用例名筛选                                                                    |
+| `npm run db:generate`                                                | 改完 `packages/data/src/schema.ts` 后生成 core 迁移                             |
+| `npx drizzle-kit generate --config modules/<模块>/drizzle.config.ts` | 生成某模块自有表的迁移                                                          |
 
 本地数据在 `data/local/workbench.db`（已 gitignore）。删掉它即可从空库重来。
 
@@ -59,6 +86,13 @@ core 定义 `ItemRepository` 接口，data 提供实现（DIP）。
 3. **模块自带迁移与注册项**——删模块 = 删一个目录 + 删一行注册
 
 **前两条由 `eslint.config.js` 的 `no-restricted-imports` 强制**，违反即 CI 失败，且有回归测试（`packages/core/src/eslint.boundaries.test.ts` 用 ESLint 的 Node API 对真实配置断言，包括「测试文件豁免不会波及生产文件」这一条）。
+
+**但 `no-restricted-imports` 只能拦 `import`，拦不住裸字符串。** 2026-08 工作台今日页
+搬迁时，workbench 的 UI 手抄了 12 条 `/api/todo/...` 路径，铁律 1 就此被绕过而 lint 全绿；
+手抄的响应形状漏了一个 `kind` 字段，导致六个写操作在生产里必抛。因此另有一条
+`no-restricted-syntax` 规则：**`modules/*/src/ui/**` 里禁止以 `/api/` 开头的字符串
+字面量与模板字面量**，路径一律来自本模块 `contract.ts` 的常量。作用域限定在 `ui/`
+是刻意的——`contract.ts` 里定义路径字面量正是它的职责。
 
 **第三条没有、也不可能有 lint 规则**——它不是 import 约束，而是结构性质，由 `ServerModuleDefinition.migrations` 与注册表的形状保证。把某个模块的迁移搬进 core 的集中目录，lint 和 CI 都不会报错，但「删模块 = 删一个目录」的承诺就此失效。**这是唯一需要人来守的一条。**
 
@@ -96,8 +130,9 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 - **端点路径**（`TODO_API` / `WORKBENCH_API` / `CAMPUS_API`）：路径构造函数传 `ID_PARAM` 得到 Fastify 注册模式，
   传真实 id 得到转义后的请求路径。服务端与客户端共用同一份，因此不可能各改一半。
   `WORKBENCH_API` 三个：今日视图、待排程抽屉、排程（PATCH）。
-  `TODO_API` 现有 13 个端点：今日视图、创建、编辑（PATCH）、完成 / 取消完成、
-  软删除 / 恢复 / 彻底删除，以及回收站的列表与四个批量操作。
+  `TODO_API` 现有 26 个端点：今日视图、创建、编辑（PATCH）、完成 / 取消完成、
+  软删除 / 恢复 / 彻底删除、回收站的列表与四个批量操作，外加子任务四个、标签五个、
+  重复规则四个。
 - **请求/响应形状**（Zod schema）：服务端用它校验入参，客户端用它 `.parse()` 校验响应。
   后端改了形状，前端会在接缝处大声失败，而不是页面静默变空。
 
@@ -159,6 +194,40 @@ workbench 的排程、campus-recruit 的轮次时刻）。不截的后果是同�
 笔试时间是客观事实，不是「我打算什么时候做」。但**周日历 UI 开工前必须先解决
 「前端怎么知道哪些能拖」这个信号**，且不能靠硬编码模块名。详见 ADR-0012。
 
+### 重复任务：物化，不是规则求值
+
+`todo_recurrences` 存规则，但**规则本身不是待办**——它按需生成真正的 core `Item`，
+关联记在 `todo_recurrence_items`。因此一条重复出来的待办与手工建的待办**在系统里完全
+同形**，日历、排程、完成、回收站都不需要知道「重复」这个概念存在。
+
+三条会咬人的性质：
+
+- **物化在 `listToday` 里顺手触发**，不是定时任务——本地优先的应用没有常驻调度器。
+  因此它必须幂等且便宜：`(recurrence_id, occurrence_date)` 是复合主键，重复跑不会
+  产生重复实例。`materialized_through` 只是省掉重复展开的优化，**不是正确性的依赖**。
+- **视野 90 天**（`MATERIALIZE_HORIZON_DAYS`），且**不补生成过去**。新建一条
+  `startDate` 在半年前的规则不会凭空造出一百多条逾期待办。
+- **删规则时清未完成的实例、保留已完成的**。分界线是「完成与否」而不是「过去/未来」。
+
+规则的展开是纯函数（`server/recurrence.ts`，零 IO，21 条单测），全程只操作浮动日期，
+**绝不转 UTC**。「每月 31 号」在没有 31 号的月份**整月跳过**——不顺延也不回退。
+
+### 模块迁移各记各账
+
+drizzle 的迁移器用**一张表里的一个全局水位**判断某条迁移该不该跑。所有模块共用
+`__drizzle_migrations` 时，先跑的模块只要时间戳更新，**后跑模块的迁移会被静默跳过**——
+没有报错，只有后续查询时的 `no such table`。2026-08 加 todo 自有表时真踩到了。
+
+`runMigrationsFrom` 因此按目录派生专属记账表。回归测试在
+`packages/data/src/module-migrations.test.ts`。**新增带迁移的模块时不要合并这些表。**
+
+### 领域错误要落成 4xx
+
+三个新子系统的校验放在 service 而非 route（为了能被集成测试直接覆盖），代价是抛出的
+错误默认会落到统一错误出口变成 **500**——冒烟时标签重名就报成了服务器故障。
+`modules/todo/src/server/errors.ts` 的 `DomainError` + `toHttp` 是那座桥。
+**未知错误必须继续冒泡**，否则拿不到请求编号也进不了日志。
+
 ### 回收站借用了 `cancelled`
 
 todo 的回收站是软删除，落地方式是把 `status` 置为 core 的 `cancelled`。**`cancelled` 的
@@ -216,7 +285,7 @@ Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss
 
 1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
 2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-3. `docs/adr/` — 十二条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+3. `docs/adr/` — 十四条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 

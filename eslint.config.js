@@ -125,15 +125,49 @@ export default tseslint.config(
     },
   },
 
+  // 模块 UI 只能经 contract.ts 的常量拿路径（spec §7 前后端的接缝）。
+  //
+  // 这条规则补的是 no-restricted-imports 的盲区：它只能拦 import，拦不住裸字符串。
+  // 2026-08 工作台今日页搬迁时，workbench 的 UI 手抄了 12 条 /api/todo/... 路径，
+  // 铁律 1 就此被字符串绕过——lint 全绿，而手抄的响应形状漏了一个 kind 字段，
+  // 六个写操作在生产里必抛。
+  // 见 docs/superpowers/specs/2026-08-18-item-actions-registry-design.md。
+  //
+  // 作用域限定在 ui/ 是刻意的：contract.ts 里定义路径字面量正是它的职责，
+  // 规则因此不需要知道「当前文件属于哪个模块」。
+  {
+    files: ['modules/*/src/ui/**/*.ts', 'modules/*/src/ui/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[value=/^\\/api\\//]',
+          message:
+            '模块 UI 不得硬编码 API 路径。路径必须来自本模块 contract.ts 导出的常量——' +
+            '服务端注册与前端调用共用同一份，才不会各改一半。跨模块调用请见 ADR-0005。',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/^\\/api\\//]',
+          message:
+            '模块 UI 不得硬编码 API 路径。路径必须来自本模块 contract.ts 导出的常量——' +
+            '服务端注册与前端调用共用同一份，才不会各改一半。跨模块调用请见 ADR-0005。',
+        },
+      ],
+    },
+  },
+
   // 测试文件放宽。
   // no-restricted-imports 必须在此关掉：测试要造真实的 :memory: 库，
   // 必然 import @workbench/data（spec §12.2 不 mock 数据库）。
+  // no-restricted-syntax 同理：传输层测试要断言 fetch 收到的 URL 字面量，
+  // 那是这类测试唯一有意义的断言对象（见 modules/todo/src/ui/api.test.ts）。
   // 本块置于最后，flat config 后者覆盖前者。
   {
     files: ['**/*.test.ts', '**/*.test.tsx', '**/testing/**'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       'no-restricted-imports': 'off',
+      'no-restricted-syntax': 'off',
     },
   },
 );

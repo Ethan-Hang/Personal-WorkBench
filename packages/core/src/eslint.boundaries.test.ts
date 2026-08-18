@@ -53,6 +53,38 @@ describe('模块边界规则（架构守卫的回归测试）', () => {
     expect(messages.join('\n')).toContain('违反 packages/ui 的边界');
   });
 
+  it('模块 UI 不得出现裸的 /api/ 字符串字面量', async () => {
+    const messages = await messagesFor(
+      'modules/probe/src/ui/api.ts',
+      "export const p = '/api/other/things';\n",
+    );
+    expect(messages.join('\n')).toContain('模块 UI 不得硬编码 API 路径');
+  });
+
+  it('模板字面量同样被拦——bug 就是从模板字面量那侧漏进来的', async () => {
+    const messages = await messagesFor(
+      'modules/probe/src/ui/api.ts',
+      'export const p = (id: string) => `/api/other/things/${id}`;\n',
+    );
+    expect(messages.join('\n')).toContain('模块 UI 不得硬编码 API 路径');
+  });
+
+  it('contract.ts 里定义路径字面量是合法的——规则只管 ui/', async () => {
+    const messages = await messagesFor(
+      'modules/probe/src/contract.ts',
+      "export const API = { today: '/api/probe/today' };\n",
+    );
+    expect(messages.join('\n')).not.toContain('模块 UI 不得硬编码 API 路径');
+  });
+
+  it('测试文件豁免：断言 fetch 收到的 URL 是正当用法', async () => {
+    const messages = await messagesFor(
+      'modules/probe/src/ui/api.test.ts',
+      "const url = '/api/other/things';\n",
+    );
+    expect(messages.join('\n')).not.toContain('模块 UI 不得硬编码 API 路径');
+  });
+
   it('测试文件豁免不会波及生产文件', async () => {
     const exempt = await messagesFor(
       'modules/probe/src/probe.test.ts',

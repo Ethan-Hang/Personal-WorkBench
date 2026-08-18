@@ -4,6 +4,10 @@
 状态：设计已确认，待实现
 范围：`packages/core`、`modules/todo`、`docs/adr/0014`
 
+> **实施状态（2026-08-18）**：§4.1（补 `kind`）与 §5 的 lint 规则已在分支
+> `fix/cross-module-api-seam` 落地，六个必抛的写操作已修复。
+> §3 的 `ItemActions` 能力槽、§4.2、§4.3 **延缓**，另开分支。
+
 ## 1. 起因
 
 工作台今日页的 UI 搬迁已经完成——`packages/web/src/modules.ts` 现在只注册
@@ -179,10 +183,12 @@ export const todoUiModule: UiModuleDefinition = {
 
 ## 5. 明确不做
 
-- **禁裸字符串 `/api/<别的模块>/` 的 lint 规则**：本轮不落。现在落地会让
-  workbench 那 12 条立刻红掉，阻塞对方手头的活。等对方改用注册表、代码拉取合并后
-  单独一轮补上。**这条必须真的补**——`no-restricted-imports` 拦不住裸字符串，
-  这次就是证据。
+- ~~**禁裸字符串 `/api/<别的模块>/` 的 lint 规则**：本轮不落。~~
+  **已于 2026-08-18 落地**（分支 `fix/cross-module-api-seam`）：`eslint.config.js`
+  用 `no-restricted-syntax` 拦住 `modules/*/src/ui/**` 里以 `/api/` 开头的字符串
+  字面量与模板字面量，级别 `error`。实测精确命中 12 处、零误伤。workbench 那 12 条
+  已知违规用文件级 `eslint-disable` + TODO 显式标出，不阻塞对方。
+  **对方改用 `itemActions` 后需删掉那条 disable。**
 - `ItemActions.update`（见 §3.3）
 - 回收站页面归属（见 §3.4）
 - workbench UI 那 12 处调用的改写（归对方，见 §6）

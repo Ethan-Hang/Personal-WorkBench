@@ -13,6 +13,7 @@
     "@workbench/data": "*",
     "@workbench/module-campus-recruit": "*",
     "@workbench/module-todo": "*",
+    "@workbench/module-workbench": "*",
     "fastify": "^5.12.0"
   }
 }
