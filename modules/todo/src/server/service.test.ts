@@ -26,6 +26,7 @@ describe('createTask', () => {
     );
     const today = await listToday(ctx, { zone: SH, now: NOW });
     expect(today.tasks.map((t) => t.id)).toContain(task.id);
+    expect(task.sourceModule).toBe(TODO_MODULE_ID);
   });
 
   it('dueDate 被补成该本地日的最后一毫秒（spec §5.3 决策 ③）', async () => {
@@ -101,6 +102,23 @@ describe('listToday', () => {
 
     const today = await listToday(ctx, { zone: SH, now: NOW });
     expect(today.tasks.map((t) => t.title)).toContain('昨天没做完');
+  });
+
+  it('includes other modules and reports their sourceModule', async () => {
+    await ctx.items.create('campus-recruit', {
+      kind: 'task',
+      title: '投递 星云科技 固件工程师',
+      dueAt: '2026-09-20T15:59:59.999Z',
+      scheduled: { kind: 'all-day', date: '2026-09-20' },
+    });
+
+    const today = await listToday(ctx, { zone: SH, now: NOW });
+    expect(today.tasks).toContainEqual(
+      expect.objectContaining({
+        title: '投递 星云科技 固件工程师',
+        sourceModule: 'campus-recruit',
+      }),
+    );
   });
 
   it('已完成的任务不出现在 overdue 中', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { openTestDatabase } from '@workbench/data';
+import { openTestDatabase, SqliteItemRepository } from '@workbench/data';
 import { buildApp } from '@workbench/server';
 import { todoServerModule } from './index.js';
 
@@ -67,6 +67,24 @@ describe('todo HTTP 接口', () => {
 
   it('完成不存在的任务返回 404', async () => {
     const res = await app.inject({ method: 'POST', url: '/api/todo/tasks/nope/complete' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('完成其他模块的 Item 返回 404', async () => {
+    const { db } = openTestDatabase();
+    const items = new SqliteItemRepository(db);
+    const campusItem = await items.create('campus-recruit', {
+      kind: 'task',
+      title: '投递 星云科技 固件工程师',
+      scheduled: { kind: 'all-day', date: '2026-09-20' },
+    });
+    const todoApp = await buildApp({ db, modules: [todoServerModule] });
+
+    const res = await todoApp.inject({
+      method: 'POST',
+      url: `/api/todo/tasks/${campusItem.id}/complete`,
+    });
+
     expect(res.statusCode).toBe(404);
   });
 });

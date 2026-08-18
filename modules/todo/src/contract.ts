@@ -21,6 +21,7 @@ export type CreateTaskInput = z.infer<typeof createTaskInputSchema>;
 export const taskViewSchema = z.object({
   id: z.string(),
   title: z.string(),
+  sourceModule: z.string(),
   status: z.enum(ITEM_STATUSES),
   importance: importanceSchema,
   dueAt: z.string().nullable(),

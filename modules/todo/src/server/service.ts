@@ -27,6 +27,7 @@ function toView(item: Item, now: IsoInstant): TaskView {
   return {
     id: item.id,
     title: item.title,
+    sourceModule: item.sourceModule,
     status: item.status,
     importance: item.importance,
     dueAt: item.dueAt,
@@ -79,13 +80,11 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
     scheduledWithin: range,
     scheduledOnOrBeforeDate: date,
     statuses: [...OPEN_STATUSES],
-    sourceModules: [ctx.moduleId],
   });
 
   const overdueItems = await ctx.items.list({
     dueBefore: now,
     statuses: [...OPEN_STATUSES],
-    sourceModules: [ctx.moduleId],
   });
 
   const overdueIds = new Set(overdueItems.map((i) => i.id));

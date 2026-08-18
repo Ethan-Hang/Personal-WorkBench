@@ -32,6 +32,7 @@ beforeEach(() => {
         JSON.stringify({
           id: 'x1',
           title: '做完它',
+          sourceModule: 'todo',
           status: 'done',
           importance: 'normal',
           dueAt: null,
@@ -67,5 +68,11 @@ describe('request 的 Content-Type 处理', () => {
       JSON.stringify({ title: '写周报', importance: 'high', dueDate: null }),
     );
     expect(headerOf(calls[0]!.init, 'Content-Type')).toBe('application/json');
+  });
+
+  it('响应视图包含来源模块', async () => {
+    const task = await postComplete('x1');
+
+    expect(task.sourceModule).toBe('todo');
   });
 });

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Importance } from '@workbench/core';
 import { Button, Chip, Field, PageHeader, Panel, controlClass } from '@workbench/ui';
-import type { TaskView } from '../contract.js';
+import { TODO_MODULE_ID, type TaskView } from '../contract.js';
 import { fetchToday, postComplete, postTask } from './api.js';
 
 const TODAY_KEY = ['todo', 'today'] as const;
@@ -25,15 +25,26 @@ const URGENCY_TONE: Record<TaskView['urgency'], 'neutral' | 'warning' | 'critica
 };
 
 function TaskRow({ task, onComplete }: { task: TaskView; onComplete: (id: string) => void }) {
+  const isTodo = task.sourceModule === TODO_MODULE_ID;
+  const sourceLabel = task.sourceModule === 'campus-recruit' ? '秋招' : task.sourceModule;
+
   return (
     <li className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
-      <input
-        type="checkbox"
-        aria-label={`完成 ${task.title}`}
-        onChange={() => onComplete(task.id)}
-        className="size-[18px] rounded-[6px] accent-accent"
-      />
+      {isTodo ? (
+        <input
+          type="checkbox"
+          aria-label={`完成 ${task.title}`}
+          onChange={() => onComplete(task.id)}
+          className="size-[18px] rounded-[6px] accent-accent"
+        />
+      ) : (
+        <span
+          aria-hidden="true"
+          className="size-[18px] rounded-full border border-line bg-surface-2"
+        />
+      )}
       <span className="flex-1 text-[13px] font-semibold">{task.title}</span>
+      {!isTodo && <Chip tone="neutral">{sourceLabel}</Chip>}
       {task.isImportantQuadrant && <Chip tone="warning">重要</Chip>}
       <Chip tone={URGENCY_TONE[task.urgency]}>{URGENCY_LABEL[task.urgency]}</Chip>
     </li>
