@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Chip,
+  DatePicker,
   EmptyState,
   Field,
   IconBriefcase,
@@ -277,11 +278,11 @@ function ApplicationEditForm({
         </select>
       </Field>
       <Field label="申请截止日">
-        <input
-          type="date"
+        <DatePicker
           value={form.applyDeadlineDate}
-          onChange={(event) => set('applyDeadlineDate', event.target.value)}
-          className={controlClass}
+          onChange={(val) => set('applyDeadlineDate', val)}
+          placeholder="年 / 月 / 日"
+          className="w-full"
         />
       </Field>
       <Field label="薪资">
@@ -926,16 +927,16 @@ export function ApplicationsPage() {
             </select>
           </Field>
           <Field label="截止日">
-            <input
-              type="date"
+            <DatePicker
               value={createForm.applyDeadlineDate}
-              onChange={(event) =>
+              onChange={(val) =>
                 setCreateForm((current) => ({
                   ...current,
-                  applyDeadlineDate: event.target.value,
+                  applyDeadlineDate: val,
                 }))
               }
-              className={controlClass}
+              placeholder="年 / 月 / 日"
+              className="w-full"
             />
           </Field>
           <div className="sm:col-span-6">

@@ -11,6 +11,7 @@ export { ProgressBar, MetricRing } from './ProgressBar.js';
 export { QuickAddBar } from './QuickAddBar.js';
 export { Modal } from './Modal.js';
 export { EmptyState } from './EmptyState.js';
+export { DatePicker, type DatePickerProps } from './DatePicker.js';
 export { AppShell } from './AppShell.js';
 export type { ShellNavGroup, ShellNavItem } from './AppShell.js';
 export * from './icons.js';

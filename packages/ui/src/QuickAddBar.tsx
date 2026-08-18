@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { Button } from './Button.js';
-import { IconPlus, IconCalendar, IconAlertCircle } from './icons.js';
+import { DatePicker } from './DatePicker.js';
+import { IconPlus, IconAlertCircle } from './icons.js';
 
 export type QuickAddImportance = 'high' | 'normal' | 'low';
 
@@ -74,8 +75,9 @@ export function QuickAddBar({
       </div>
 
       {showOptions && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-3 border-t border-line/60 pt-2 text-xs">
-          <div className="flex items-center gap-1 text-secondary">
+        <div className="mt-2.5 flex flex-wrap items-center gap-4 border-t border-line/60 pt-2 text-xs">
+          {/* 重要度 */}
+          <div className="flex items-center gap-1.5 text-secondary">
             <IconAlertCircle size={13} className="text-muted" />
             <span className="text-[11px]">重要度:</span>
             <div className="inline-flex rounded-md bg-surface-2 p-0.5">
@@ -104,24 +106,16 @@ export function QuickAddBar({
             </div>
           </div>
 
+          {/* 截止日：精致的自定义年月日与日历组件 */}
           <div className="flex items-center gap-1.5 text-secondary">
-            <IconCalendar size={13} className="text-muted" />
             <span className="text-[11px]">截止日:</span>
-            <input
-              type="date"
+            <DatePicker
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-[11px] text-ink focus:outline-none"
+              onChange={setDueDate}
+              placeholder="年 / 月 / 日"
+              size="sm"
+              disabled={disabled}
             />
-            {dueDate && (
-              <button
-                type="button"
-                onClick={() => setDueDate('')}
-                className="text-[10px] text-muted hover:text-critical"
-              >
-                清除
-              </button>
-            )}
           </div>
         </div>
       )}
