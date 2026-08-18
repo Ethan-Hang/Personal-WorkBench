@@ -501,6 +501,65 @@
   animation-delay: 240ms;
 }
 
+@keyframes slideDownExpandIn {
+  0% {
+    opacity: 0;
+    max-height: 0px;
+    transform: translateY(-8px);
+    overflow: hidden;
+  }
+  100% {
+    opacity: 1;
+    max-height: 600px;
+    transform: translateY(0);
+    overflow: visible;
+  }
+}
+
+@keyframes slideUpCollapseOut {
+  0% {
+    opacity: 1;
+    max-height: 600px;
+    transform: translateY(0);
+    overflow: hidden;
+  }
+  100% {
+    opacity: 0;
+    max-height: 0px;
+    transform: translateY(-8px);
+    padding-top: 0px;
+    padding-bottom: 0px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    border-width: 0px;
+    overflow: hidden;
+  }
+}
+
+@keyframes itemSlideDownIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-expand-in {
+  animation: slideDownExpandIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-collapse-out {
+  animation: slideUpCollapseOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+  pointer-events: none !important;
+}
+
+.animate-item-enter {
+  animation: itemSlideDownIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
 /* 卡片悬浮动效 */
 .hover-lift {
   transition:

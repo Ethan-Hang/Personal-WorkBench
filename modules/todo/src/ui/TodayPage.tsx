@@ -26,7 +26,13 @@ import {
   IconInfo,
   IconX,
 } from '@workbench/ui';
-import { TODO_MODULE_ID, type TaskView, type UpdateTaskInput } from '../contract.js';
+import {
+  TODO_MODULE_ID,
+  type TaskView,
+  type TodayResponse,
+  type TrashResponse,
+  type UpdateTaskInput,
+} from '../contract.js';
 import {
   deleteTaskPermanently,
   fetchToday,
@@ -214,9 +220,9 @@ function TaskItemRow({
   const isUncompleting = animAction === 'uncomplete';
   const isTrashing = animAction === 'trash';
 
-  // 高性能 GPU 硬件加速时序动效样式类（完全由 CSS 关键帧驱动，消灭 React 重新渲染带来的卡顿）
+  // 高性能 GPU 硬件加速时序动效样式类与新项平滑滑入动效
   let animContainerClass =
-    'border border-transparent hover:border-line hover:bg-surface-2/60 max-h-28 opacity-100 translate-x-0 transition-all duration-200 ease-out';
+    'animate-item-enter border border-transparent hover:border-line hover:bg-surface-2/60 max-h-28 opacity-100 translate-x-0 transition-all duration-200 ease-out';
 
   if (isCompleting) {
     animContainerClass = 'animate-task-complete-out';
@@ -226,7 +232,7 @@ function TaskItemRow({
     animContainerClass = 'animate-task-trash-out';
   } else if (isCurrent) {
     animContainerClass =
-      'border border-accent/30 bg-accent-soft/70 shadow-xs max-h-28 opacity-100 translate-x-0 transition-all duration-200';
+      'animate-item-enter border border-accent/30 bg-accent-soft/70 shadow-xs max-h-28 opacity-100 translate-x-0 transition-all duration-200';
   }
 
   const effectiveChecked = isCompleted ? !isUncompleting : isCompleting;
@@ -465,94 +471,204 @@ export function TodayPage() {
     },
   });
 
+  // 逾期横幅从 0 到 1 与从 1 到 0（清空）的过渡动画状态管理
+  const currentOverdueCount = today.data?.overdue.length ?? 0;
+  const [renderedOverdueItems, setRenderedOverdueItems] = useState<TaskView[]>(
+    () => today.data?.overdue ?? [],
+  );
+  const [overdueAnimClass, setOverdueAnimClass] = useState<string>(() =>
+    currentOverdueCount > 0 ? 'animate-expand-in' : '',
+  );
+  const prevOverdueCountRef = useRef(currentOverdueCount);
+
+  useEffect(() => {
+    const prev = prevOverdueCountRef.current;
+    if (currentOverdueCount > 0) {
+      setRenderedOverdueItems(today.data?.overdue ?? []);
+      if (prev === 0) {
+        setOverdueAnimClass('animate-expand-in');
+      } else {
+        setOverdueAnimClass('');
+      }
+    } else if (currentOverdueCount === 0 && prev > 0) {
+      // 1 到 0：触发平滑收起高度与折叠淡出动画
+      setOverdueAnimClass('animate-collapse-out');
+      const timer = setTimeout(() => {
+        setRenderedOverdueItems([]);
+        setOverdueAnimClass('');
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+    prevOverdueCountRef.current = currentOverdueCount;
+  }, [currentOverdueCount, today.data?.overdue]);
+
+  // 已完成折叠区从 0 到 1 与从 1 到 0 的过渡动画状态管理
+  const currentDoneCount = (today.data?.completed ?? []).length;
+  const [renderedDoneTasks, setRenderedDoneTasks] = useState<TaskView[]>(
+    () => today.data?.completed ?? [],
+  );
+  const [doneSectionAnimClass, setDoneSectionAnimClass] = useState<string>(() =>
+    currentDoneCount > 0 ? 'animate-expand-in' : '',
+  );
+  const prevDoneCountRef = useRef(currentDoneCount);
+
+  useEffect(() => {
+    const prev = prevDoneCountRef.current;
+    if (currentDoneCount > 0) {
+      setRenderedDoneTasks(today.data?.completed ?? []);
+      if (prev === 0) {
+        setDoneSectionAnimClass('animate-expand-in');
+      } else {
+        setDoneSectionAnimClass('');
+      }
+    } else if (currentDoneCount === 0 && prev > 0) {
+      // 1 到 0：触发平滑收起高度与折叠淡出动画
+      setDoneSectionAnimClass('animate-collapse-out');
+      const timer = setTimeout(() => {
+        setRenderedDoneTasks([]);
+        setDoneSectionAnimClass('');
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+    prevDoneCountRef.current = currentDoneCount;
+  }, [currentDoneCount, today.data?.completed]);
+
   /**
-   * 待办完成极速高帧率硬件加速动效：
-   * 采用纯 CSS GPU Keyframe 驱动，包含原位点亮确认、匀速平滑右滑、高度坍缩三个完整时序，绝无卡顿
+   * 待办完成（乐观缓存同步 + 杜绝闪烁）：
    */
   function handleComplete(id: string) {
     setTaskAnimActions((prev) => new Map(prev).set(id, 'complete'));
 
     setTimeout(() => {
-      complete.mutate(id, {
-        onSettled: () => {
-          setTaskAnimActions((prev) => {
-            const next = new Map(prev);
-            next.delete(id);
-            return next;
-          });
-        },
+      queryClient.setQueryData<TodayResponse>(TODAY_KEY, (old) => {
+        if (!old) return old;
+        const targetTask =
+          old.tasks.find((t) => t.id === id) || old.overdue.find((t) => t.id === id);
+        if (!targetTask) return old;
+        const doneTask: TaskView = { ...targetTask, status: 'done' };
+        return {
+          ...old,
+          tasks: old.tasks.filter((t) => t.id !== id),
+          overdue: old.overdue.filter((t) => t.id !== id),
+          completed: [doneTask, ...(old.completed ?? []).filter((t) => t.id !== id)],
+        };
       });
+
+      setTaskAnimActions((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+
+      complete.mutate(id);
     }, 830);
   }
 
   /**
-   * 取消完成/重新打开待办动效：
+   * 取消完成/重新打开待办（乐观缓存同步 + 杜绝闪烁）：
    */
   function handleUncomplete(id: string) {
     setTaskAnimActions((prev) => new Map(prev).set(id, 'uncomplete'));
 
     setTimeout(() => {
-      uncomplete.mutate(id, {
-        onSettled: () => {
-          setTaskAnimActions((prev) => {
-            const next = new Map(prev);
-            next.delete(id);
-            return next;
-          });
-        },
+      queryClient.setQueryData<TodayResponse>(TODAY_KEY, (old) => {
+        if (!old) return old;
+        const targetTask = (old.completed ?? []).find((t) => t.id === id);
+        if (!targetTask) return old;
+        const reopenedTask: TaskView = { ...targetTask, status: 'todo' };
+        return {
+          ...old,
+          completed: (old.completed ?? []).filter((t) => t.id !== id),
+          tasks: [...old.tasks.filter((t) => t.id !== id), reopenedTask],
+        };
       });
+
+      setTaskAnimActions((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+
+      uncomplete.mutate(id);
     }, 730);
   }
 
   /**
-   * 移至回收站动效：
+   * 移至回收站（乐观缓存同步 + 杜绝闪烁）：
    */
   function handleTrash(taskItem: TaskView) {
     setTaskAnimActions((prev) => new Map(prev).set(taskItem.id, 'trash'));
 
     setTimeout(() => {
-      trash.mutate(taskItem.id, {
-        onSuccess: () => {
-          setUndoToast({ id: taskItem.id, title: taskItem.title });
-        },
-        onSettled: () => {
-          setTaskAnimActions((prev) => {
-            const next = new Map(prev);
-            next.delete(taskItem.id);
-            return next;
-          });
-        },
+      queryClient.setQueryData<TodayResponse>(TODAY_KEY, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          tasks: old.tasks.filter((t) => t.id !== taskItem.id),
+          overdue: old.overdue.filter((t) => t.id !== taskItem.id),
+          completed: (old.completed ?? []).filter((t) => t.id !== taskItem.id),
+        };
       });
+
+      queryClient.setQueryData<TrashResponse>(TRASH_KEY, (old) => {
+        if (!old) return old;
+        const trashedItem: TaskView = { ...taskItem, status: 'cancelled' };
+        return {
+          ...old,
+          items: [trashedItem, ...old.items.filter((i) => i.id !== taskItem.id)],
+        };
+      });
+
+      setTaskAnimActions((prev) => {
+        const next = new Map(prev);
+        next.delete(taskItem.id);
+        return next;
+      });
+
+      setUndoToast({ id: taskItem.id, title: taskItem.title });
+      trash.mutate(taskItem.id);
     }, 730);
   }
 
   function handleTrashSingleRestore(id: string) {
     setTrashAnimActions((prev) => new Map(prev).set(id, 'restore'));
     setTimeout(() => {
-      restore.mutate(id, {
-        onSettled: () => {
-          setTrashAnimActions((prev) => {
-            const next = new Map(prev);
-            next.delete(id);
-            return next;
-          });
-        },
+      queryClient.setQueryData<TrashResponse>(TRASH_KEY, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          items: old.items.filter((i) => i.id !== id),
+        };
       });
+
+      setTrashAnimActions((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+
+      restore.mutate(id);
     }, 730);
   }
 
   function handleTrashSingleDelete(id: string) {
     setTrashAnimActions((prev) => new Map(prev).set(id, 'delete'));
     setTimeout(() => {
-      deletePermanently.mutate(id, {
-        onSettled: () => {
-          setTrashAnimActions((prev) => {
-            const next = new Map(prev);
-            next.delete(id);
-            return next;
-          });
-        },
+      queryClient.setQueryData<TrashResponse>(TRASH_KEY, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          items: old.items.filter((i) => i.id !== id),
+        };
       });
+
+      setTrashAnimActions((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+
+      deletePermanently.mutate(id);
     }, 730);
   }
 
@@ -592,7 +708,7 @@ export function TodayPage() {
     );
   }
 
-  const { date, tasks, overdue, completed: completedTasks = [] } = today.data;
+  const { date, tasks, completed: completedTasks = [] } = today.data;
   const greeting = getGreeting(date);
 
   const pendingTasks = tasks.filter((t) => t.status !== 'done');
@@ -635,10 +751,10 @@ export function TodayPage() {
           </button>
         </div>
 
-        {/* 逾期任务智能折叠横幅 */}
-        {overdue.length > 0 && (
+        {/* 逾期任务智能折叠横幅（从 0 到 1 展开滑入，从 1 到 0 清空平滑折叠收起） */}
+        {renderedOverdueItems.length > 0 && (
           <section
-            className="overflow-hidden rounded-panel border border-critical/30 bg-critical-soft/60 transition-all shadow-xs"
+            className={`overflow-hidden rounded-panel border border-critical/30 bg-critical-soft/60 transition-all shadow-xs ${overdueAnimClass}`}
             aria-label="逾期任务警告"
           >
             <button
@@ -651,7 +767,7 @@ export function TodayPage() {
                   <IconAlertCircle size={13} />
                 </span>
                 <span className="text-xs font-bold text-critical">
-                  有 {overdue.length} 项已逾期任务，建议优先推进或调整计划
+                  有 {renderedOverdueItems.length} 项已逾期任务，建议优先推进或调整计划
                 </span>
               </div>
               <div className="flex items-center gap-1 text-xs font-semibold text-critical">
@@ -662,7 +778,7 @@ export function TodayPage() {
 
             {isOverdueExpanded && (
               <div className="border-t border-critical/20 px-3 py-3 space-y-1 bg-surface/80">
-                {overdue.map((t) => (
+                {renderedOverdueItems.map((t) => (
                   <TaskItemRow
                     key={t.id}
                     task={t}
@@ -685,11 +801,13 @@ export function TodayPage() {
           title="今日待办事项"
           hint={`${pendingTasks.length} 项进行中 · ${doneTasks.length} 项已完成`}
         >
-          {pendingTasks.length === 0 && doneTasks.length === 0 ? (
-            <EmptyState
-              title="今天还没有任何安排"
-              description="随手在下方记录第一件事，开始充实高效的一天吧。"
-            />
+          {pendingTasks.length === 0 && renderedDoneTasks.length === 0 ? (
+            <div className="animate-fade-in">
+              <EmptyState
+                title="今天还没有任何安排"
+                description="随手在下方记录第一件事，开始充实高效的一天吧。"
+              />
+            </div>
           ) : (
             <div className="space-y-3">
               {/* 进行中待办列表 */}
@@ -713,16 +831,16 @@ export function TodayPage() {
                   })}
                 </div>
               ) : (
-                <div className="rounded-control border border-good/30 bg-good-soft/40 p-3.5 text-center">
+                <div className="rounded-control border border-good/30 bg-good-soft/40 p-3.5 text-center animate-expand-in">
                   <span className="text-sm font-bold text-good">
                     🎉 棒极了！今日待办已全部完成，尽情享受专注带来的成果吧。
                   </span>
                 </div>
               )}
 
-              {/* 已完成事项分组折叠区（默认收起） */}
-              {doneTasks.length > 0 && (
-                <div className="border-t border-line/60 pt-3">
+              {/* 已完成事项分组折叠区（从 0 到 1 展开，从 1 到 0 平滑折叠收起） */}
+              {renderedDoneTasks.length > 0 && (
+                <div className={`border-t border-line/60 pt-3 ${doneSectionAnimClass}`}>
                   <button
                     type="button"
                     onClick={() => setIsCompletedExpanded(!isCompletedExpanded)}
@@ -732,7 +850,7 @@ export function TodayPage() {
                       <span className="flex size-4 items-center justify-center rounded-full bg-good/20 text-good text-[10px] font-bold">
                         ✓
                       </span>
-                      <span>已完成事项 ({doneTasks.length})</span>
+                      <span>已完成事项 ({renderedDoneTasks.length})</span>
                     </div>
                     <div className="flex items-center gap-1 text-[11px] text-muted font-normal">
                       <span>{isCompletedExpanded ? '收起' : '展开'}</span>
@@ -746,7 +864,7 @@ export function TodayPage() {
 
                   {isCompletedExpanded && (
                     <div className="mt-2 space-y-1.5 animate-slide-down-in">
-                      {doneTasks.map((task) => (
+                      {renderedDoneTasks.map((task) => (
                         <TaskItemRow
                           key={task.id}
                           task={task}
