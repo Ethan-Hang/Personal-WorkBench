@@ -398,10 +398,10 @@
   }
 }
 
-@keyframes slideUp {
+@keyframes slideDownIn {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(-28px);
   }
   to {
     opacity: 1;
@@ -409,10 +409,32 @@
   }
 }
 
-@keyframes slideDown {
+@keyframes slideRightIn {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateX(36px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideLeftIn {
+  from {
+    opacity: 0;
+    transform: translateX(-36px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideUpIn {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
   }
   to {
     opacity: 1;
@@ -423,7 +445,7 @@
 @keyframes scaleIn {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: scale(0.94);
   }
   to {
     opacity: 1;
@@ -431,42 +453,63 @@
   }
 }
 
+@keyframes spinRing {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 .animate-fade-in {
-  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.animate-slide-up {
-  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.animate-slide-down-in {
+  animation: slideDownIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.animate-slide-down {
-  animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+.animate-slide-right-in {
+  animation: slideRightIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-left-in {
+  animation: slideLeftIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-up-in {
+  animation: slideUpIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-spin-ring {
+  animation: spinRing 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 /* 阶梯进入动效 (Staggered Children) */
 .stagger-1 {
-  animation-delay: 50ms;
+  animation-delay: 80ms;
 }
 .stagger-2 {
-  animation-delay: 100ms;
+  animation-delay: 160ms;
 }
 .stagger-3 {
-  animation-delay: 150ms;
+  animation-delay: 240ms;
 }
 
-/* 卡片轻微悬浮动效 */
+/* 卡片悬浮动效 */
 .hover-lift {
   transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease;
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .hover-lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.09);
 }
 
 /* ==========================================================================

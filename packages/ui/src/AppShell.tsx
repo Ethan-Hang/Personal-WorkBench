@@ -10,6 +10,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconSettings,
+  IconInfo,
 } from './icons.js';
 
 export interface ShellNavItem {
@@ -48,6 +49,7 @@ export function AppShell({
     if (path === '/campus') return <IconBriefcase size={16} />;
     if (path === '/campus/stats') return <IconBarChart size={16} />;
     if (path === '/settings') return <IconSettings size={16} />;
+    if (path === '/about') return <IconInfo size={16} />;
     return <IconCheckSquare size={16} />;
   };
 
@@ -55,42 +57,58 @@ export function AppShell({
     <div className="min-h-screen bg-page text-ink transition-colors duration-200 flex">
       {/* 侧边栏 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ${
+        className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out ${
           isSidebarCollapsed ? 'w-16' : 'w-64'
         } sm:static`}
       >
-        {/* 品牌标识与顶部折叠按钮 */}
-        <div className="flex h-16 items-center justify-between px-3.5 border-b border-sidebar-line/40">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white font-extrabold text-sm shadow-xs">
-              序
-            </div>
-            {!isSidebarCollapsed && (
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <h1 className="text-sm font-bold tracking-tight text-white truncate leading-tight">
-                  个人工作台
-                </h1>
-                <p className="text-[10px] text-sidebar-muted truncate leading-tight">
-                  把计划变成真实行动
-                </p>
+        {/* 顶部品牌与折叠按钮区 */}
+        <div className="flex h-16 items-center px-3 border-b border-sidebar-line/40 shrink-0">
+          {isSidebarCollapsed ? (
+            /* 折叠状态下：居中单独展示展开按钮 */
+            <button
+              type="button"
+              onClick={() => setIsSidebarCollapsed(false)}
+              aria-label="展开侧边栏"
+              title="展开侧边栏"
+              className="group mx-auto flex size-10 items-center justify-center rounded-xl bg-accent text-white font-extrabold text-sm shadow-xs transition-all hover:scale-105 hover:shadow-md"
+            >
+              <span className="group-hover:hidden">序</span>
+              <span className="hidden group-hover:inline-flex">
+                <IconChevronRight size={16} />
+              </span>
+            </button>
+          ) : (
+            /* 展开状态下：左侧品牌，右侧折叠按钮 */
+            <div className="flex w-full items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white font-extrabold text-sm shadow-xs">
+                  序
+                </div>
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <h1 className="text-sm font-bold tracking-tight text-white truncate leading-tight">
+                    个人工作台
+                  </h1>
+                  <p className="text-[10px] text-sidebar-muted truncate leading-tight">
+                    把计划变成真实行动
+                  </p>
+                </div>
               </div>
-            )}
-          </div>
 
-          {/* 醒目的顶部收起/展开按钮 */}
-          <button
-            type="button"
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            aria-label={isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-            title={isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
-            className="flex size-7 items-center justify-center rounded-lg border border-sidebar-line/50 bg-sidebar-active/40 text-sidebar-muted hover:bg-sidebar-active hover:text-white hover:border-sidebar-line transition-all shadow-2xs"
-          >
-            {isSidebarCollapsed ? <IconChevronRight size={14} /> : <IconChevronLeft size={14} />}
-          </button>
+              <button
+                type="button"
+                onClick={() => setIsSidebarCollapsed(true)}
+                aria-label="收起侧边栏"
+                title="收起侧边栏"
+                className="flex size-7 items-center justify-center rounded-lg border border-sidebar-line/50 bg-sidebar-active/40 text-sidebar-muted hover:bg-sidebar-active hover:text-white hover:border-sidebar-line transition-all shadow-2xs shrink-0 ml-2"
+              >
+                <IconChevronLeft size={14} />
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* 导航分组列表 */}
-        <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4">
+        {/* 顶部主导航分组列表 */}
+        <nav className="flex-1 space-y-6 overflow-y-auto px-2.5 py-4">
           {navGroups.map((group, gIdx) => (
             <div key={group.label || gIdx} className="space-y-1">
               {!isSidebarCollapsed && group.label && (
@@ -106,13 +124,22 @@ export function AppShell({
                     to={item.path}
                     href={item.path}
                     title={isSidebarCollapsed ? item.label : undefined}
-                    className={`group flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all ${
+                    className={`relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out ${
                       isActive
-                        ? 'bg-sidebar-active text-white shadow-xs font-semibold'
-                        : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
-                    }`}
+                        ? 'bg-sidebar-active text-white shadow-xs font-semibold translate-x-0.5'
+                        : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white hover:translate-x-0.5'
+                    } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
                   >
-                    <span className="shrink-0 text-sidebar-icon group-hover:text-white transition-colors">
+                    {/* 当前激活项的左侧高亮指示条 */}
+                    {isActive && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent animate-scale-in" />
+                    )}
+
+                    <span
+                      className={`shrink-0 transition-colors duration-200 ${
+                        isActive ? 'text-white' : 'text-sidebar-icon'
+                      }`}
+                    >
                       {item.icon ?? defaultIconForPath(item.path)}
                     </span>
                     {!isSidebarCollapsed && <span className="flex-1 truncate">{item.label}</span>}
@@ -126,35 +153,73 @@ export function AppShell({
               })}
             </div>
           ))}
-
-          {/* 系统设置入口 */}
-          <div className="pt-2 border-t border-sidebar-line/30 space-y-1">
-            {!isSidebarCollapsed && (
-              <div className="px-2.5 pb-1 text-[10px] font-bold tracking-wider text-sidebar-muted uppercase">
-                系统
-              </div>
-            )}
-            <Link
-              to="/settings"
-              href="/settings"
-              title={isSidebarCollapsed ? '系统设置' : undefined}
-              className={`group flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all ${
-                activePath === '/settings'
-                  ? 'bg-sidebar-active text-white shadow-xs font-semibold'
-                  : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white'
-              }`}
-            >
-              <span className="shrink-0 text-sidebar-icon group-hover:text-white transition-colors">
-                <IconSettings size={16} />
-              </span>
-              {!isSidebarCollapsed && <span className="flex-1 truncate">偏好设置</span>}
-            </Link>
-          </div>
         </nav>
 
+        {/* 底部固定系统导航项：设置与关于（置于底部，紧挨在本地 SQLite 数据库状态上方） */}
+        <div className="mt-auto border-t border-sidebar-line/40 px-2.5 py-2.5 space-y-1 shrink-0">
+          {!isSidebarCollapsed && (
+            <div className="px-2.5 pb-1 text-[10px] font-bold tracking-wider text-sidebar-muted uppercase">
+              系统
+            </div>
+          )}
+
+          {/* 倒数第二条：偏好设置 */}
+          <Link
+            to="/settings"
+            href="/settings"
+            title={isSidebarCollapsed ? '偏好设置' : undefined}
+            className={`relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out ${
+              activePath === '/settings'
+                ? 'bg-sidebar-active text-white shadow-xs font-semibold translate-x-0.5'
+                : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white hover:translate-x-0.5'
+            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+          >
+            {activePath === '/settings' && (
+              <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent animate-scale-in" />
+            )}
+            <span
+              className={`shrink-0 transition-colors duration-200 ${
+                activePath === '/settings' ? 'text-white' : 'text-sidebar-icon'
+              }`}
+            >
+              <IconSettings size={16} />
+            </span>
+            {!isSidebarCollapsed && <span className="flex-1 truncate">偏好设置</span>}
+          </Link>
+
+          {/* 倒数第一条：关于工作台 */}
+          <Link
+            to="/about"
+            href="/about"
+            title={isSidebarCollapsed ? '关于工作台' : undefined}
+            className={`relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out ${
+              activePath === '/about'
+                ? 'bg-sidebar-active text-white shadow-xs font-semibold translate-x-0.5'
+                : 'text-sidebar-text hover:bg-sidebar-hover hover:text-white hover:translate-x-0.5'
+            } ${isSidebarCollapsed ? 'justify-center px-0' : ''}`}
+          >
+            {activePath === '/about' && (
+              <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-accent animate-scale-in" />
+            )}
+            <span
+              className={`shrink-0 transition-colors duration-200 ${
+                activePath === '/about' ? 'text-white' : 'text-sidebar-icon'
+              }`}
+            >
+              <IconInfo size={16} />
+            </span>
+            {!isSidebarCollapsed && <span className="flex-1 truncate">关于工作台</span>}
+          </Link>
+        </div>
+
         {/* 侧边栏底部状态 */}
-        <div className="border-t border-sidebar-line/40 p-3">
-          <div className="flex items-center gap-2 text-[11px] text-sidebar-muted">
+        <div className="border-t border-sidebar-line/40 p-3 shrink-0">
+          <div
+            className={`flex items-center gap-2 text-[11px] text-sidebar-muted ${
+              isSidebarCollapsed ? 'justify-center' : ''
+            }`}
+            title="本地 SQLite 数据库已就绪"
+          >
             <IconDatabase size={13} className="text-good shrink-0" />
             {!isSidebarCollapsed && <span className="truncate">{dbStatus}</span>}
           </div>
@@ -172,8 +237,10 @@ export function AppShell({
               <span className="font-semibold text-ink">
                 {activePath === '/settings'
                   ? '偏好设置'
-                  : (navGroups.flatMap((g) => g.items).find((i) => i.path === activePath)?.label ??
-                    '概览')}
+                  : activePath === '/about'
+                    ? '关于工作台'
+                    : (navGroups.flatMap((g) => g.items).find((i) => i.path === activePath)
+                        ?.label ?? '概览')}
               </span>
             </div>
           </div>
@@ -200,7 +267,7 @@ export function AppShell({
         </header>
 
         {/* 页面主内容 */}
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8 animate-fade-in">
+        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
       </div>
