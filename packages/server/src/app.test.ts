@@ -1,8 +1,76 @@
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
-import type { ServerModuleDefinition } from '@workbench/core';
+import { localDayOf, nowIso, type ServerModuleDefinition } from '@workbench/core';
 import { openTestDatabase } from '@workbench/data';
+import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
+import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
+import { todoServerModule } from '@workbench/module-todo';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
+
+const compositionDeadlineMs = 10_000;
+const readinessRequestTimeoutMs = 500;
+const compositionTestTimeoutMs = 20_000;
+
+async function unusedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  if (address === null || typeof address === 'string') throw new Error('无法分配测试端口');
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error === undefined ? resolve() : reject(error)));
+  });
+  return address.port;
+}
+
+async function waitUntilReady(
+  origin: string,
+  child: ChildProcessWithoutNullStreams,
+  deadline: number,
+): Promise<void> {
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`服务端提前退出：${child.exitCode}`);
+    try {
+      const response = await fetch(`${origin}/api/health`, {
+        signal: signalBefore(deadline, readinessRequestTimeoutMs),
+      });
+      if (response.ok) return;
+    } catch {
+      // 启动中的连接失败是预期状态，继续短暂轮询。
+    }
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.min(50, remainingMs)));
+    }
+  }
+  throw new Error('等待测试服务端启动超时');
+}
+
+function signalBefore(deadline: number, maximumMs?: number): AbortSignal {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) throw new Error('正式服务端入口验收已超过总截止时间');
+  return AbortSignal.timeout(Math.min(remainingMs, maximumMs ?? remainingMs));
+}
+
+async function stopServer(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const forceKill = setTimeout(() => child.kill('SIGKILL'), 3_000);
+    forceKill.unref();
+    child.once('exit', () => {
+      clearTimeout(forceKill);
+      resolve();
+    });
+    child.kill();
+  });
+}
 
 function fakeModule(id: string, calls: string[]): ServerModuleDefinition {
   return {
@@ -55,4 +123,85 @@ describe('buildApp', () => {
     expect(createdSource).toBe('probe');
     await app.close();
   });
+
+  it('注册 todo 与 campus 模块后，今日工作台可见秋招截止事项', async () => {
+    const { db, sqlite } = openTestDatabase();
+    const campus = createCampusRecruitServerModule(new SqliteCampusRecruitRepository(sqlite));
+    const app = await buildApp({ db, modules: [todoServerModule, campus] });
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const todayDate = localDayOf(nowIso(), zone);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/campus/applications',
+      payload: {
+        company: '星云科技',
+        position: '固件工程师',
+        priority: 'S',
+        applyDeadlineDate: todayDate,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const today = await app.inject({ method: 'GET', url: '/api/todo/today' });
+    expect(today.statusCode).toBe(200);
+    expect(today.json().tasks).toContainEqual(
+      expect.objectContaining({
+        title: '投递 星云科技 固件工程师',
+        sourceModule: 'campus-recruit',
+      }),
+    );
+
+    await app.close();
+    sqlite.close();
+  });
+
+  it(
+    '正式服务端入口注册 campus 模块并把今日截止事项聚合到 Today',
+    async () => {
+      const tempDirectory = await mkdtemp(join(tmpdir(), 'workbench-campus-'));
+      let child: ChildProcessWithoutNullStreams | undefined;
+
+      try {
+        const databasePath = join(tempDirectory, 'acceptance.db');
+        const port = await unusedPort();
+        const origin = `http://127.0.0.1:${port}`;
+        child = spawn(process.execPath, ['--import', 'tsx', 'packages/server/src/index.ts'], {
+          cwd: process.cwd(),
+          env: { ...process.env, PORT: String(port), WORKBENCH_DB: databasePath },
+        });
+        const deadline = Date.now() + compositionDeadlineMs;
+
+        await waitUntilReady(origin, child, deadline);
+        const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const created = await fetch(`${origin}/api/campus/applications`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            company: '星云科技',
+            position: '固件工程师',
+            priority: 'S',
+            applyDeadlineDate: localDayOf(nowIso(), zone),
+          }),
+          signal: signalBefore(deadline),
+        });
+        expect(created.status).toBe(201);
+
+        const today = await fetch(`${origin}/api/todo/today`, {
+          signal: signalBefore(deadline),
+        });
+        expect(today.status).toBe(200);
+        expect((await today.json()).tasks).toContainEqual(
+          expect.objectContaining({
+            title: '投递 星云科技 固件工程师',
+            sourceModule: 'campus-recruit',
+          }),
+        );
+      } finally {
+        if (child !== undefined) await stopServer(child);
+        await rm(tempDirectory, { recursive: true, force: true });
+      }
+    },
+    compositionTestTimeoutMs,
+  );
 });

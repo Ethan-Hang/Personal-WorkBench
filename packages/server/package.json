@@ -11,6 +11,7 @@
   "dependencies": {
     "@workbench/core": "*",
     "@workbench/data": "*",
+    "@workbench/module-campus-recruit": "*",
     "@workbench/module-todo": "*",
     "fastify": "^5.12.0"
   }
