@@ -11,8 +11,10 @@ import {
   type UpdateTaskInput,
 } from '../contract.js';
 
-async function request(url: string, init?: RequestInit): Promise<unknown> {
-  const headers = init?.body === undefined ? undefined : { 'Content-Type': 'application/json' };
+async function request(url: string, init: RequestInit = {}): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
+
   const res = await fetch(url, { ...init, headers });
   if (res.status === 204) {
     return null;
