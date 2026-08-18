@@ -196,6 +196,50 @@ export function runItemRepositoryContract(
       expect(found.map((i) => i.title)).toEqual(['已逾期']);
     });
 
+    it('list 按 scheduledDateBetween 取区间内的全天事项（含端点）', async () => {
+      for (const date of ['2026-09-18', '2026-09-20', '2026-09-22', '2026-09-24']) {
+        await repo.create('todo', {
+          kind: 'task',
+          title: date,
+          scheduled: { kind: 'all-day', date },
+        });
+      }
+
+      const found = await repo.list({
+        scheduledDateBetween: { from: '2026-09-20', to: '2026-09-22' },
+      });
+      expect(found.map((i) => i.title).sort()).toEqual(['2026-09-20', '2026-09-22']);
+    });
+
+    it('scheduledDateBetween 不抓定时事项，与 scheduledWithin 取并集', async () => {
+      await repo.create('todo', {
+        kind: 'task',
+        title: '全天',
+        scheduled: { kind: 'all-day', date: '2026-09-20' },
+      });
+      await repo.create('campus-recruit', {
+        kind: 'event',
+        title: '定时',
+        scheduled: { kind: 'timed', start: '2026-09-20T11:00:00.000Z' },
+      });
+
+      // 单给日期区间：只得到全天的
+      const dateOnly = await repo.list({
+        scheduledDateBetween: { from: '2026-09-20', to: '2026-09-20' },
+      });
+      expect(dateOnly.map((i) => i.title)).toEqual(['全天']);
+
+      // 两个条件同时给出：并集，日历需要的正是这个
+      const both = await repo.list({
+        scheduledDateBetween: { from: '2026-09-20', to: '2026-09-20' },
+        scheduledWithin: {
+          startUtc: '2026-09-19T16:00:00.000Z',
+          endUtc: '2026-09-20T16:00:00.000Z',
+        },
+      });
+      expect(both.map((i) => i.title).sort()).toEqual(['全天', '定时']);
+    });
+
     it('list 按 unscheduled 只取未排程的 Item', async () => {
       await repo.create('todo', {
         kind: 'task',

@@ -48,3 +48,15 @@ export function endOfLocalDayUtc(date: PlainDate, zone: string): IsoInstant {
   const end = assertValid(DateTime.fromISO(date, { zone }), date).endOf('day');
   return new Date(end.toUTC().toMillis()).toISOString();
 }
+
+/**
+ * 把时刻截到分钟（秒与毫秒归零）。
+ *
+ * 排程的颗粒度是 1 分钟，这条由服务端保证而非靠调用方自觉——
+ * 前端从日期选择器拿到的时刻可能带着秒，直接入库会让同一分钟里出现
+ * 多个不相等的排程值，日历上就成了肉眼看不出差别的重叠块。
+ */
+export function truncateToMinute(instant: IsoInstant): IsoInstant {
+  const dt = assertValid(DateTime.fromISO(instant, { zone: 'utc' }), instant);
+  return new Date(dt.startOf('minute').toMillis()).toISOString();
+}

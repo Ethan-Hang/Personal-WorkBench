@@ -144,7 +144,7 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 
 已知限制：不存每记录时区，跨时区旅行时旧排程会显示偏移。见 `docs/adr/0004-time-storage.md`。
 
-### 排程：跨模块，且只到天
+### 排程：跨模块，颗粒度 1 分钟
 
 `scheduled`（打算哪天做）属于使用者，不属于创建事项的模块。所以工作台的排程
 端点**不校验 `sourceModule`**，可以给任何模块的 Item 排程。
@@ -154,8 +154,20 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 下次对账会覆盖回去——症状是「点了完成，刷新又变回来」。
 **「完成」属于源模块的领域语义，「排程」不属于任何模块。**
 
-**排程只到天**，入参是 `{ date: 'YYYY-MM-DD' | null }`，写入恒为 `all-day` 分支。
-这条在服务端焊死，不只在 UI 上限制。排程只写 `scheduled`，**绝不碰 `due_at`**。
+**排程的颗粒度是 1 分钟，且由服务端保证。** 入参与 core 的 `ScheduledTime` 同构：
+`{ scheduled: { kind: 'all-day', date } | { kind: 'timed', start, end? } | null }`。
+
+写入前一律经 `truncateToMinute` 把秒与毫秒截零，**三个模块都适用**（todo 的建/改、
+workbench 的排程、campus-recruit 的轮次时刻）。不截的后果是同一分钟里出现多个不相等的
+排程值，日历上就成了肉眼看不出差别的重叠块。
+
+`start` / `end` 是 **UTC 时刻，由前端换算好再发**——它知道用户在哪个时区，服务端只知道
+自己进程的时区。这与 `dueDate` 传本地 `YYYY-MM-DD` 由服务端补成的做法**刻意不对称**：
+日期只有一种合理解释，时刻没有。
+
+排程只写 `scheduled`，**绝不碰 `due_at`**。
+
+日历取数用 `GET /api/workbench/calendar?from=&to=`（本地浮动日期，含两端，上限 96 天）。
 
 一条现存的坑：**手动给秋招 Item 排程，重启会回弹**（对账覆盖）。这是正确行为——
 笔试时间是客观事实，不是「我打算什么时候做」。但**周日历 UI 开工前必须先解决

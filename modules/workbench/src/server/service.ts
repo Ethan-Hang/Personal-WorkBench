@@ -6,12 +6,16 @@ import {
   localDayRange,
   nowIso,
   priorityScore,
+  scheduledSortKey,
+  truncateToMinute,
   type IsoInstant,
   type Item,
   type ModuleContext,
   type ScheduledTime,
 } from '@workbench/core';
 import type {
+  CalendarQuery,
+  CalendarResponse,
   ScheduleInput,
   ScheduledTimeView,
   TodayResponse,
@@ -73,6 +77,20 @@ function byPriority(a: WorkbenchItem, b: WorkbenchItem): number {
   return a.dueAt < b.dueAt ? -1 : a.dueAt > b.dueAt ? 1 : 0;
 }
 
+/**
+ * 日历顺序：按排程先后，同时刻时按优先级。
+ *
+ * 排序键直接用 core 的 `scheduledSortKey`，不在这里重写一遍规则。
+ * 它保证 '2026-09-20' < '2026-09-20T09:00:00.000Z'，因此当天的全天事项
+ * 天然排在定时事项之前——正是日历应有的顺序（spec §6.3）。
+ */
+function bySchedule(a: WorkbenchItem, b: WorkbenchItem): number {
+  const ka = a.scheduled === null ? '' : scheduledSortKey(a.scheduled);
+  const kb = b.scheduled === null ? '' : scheduledSortKey(b.scheduled);
+  if (ka !== kb) return ka < kb ? -1 : 1;
+  return byPriority(a, b);
+}
+
 /** 「还没做完」的四个状态。cancelled 不在其中——它是 todo 的回收站（ADR-0009）。 */
 const OPEN_STATUSES = ['inbox', 'todo', 'doing'] as const;
 
@@ -124,7 +142,7 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
  *
  * 注意：目前两个既有模块建 Item 时都会填上 scheduled——todo 默认排今天，
  * 秋招投影带着客观时间——所以抽屉的现实数据源只有本模块的
- * `scheduleItem(id, { date: null })`。见 ADR-0012「已知限制」。
+ * `scheduleItem(id, { scheduled: null })`。见 ADR-0012「已知限制」。
  */
 export async function listUnscheduled(
   ctx: ModuleContext,
@@ -140,7 +158,29 @@ export async function listUnscheduled(
 }
 
 /**
- * 排程：把事项放到某一天，或取消排程退回抽屉。
+ * 接缝形状 → core 的 ScheduledTime，并把定时分支的颗粒度压到分钟。
+ *
+ * 截零发生在这里而不是 Zod schema 里：schema 是前后端共用的**形状**描述，
+ * 在它上面挂 transform 会让前端 parse 响应时也跟着改数据。归一化是服务端的事。
+ */
+function toScheduledTime(input: ScheduledTimeView | null): ScheduledTime | null {
+  if (input === null) return null;
+  switch (input.kind) {
+    case 'all-day':
+      return { kind: 'all-day', date: input.date };
+    case 'timed':
+      return input.end === undefined
+        ? { kind: 'timed', start: truncateToMinute(input.start) }
+        : {
+            kind: 'timed',
+            start: truncateToMinute(input.start),
+            end: truncateToMinute(input.end),
+          };
+  }
+}
+
+/**
+ * 排程：把事项放到某一天、某个时刻，或取消排程退回抽屉。
  *
  * **不校验 sourceModule** —— 排程是跨模块能力，这正是工作台的意义（ADR-0012）。
  * 只写 scheduled，绝不碰 dueAt：死线是客观的，排程是主观意图，
@@ -159,10 +199,36 @@ export async function scheduleItem(
     throw new Error(`事项不存在：${id}`);
   }
 
-  // 排程只到天：写入恒为 all-day 分支（spec §14.3）
-  const scheduled: ScheduledTime | null =
-    input.date === null ? null : { kind: 'all-day', date: input.date };
-
-  const updated = await ctx.items.update(id, { scheduled });
+  const updated = await ctx.items.update(id, { scheduled: toScheduledTime(input.scheduled) });
   return toView(updated, now);
+}
+
+/**
+ * 日历区间取数。`from` / `to` 是本地浮动日期，**含两端**。
+ *
+ * 两类事项一次取全：全天的按浮动日期区间比字符串，定时的按 UTC 区间比时刻。
+ * 时区换算只在这里做一次（`localDayRange`），SQL 层仍然只做字符串比较（spec §6.4）。
+ */
+export async function listCalendar(
+  ctx: ModuleContext,
+  query: CalendarQuery,
+  opts: ServiceOptions,
+): Promise<CalendarResponse> {
+  const now = resolveNow(opts);
+  const startUtc = localDayRange(query.from, opts.zone).startUtc;
+  const endUtc = localDayRange(query.to, opts.zone).endUtc;
+
+  const items = await ctx.items.list({
+    scheduledWithin: { startUtc, endUtc },
+    scheduledDateBetween: { from: query.from, to: query.to },
+    // 回收站里的事项不该出现在日历上；已完成的要显示，划掉也是信息
+    statuses: [...OPEN_STATUSES, 'done'],
+  });
+
+  return {
+    from: query.from,
+    to: query.to,
+    zone: opts.zone,
+    items: items.map((i) => toView(i, now)).sort(bySchedule),
+  };
 }

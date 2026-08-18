@@ -1,5 +1,12 @@
 export type { IsoInstant, PlainDate } from './time.js';
-export { nowIso, toIsoInstant, localDayOf, localDayRange, endOfLocalDayUtc } from './time.js';
+export {
+  nowIso,
+  toIsoInstant,
+  localDayOf,
+  localDayRange,
+  endOfLocalDayUtc,
+  truncateToMinute,
+} from './time.js';
 
 export type { ItemKind, ItemStatus, Importance, ScheduledTime, Item } from './item.js';
 export {
