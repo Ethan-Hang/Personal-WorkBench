@@ -57,9 +57,9 @@ export function AppShell({
     <div className="min-h-screen bg-page text-ink transition-colors duration-200 flex">
       {/* 侧边栏 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out ${
+        className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-screen sm:shrink-0 ${
           isSidebarCollapsed ? 'w-16' : 'w-64'
-        } sm:static`}
+        }`}
       >
         {/* 顶部品牌与折叠按钮区 */}
         <div className="flex h-16 items-center px-3 border-b border-sidebar-line/40 shrink-0">

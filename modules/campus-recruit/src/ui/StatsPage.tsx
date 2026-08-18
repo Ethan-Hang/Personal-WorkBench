@@ -6,6 +6,7 @@ import { fetchStats } from './api.js';
 const STATS_KEY = ['campus', 'stats'] as const;
 
 const KIND_LABEL: Record<RoundKind, string> = {
+  screening: '简历初筛',
   assessment: '测评',
   written: '笔试',
   technical: '技术面',

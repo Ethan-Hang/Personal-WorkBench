@@ -3,7 +3,14 @@ import { z } from 'zod';
 export const CAMPUS_RECRUIT_MODULE_ID = 'campus-recruit';
 export const APPLICATION_PRIORITIES = ['S', 'A', 'B', 'C'] as const;
 export const APPLICATION_OUTCOMES = ['offer', 'oc', 'rejected', 'declined'] as const;
-export const ROUND_KINDS = ['assessment', 'written', 'technical', 'hr', 'other'] as const;
+export const ROUND_KINDS = [
+  'screening',
+  'assessment',
+  'written',
+  'technical',
+  'hr',
+  'other',
+] as const;
 export const ROUND_OUTCOMES = ['pending', 'passed', 'failed'] as const;
 export const APPLICATION_STATUS_CODES = [
   'offer',

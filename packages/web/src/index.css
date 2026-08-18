@@ -595,6 +595,29 @@
   animation: itemSlideDownIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* ==========================================================================
+   原地折叠展开平滑动效 (In-place Accordion Expand/Collapse)
+   ========================================================================== */
+.accordion-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 250ms ease-out;
+  opacity: 0;
+  will-change: grid-template-rows, opacity;
+}
+
+.accordion-wrapper.is-expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.accordion-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
 /* 卡片悬浮动效 */
 .hover-lift {
   transition:
