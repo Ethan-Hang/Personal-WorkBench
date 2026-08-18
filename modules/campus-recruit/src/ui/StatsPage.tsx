@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Button, PageHeader, Panel } from '@workbench/ui';
+import { Button, PageHeader, Panel, ProgressBar } from '@workbench/ui';
 import type { RoundKind, StatsResponse } from '../contract.js';
 import { fetchStats } from './api.js';
 
@@ -81,30 +81,18 @@ function FailureDistribution({ stats }: { stats: StatsResponse }) {
   }
 
   return (
-    <ul className="space-y-3" aria-label="失败轮次分布">
+    <ul className="space-y-3.5" aria-label="失败轮次分布">
       {stats.failedByKind.map(({ kind, count }) => {
         const proportion = (count / failedRoundCount) * 100;
         return (
           <li key={kind}>
             <div className="mb-1 flex items-baseline justify-between gap-3 text-[13px]">
-              <span className="font-semibold">{KIND_LABEL[kind]}</span>
-              <span className="shrink-0 tabular-nums text-secondary">
+              <span className="font-semibold text-ink">{KIND_LABEL[kind]}</span>
+              <span className="shrink-0 tabular-nums text-secondary font-medium">
                 {count} 次 · {proportion.toFixed(1)}%
               </span>
             </div>
-            <div
-              className="h-2 overflow-hidden rounded-full bg-surface-2"
-              role="progressbar"
-              aria-label={`${KIND_LABEL[kind]}失败轮次占比`}
-              aria-valuemin={0}
-              aria-valuemax={failedRoundCount}
-              aria-valuenow={count}
-            >
-              <div
-                className="h-full rounded-full bg-critical"
-                style={{ width: `${proportion}%` }}
-              />
-            </div>
+            <ProgressBar value={count} max={failedRoundCount} tone="critical" size="md" />
           </li>
         );
       })}

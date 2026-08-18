@@ -6,10 +6,53 @@
 /* 共享原语同理，它们的类名也在扫描范围之外。 */
 @source "../../ui";
 
-/* 「现代温暖」：暖中性打底，冷色做强调。
-   取值来自 prototype-workbench/styles.css —— 那是原型阶段已确认的方向，
-   不是在这里重新发明的。改配色请改这里，不要改各页面的 class。 */
+/* ==========================================================================
+   Tailwind v4 主题映射（基于 CSS 变量，支持实时主题与深浅色模式切换）
+   ========================================================================== */
 @theme {
+  --color-page: var(--color-page);
+  --color-surface: var(--color-surface);
+  --color-surface-2: var(--color-surface-2);
+  --color-line: var(--color-line);
+
+  --color-ink: var(--color-ink);
+  --color-secondary: var(--color-secondary);
+  --color-muted: var(--color-muted);
+
+  --color-accent: var(--color-accent);
+  --color-accent-soft: var(--color-accent-soft);
+
+  --color-good: var(--color-good);
+  --color-good-soft: var(--color-good-soft);
+  --color-warning: var(--color-warning);
+  --color-warning-soft: var(--color-warning-soft);
+  --color-critical: var(--color-critical);
+  --color-critical-soft: var(--color-critical-soft);
+  --color-goal: var(--color-goal);
+  --color-habit: var(--color-habit);
+
+  --color-sidebar: var(--color-sidebar);
+  --color-sidebar-ink: var(--color-sidebar-ink);
+  --color-sidebar-text: var(--color-sidebar-text);
+  --color-sidebar-muted: var(--color-sidebar-muted);
+  --color-sidebar-active: var(--color-sidebar-active);
+  --color-sidebar-hover: var(--color-sidebar-hover);
+  --color-sidebar-line: var(--color-sidebar-line);
+  --color-sidebar-icon: var(--color-sidebar-icon);
+
+  --radius-panel: 14px;
+  --radius-control: 9px;
+
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
+}
+
+/* ==========================================================================
+   1. 默认与「现代温暖 (Modern Warmth)」浅色模式
+   ========================================================================== */
+:root,
+:root[data-theme='warm'] {
   --color-page: #f6f5f1;
   --color-surface: #fcfcfb;
   --color-surface-2: #f1f0eb;
@@ -28,11 +71,436 @@
   --color-warning-soft: #fff0cf;
   --color-critical: #b52f35;
   --color-critical-soft: #fbe8e8;
+  --color-goal: #7a4db1;
+  --color-habit: #167c65;
 
-  --radius-panel: 14px;
-  --radius-control: 9px;
+  --color-sidebar: #20221f;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #c9cbc6;
+  --color-sidebar-muted: #838880;
+  --color-sidebar-active: #363a34;
+  --color-sidebar-hover: #2c2f2a;
+  --color-sidebar-line: #393c37;
+  --color-sidebar-icon: #aaaea6;
+}
 
-  --font-sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
-    sans-serif;
+/* 现代温暖 - 深色模式 */
+:root.dark,
+:root.dark[data-theme='warm'] {
+  --color-page: #131416;
+  --color-surface: #1c1d21;
+  --color-surface-2: #26282d;
+  --color-line: #2e3037;
+
+  --color-ink: #f1f2f4;
+  --color-secondary: #a1a4ac;
+  --color-muted: #6e727c;
+
+  --color-accent: #4d96f5;
+  --color-accent-soft: #1d2c44;
+
+  --color-good: #22c55e;
+  --color-good-soft: #153322;
+  --color-warning: #f59e0b;
+  --color-warning-soft: #382811;
+  --color-critical: #ef4444;
+  --color-critical-soft: #3b1717;
+  --color-goal: #a855f7;
+  --color-habit: #10b981;
+
+  --color-sidebar: #101113;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #b0b4bc;
+  --color-sidebar-muted: #646973;
+  --color-sidebar-active: #222429;
+  --color-sidebar-hover: #191b1f;
+  --color-sidebar-line: #25282e;
+  --color-sidebar-icon: #8c919d;
+}
+
+/* ==========================================================================
+   2. 「松针森林 (Sage & Pine)」
+   ========================================================================== */
+:root[data-theme='forest'] {
+  --color-page: #f2f6f3;
+  --color-surface: #fafcfa;
+  --color-surface-2: #e8efe9;
+  --color-line: #d3dfd5;
+
+  --color-ink: #141c16;
+  --color-secondary: #536456;
+  --color-muted: #809283;
+
+  --color-accent: #1e7a56;
+  --color-accent-soft: #e0f2ea;
+
+  --color-good: #1b873f;
+  --color-good-soft: #e3f5e9;
+  --color-warning: #996000;
+  --color-warning-soft: #fef0d6;
+  --color-critical: #b52f35;
+  --color-critical-soft: #fbe8e8;
+  --color-goal: #6b4c9a;
+  --color-habit: #1e7a56;
+
+  --color-sidebar: #17241b;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #c4d3c7;
+  --color-sidebar-muted: #788d7c;
+  --color-sidebar-active: #26382c;
+  --color-sidebar-hover: #1f3024;
+  --color-sidebar-line: #2d4233;
+  --color-sidebar-icon: #a2b7a6;
+}
+
+:root.dark[data-theme='forest'] {
+  --color-page: #101712;
+  --color-surface: #17221b;
+  --color-surface-2: #202d24;
+  --color-line: #29382e;
+
+  --color-ink: #edf5ee;
+  --color-secondary: #9cb1a0;
+  --color-muted: #6b7e6f;
+
+  --color-accent: #34d399;
+  --color-accent-soft: #123326;
+
+  --color-good: #34d399;
+  --color-good-soft: #123326;
+  --color-warning: #fbbf24;
+  --color-warning-soft: #382c11;
+  --color-critical: #f87171;
+  --color-critical-soft: #3c1919;
+  --color-goal: #c084fc;
+  --color-habit: #34d399;
+
+  --color-sidebar: #0b110d;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #a8bba9;
+  --color-sidebar-muted: #5e7261;
+  --color-sidebar-active: #1c2a20;
+  --color-sidebar-hover: #152018;
+  --color-sidebar-line: #233427;
+  --color-sidebar-icon: #839986;
+}
+
+/* ==========================================================================
+   3. 「深蓝海岸 (Ocean Slate)」
+   ========================================================================== */
+:root[data-theme='ocean'] {
+  --color-page: #f1f5f9;
+  --color-surface: #fbfcfe;
+  --color-surface-2: #e6edf5;
+  --color-line: #d1dce7;
+
+  --color-ink: #0f172a;
+  --color-secondary: #475569;
+  --color-muted: #79899e;
+
+  --color-accent: #2563eb;
+  --color-accent-soft: #e0ecff;
+
+  --color-good: #059669;
+  --color-good-soft: #e1f7ee;
+  --color-warning: #d97706;
+  --color-warning-soft: #fef3c7;
+  --color-critical: #dc2626;
+  --color-critical-soft: #fee2e2;
+  --color-goal: #7c3aed;
+  --color-habit: #0d9488;
+
+  --color-sidebar: #0f172a;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #cbd5e1;
+  --color-sidebar-muted: #64748b;
+  --color-sidebar-active: #1e293b;
+  --color-sidebar-hover: #172033;
+  --color-sidebar-line: #334155;
+  --color-sidebar-icon: #94a3b8;
+}
+
+:root.dark[data-theme='ocean'] {
+  --color-page: #0b1120;
+  --color-surface: #131d33;
+  --color-surface-2: #1b2844;
+  --color-line: #263859;
+
+  --color-ink: #f1f5f9;
+  --color-secondary: #94a3b8;
+  --color-muted: #64748b;
+
+  --color-accent: #3b82f6;
+  --color-accent-soft: #1d3557;
+
+  --color-good: #10b981;
+  --color-good-soft: #133a2e;
+  --color-warning: #f59e0b;
+  --color-warning-soft: #382c11;
+  --color-critical: #ef4444;
+  --color-critical-soft: #3c1919;
+  --color-goal: #a78bfa;
+  --color-habit: #14b8a6;
+
+  --color-sidebar: #070b14;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #94a3b8;
+  --color-sidebar-muted: #475569;
+  --color-sidebar-active: #17223b;
+  --color-sidebar-hover: #0f1728;
+  --color-sidebar-line: #1e2d4d;
+  --color-sidebar-icon: #64748b;
+}
+
+/* ==========================================================================
+   4. 「琥珀暖阳 (Amber Sun)」
+   ========================================================================== */
+:root[data-theme='amber'] {
+  --color-page: #f8f4ee;
+  --color-surface: #fefcf9;
+  --color-surface-2: #f2ece0;
+  --color-line: #dfd7c8;
+
+  --color-ink: #211a12;
+  --color-secondary: #6e5e4e;
+  --color-muted: #9c8a77;
+
+  --color-accent: #c2641a;
+  --color-accent-soft: #fdeee2;
+
+  --color-good: #15803d;
+  --color-good-soft: #eaf6ed;
+  --color-warning: #b45309;
+  --color-warning-soft: #fef3c7;
+  --color-critical: #b91c1c;
+  --color-critical-soft: #fee2e2;
+  --color-goal: #86198f;
+  --color-habit: #047857;
+
+  --color-sidebar: #261e16;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #dbcfbf;
+  --color-sidebar-muted: #8c7d6d;
+  --color-sidebar-active: #3d3125;
+  --color-sidebar-hover: #30261d;
+  --color-sidebar-line: #4a3d30;
+  --color-sidebar-icon: #baa996;
+}
+
+:root.dark[data-theme='amber'] {
+  --color-page: #17120e;
+  --color-surface: #221c16;
+  --color-surface-2: #2d251e;
+  --color-line: #3a3027;
+
+  --color-ink: #fbf6f0;
+  --color-secondary: #bfaea0;
+  --color-muted: #7d6e61;
+
+  --color-accent: #f97316;
+  --color-accent-soft: #3d2311;
+
+  --color-good: #22c55e;
+  --color-good-soft: #1c3322;
+  --color-warning: #fbbf24;
+  --color-warning-soft: #382c11;
+  --color-critical: #ef4444;
+  --color-critical-soft: #3c1919;
+  --color-goal: #e879f9;
+  --color-habit: #10b981;
+
+  --color-sidebar: #0f0b08;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #baa898;
+  --color-sidebar-muted: #665749;
+  --color-sidebar-active: #292018;
+  --color-sidebar-hover: #1e1711;
+  --color-sidebar-line: #33271e;
+  --color-sidebar-icon: #948270;
+}
+
+/* ==========================================================================
+   5. 「极简素简 (Nordic Mono)」
+   ========================================================================== */
+:root[data-theme='mono'] {
+  --color-page: #f5f5f5;
+  --color-surface: #ffffff;
+  --color-surface-2: #eaeaea;
+  --color-line: #d6d6d6;
+
+  --color-ink: #111111;
+  --color-secondary: #555555;
+  --color-muted: #888888;
+
+  --color-accent: #262626;
+  --color-accent-soft: #e5e5e5;
+
+  --color-good: #166534;
+  --color-good-soft: #e7f4ec;
+  --color-warning: #854d0e;
+  --color-warning-soft: #fef9c3;
+  --color-critical: #991b1b;
+  --color-critical-soft: #fee2e2;
+  --color-goal: #4c1d95;
+  --color-habit: #115e59;
+
+  --color-sidebar: #171717;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #d4d4d4;
+  --color-sidebar-muted: #737373;
+  --color-sidebar-active: #262626;
+  --color-sidebar-hover: #202020;
+  --color-sidebar-line: #333333;
+  --color-sidebar-icon: #a3a3a3;
+}
+
+:root.dark[data-theme='mono'] {
+  --color-page: #0a0a0a;
+  --color-surface: #141414;
+  --color-surface-2: #1e1e1e;
+  --color-line: #282828;
+
+  --color-ink: #ededed;
+  --color-secondary: #a1a1a1;
+  --color-muted: #666666;
+
+  --color-accent: #e5e5e5;
+  --color-accent-soft: #262626;
+
+  --color-good: #22c55e;
+  --color-good-soft: #172c1e;
+  --color-warning: #eab308;
+  --color-warning-soft: #332a0d;
+  --color-critical: #ef4444;
+  --color-critical-soft: #331717;
+  --color-goal: #c084fc;
+  --color-habit: #2dd4bf;
+
+  --color-sidebar: #050505;
+  --color-sidebar-ink: #ffffff;
+  --color-sidebar-text: #a3a3a3;
+  --color-sidebar-muted: #525252;
+  --color-sidebar-active: #1f1f1f;
+  --color-sidebar-hover: #121212;
+  --color-sidebar-line: #262626;
+  --color-sidebar-icon: #737373;
+}
+
+/* ==========================================================================
+   动效与微交互体系 (Animations & Transitions)
+   ========================================================================== */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-down {
+  animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 阶梯进入动效 (Staggered Children) */
+.stagger-1 {
+  animation-delay: 50ms;
+}
+.stagger-2 {
+  animation-delay: 100ms;
+}
+.stagger-3 {
+  animation-delay: 150ms;
+}
+
+/* 卡片轻微悬浮动效 */
+.hover-lift {
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08);
+}
+
+/* ==========================================================================
+   全局细节与交互微调
+   ========================================================================== */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-color: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease;
+}
+
+/* 自定义柔和滚动条 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
 }

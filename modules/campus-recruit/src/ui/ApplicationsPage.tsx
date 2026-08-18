@@ -1,6 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Button, Chip, Field, PageHeader, Panel, controlClass } from '@workbench/ui';
+import {
+  Button,
+  Chip,
+  EmptyState,
+  Field,
+  IconBriefcase,
+  PageHeader,
+  Panel,
+  controlClass,
+} from '@workbench/ui';
 import {
   APPLICATION_PRIORITIES,
   ROUND_KINDS,
@@ -943,11 +952,11 @@ export function ApplicationsPage() {
       </Panel>
 
       {applicationsQuery.data.applications.length === 0 ? (
-        <Panel title="还没有投递记录">
-          <p className="text-[13px] text-muted">
-            把正在关注的公司记在上方，截止日和面试轮次就能集中跟进。
-          </p>
-        </Panel>
+        <EmptyState
+          icon={IconBriefcase}
+          title="还没有投递记录"
+          description="把正在关注的公司与岗位记在上方，截止日和面试轮次就能集中跟进。"
+        />
       ) : (
         <section className="space-y-4" aria-label="投递流水账">
           {applicationsQuery.data.applications.map((application) => (
