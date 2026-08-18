@@ -52,6 +52,15 @@ describe('createTask', () => {
     expect(task.dueAt).toBe('2026-09-20T15:59:59.999Z');
   });
 
+  it('产出的视图带 kind，工作台靠它区分任务与事件', async () => {
+    const task = await createTask(
+      ctx,
+      { title: '写周报', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    expect(task.kind).toBe('task');
+  });
+
   it('无 dueDate 时 urgency 为 none（spec §7.4）', async () => {
     const task = await createTask(
       ctx,

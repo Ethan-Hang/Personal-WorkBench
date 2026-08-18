@@ -4,6 +4,7 @@ import {
   TODO_API,
   batchIdsInputSchema,
   createTaskInputSchema,
+  taskViewSchema,
   updateTaskInputSchema,
 } from './contract.js';
 
@@ -77,5 +78,42 @@ describe('TODO_API 端点定义', () => {
   it('占位符不得被转义', () => {
     expect(TODO_API.completeTask(ID_PARAM)).toContain(':id');
     expect(TODO_API.completeTask(ID_PARAM)).not.toContain('%3A');
+  });
+});
+
+describe('taskViewSchema 的 kind 字段', () => {
+  it('接受带 kind 的形状', () => {
+    const parsed = taskViewSchema.parse({
+      id: 'a',
+      title: '写周报',
+      sourceModule: 'todo',
+      kind: 'task',
+      status: 'todo',
+      importance: 'normal',
+      dueAt: null,
+      scheduled: { kind: 'all-day', date: '2026-08-18' },
+      urgency: 'none',
+      priorityScore: 1,
+      isImportantQuadrant: false,
+      isUrgentQuadrant: false,
+    });
+    expect(parsed.kind).toBe('task');
+  });
+
+  it('缺少 kind 时拒绝——这正是六个写操作曾经必抛的那道缝', () => {
+    const withoutKind = {
+      id: 'a',
+      title: '写周报',
+      sourceModule: 'todo',
+      status: 'todo',
+      importance: 'normal',
+      dueAt: null,
+      scheduled: null,
+      urgency: 'none',
+      priorityScore: 1,
+      isImportantQuadrant: false,
+      isUrgentQuadrant: false,
+    };
+    expect(taskViewSchema.safeParse(withoutKind).success).toBe(false);
   });
 });

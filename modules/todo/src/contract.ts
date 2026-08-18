@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IMPORTANCES, ITEM_STATUSES, URGENCIES } from '@workbench/core';
+import { IMPORTANCES, ITEM_KINDS, ITEM_STATUSES, URGENCIES } from '@workbench/core';
 
 export const TODO_MODULE_ID = 'todo';
 
@@ -80,6 +80,11 @@ export const taskViewSchema = z.object({
   id: z.string(),
   title: z.string(),
   sourceModule: z.string(),
+  /**
+   * core Item 的种类。跨模块视图（工作台今日页、日历）靠它区分任务与事件，
+   * 因此它是接缝的必填字段而非可选装饰。
+   */
+  kind: z.enum(ITEM_KINDS),
   status: z.enum(ITEM_STATUSES),
   importance: importanceSchema,
   dueAt: z.string().nullable(),

@@ -76,6 +76,7 @@ function toView(item: Item, now: IsoInstant): TaskView {
     id: item.id,
     title: item.title,
     sourceModule: item.sourceModule,
+    kind: item.kind,
     status: item.status,
     importance: item.importance,
     dueAt: item.dueAt,

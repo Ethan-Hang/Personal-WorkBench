@@ -33,6 +33,7 @@ beforeEach(() => {
           id: 'x1',
           title: '做完它',
           sourceModule: 'todo',
+          kind: 'task',
           status: 'done',
           importance: 'normal',
           dueAt: null,
