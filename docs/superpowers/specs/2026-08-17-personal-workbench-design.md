@@ -564,7 +564,27 @@ React → TanStack Query → Fastify → Zod 校验 → 模块 service
 
 **并行开发里真正昂贵的不是改错文件，是做错顺序。** 前者 lint 会拦，后者只能靠人读那一页。
 
-并行开发的目录归属、先后顺序与交接点，见 `docs/parallel-development.md`。
+**并行开发的目录归属、先后顺序与交接点，见 `docs/parallel-development.md`。**
+
+### 14.3 待办全生命周期闭环、DatePicker 与动效系统规范（最新修复归档）
+
+基于迭代过程中的真实体验反馈与交互打磨，形成了以下核心标准：
+
+1. **待办全生命周期与数据流闭环（ADR-0009, ADR-0010）**：
+   - **完成与已完成归集**：`TodayResponse` 拆分 `tasks`（进行中）与 `completed`（已完成），后端提供对称的 `complete` 与 `uncomplete` 端点；已完成项默认折叠，支持一键重新打开；
+   - **今日执行度真实计算**：公式为 `已完成数 / (进行中数 + 已完成数)`，从 0% 起步执行缓动过渡，伴随差量插值；
+   - **软删除回收站**：复用 `cancelled` 状态，支持单项、批量（多选）与全量的恢复及彻底销毁，具备 8 秒撤销 Toast。
+
+2. **整合型 DatePicker 交互标准**：
+   - 整合输入框与日历 Popper，支持键盘 `YY/MM/DD` 掩码直输与日历交互无缝双向同步；
+   - 具备失焦格式/日期范围校验，并在不合法时触发红框警告与精准错误提示；
+   - 弹窗（Modal）溢出属性解耦（去除 `overflow-hidden`），DatePicker 具备智能视口高度感知（空间不足时自动向上翻转）与高层级提权（`z-[60]`）。
+
+3. **GPU 硬件加速动效与状态隔离（ADR-0011）**：
+   - **打勾与滑出关键帧**：`@keyframes taskCompleteGlideOut`（原位亮起 170ms → `translate3d(115%, 0, 0)` 优雅右滑 → 高度坍缩）；
+   - **状态隔离消除卡顿**：`useAnimatedValue` 高频 RAF 缓动封装在 `TodayExecutionCard` 内部，主列表零 VDOM Diffing 负担；
+   - **乐观同步消除闪现**：动效结束瞬间由 `queryClient.setQueryData` 同步更新本地缓存，彻底消灭异步网络回拉延时导致的旧数据闪现；
+   - **全生命周期 0 ↔ 1 动效**：逾期横幅、待办列表与已完成分组在产生（0 → 1）时挂载 `animate-expand-in`，清空（1 → 0）时挂载 `animate-collapse-out`。
 
 ---
 
