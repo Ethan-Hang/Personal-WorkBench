@@ -1,3 +1,16 @@
+/* eslint-disable no-restricted-syntax -- 已知技术债，见下方 TODO */
+//
+// TODO(交接): 本文件有 12 条硬编码的 /api/todo/... 路径，绕过了 todo 的 contract.ts。
+// 这是 2026-08 工作台今日页搬迁的遗留，铁律 1 被裸字符串绕过——手抄的响应形状
+// 已经漏过一次 kind 字段，导致六个写操作在生产里必抛（已于 fix/cross-module-api-seam
+// 从 todo 侧补上 kind 修复）。
+//
+// 正确修法是 core 的 itemActions 能力槽：跨模块视图按 sourceModule 查到源模块
+// 提供的写操作，双方都不 import 对方。方案与交接清单见
+// docs/superpowers/specs/2026-08-18-item-actions-registry-design.md §3 与 §6。
+//
+// 改完后删掉本行 eslint-disable。规则本身是 error，新的裸字符串会立刻断 CI。
+
 import {
   WORKBENCH_API,
   todayResponseSchema,
