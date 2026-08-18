@@ -35,6 +35,8 @@
 | `modules/*/src/storage/**`      | 后端     | SQLite 适配器（ADR-0008）        |
 | **`modules/*/src/contract.ts`** | **共同** | **交接点。改它之前先说一声**     |
 
+> `modules/workbench` 目前只有服务端。它的 `src/ui/` 建起来之后归前端，规则同上。
+
 ## 3. 交接点只有一个：`contract.ts`
 
 每个模块的 `src/contract.ts` 里同时放着两样东西，前后端共用同一份：
@@ -83,6 +85,17 @@
 - **不要再往 `modules/todo` 里加跨模块能力。** 它现在兼职工作台（`/api/todo/today` 不按
   `sourceModule` 过滤），每多一条跨模块逻辑，将来搬到 `modules/workbench` 就多一分成本。
 - **UI 搬迁开始前，两边先对一次 `contract.ts`。** 它是唯一的交接点（§3）。
+
+### UI 搬迁该读什么
+
+后端已交付 `modules/workbench/src/contract.ts`，里面有全部三个端点与响应形状。
+与 `TODO_API.today` 相比的差异：
+
+- 字段名从 `tasks` 改为 `scheduled`（`overdue` / `completed` 不变）；
+- 每条多出 `kind`（task / event）与 `scheduled`（core 的两分支形状，周日历需要）；
+- **没有 `canEdit`。** 工作台不知道哪个模块允许编辑——那是各模块自己的规则，
+  它只透出 `sourceModule`。`TodayPage.tsx` 里那些 `sourceModule === TODO_MODULE_ID`
+  判断的正解是给 `UiModuleDefinition` 加一个能力声明，由前端注册表回答。
 
 ## 6. 提交前
 

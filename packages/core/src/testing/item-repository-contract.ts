@@ -196,6 +196,44 @@ export function runItemRepositoryContract(
       expect(found.map((i) => i.title)).toEqual(['已逾期']);
     });
 
+    it('list 按 unscheduled 只取未排程的 Item', async () => {
+      await repo.create('todo', {
+        kind: 'task',
+        title: '已排全天',
+        scheduled: { kind: 'all-day', date: '2026-09-20' },
+      });
+      await repo.create('todo', {
+        kind: 'event',
+        title: '已排定时',
+        scheduled: { kind: 'timed', start: '2026-09-20T11:00:00.000Z' },
+      });
+      await repo.create('todo', { kind: 'task', title: '未排程', scheduled: null });
+      await repo.create('todo', { kind: 'task', title: '未给 scheduled' });
+
+      const found = await repo.list({ unscheduled: true });
+      expect(found.map((i) => i.title).sort()).toEqual(['未排程', '未给 scheduled']);
+    });
+
+    it('unscheduled 与其他条件取交集，不是并集', async () => {
+      await repo.create('todo', { kind: 'task', title: 'todo 的未排程' });
+      await repo.create('campus-recruit', { kind: 'task', title: '秋招的未排程' });
+
+      const found = await repo.list({ unscheduled: true, sourceModules: ['todo'] });
+      expect(found.map((i) => i.title)).toEqual(['todo 的未排程']);
+    });
+
+    it('unscheduled: false 不施加任何过滤', async () => {
+      await repo.create('todo', {
+        kind: 'task',
+        title: '已排',
+        scheduled: { kind: 'all-day', date: '2026-09-20' },
+      });
+      await repo.create('todo', { kind: 'task', title: '未排' });
+
+      const found = await repo.list({ unscheduled: false });
+      expect(found).toHaveLength(2);
+    });
+
     it('delete 删除自己的 Item，并返回 true', async () => {
       const own = await repo.create('campus-recruit', { kind: 'task', title: '截止任务' });
 

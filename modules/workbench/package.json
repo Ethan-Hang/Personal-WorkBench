@@ -1,0 +1,21 @@
+{
+  "name": "@workbench/module-workbench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/server/index.ts",
+  "types": "./src/server/index.ts",
+  "exports": {
+    ".": "./src/server/index.ts",
+    "./contract": "./src/contract.ts"
+  },
+  "dependencies": {
+    "@workbench/core": "*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@workbench/data": "*",
+    "@workbench/server": "*",
+    "fastify": "^5.12.0"
+  }
+}

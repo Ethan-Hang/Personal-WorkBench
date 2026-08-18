@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, gte, inArray, isNotNull, lt, lte, or, type SQL } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL } from 'drizzle-orm';
 import {
   nowIso,
   type CreateItemInput,
@@ -142,6 +142,11 @@ export class SqliteItemRepository implements ItemRepository {
     }
     if (scheduleAlternatives.length === 1) conditions.push(scheduleAlternatives[0]!);
     if (scheduleAlternatives.length > 1) conditions.push(or(...scheduleAlternatives)!);
+
+    // 未排程是一个独立的交集条件，不并入上面的排程并集
+    if (query.unscheduled === true) {
+      conditions.push(isNull(items.scheduledStart));
+    }
 
     if (query.dueBefore !== undefined) {
       // isNotNull 是冗余的（SQL 中 NULL < x 结果为 NULL，本就不会命中），

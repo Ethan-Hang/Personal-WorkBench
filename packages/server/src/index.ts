@@ -4,6 +4,7 @@ import { openDatabase, runCoreMigrations } from '@workbench/data';
 import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
 import { todoServerModule } from '@workbench/module-todo';
+import { workbenchServerModule } from '@workbench/module-workbench';
 import { buildApp } from './app.js';
 
 const DB_PATH = process.env.WORKBENCH_DB ?? './data/local/workbench.db';
@@ -22,7 +23,7 @@ mkdirSync(dirname(resolve(LOG_PATH)), { recursive: true });
 
 const app = await buildApp({
   db,
-  modules: [todoServerModule, campusRecruitServerModule],
+  modules: [todoServerModule, workbenchServerModule, campusRecruitServerModule],
   logger: { level: 'info', file: LOG_PATH },
 });
 

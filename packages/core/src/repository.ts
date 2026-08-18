@@ -32,6 +32,13 @@ export interface ListItemsQuery {
   scheduledOnDate?: string;
   /** 全天排程早于或等于此浮动日期。用于把未完成的旧任务带到今天。 */
   scheduledOnOrBeforeDate?: string;
+  /**
+   * 只取尚未排程的 Item（`scheduled === null`）。
+   * 与其他条件取**交集**，不参与上面三个排程条件的并集——
+   * 「未排程」与「排在某时段」互斥，同时给出必然空结果。
+   * `false` 与缺省同义：不施加任何过滤。
+   */
+  unscheduled?: boolean;
   /** DDL 早于此刻（用于逾期摘要） */
   dueBefore?: IsoInstant;
   statuses?: ItemStatus[];

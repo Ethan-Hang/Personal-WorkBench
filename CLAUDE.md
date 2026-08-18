@@ -8,20 +8,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 因此本项目的首要目标不是实现某组功能，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。** 所有架构选择都服务于这一条；遇到取舍时，以它为准。
 
-当前状态：Walking Skeleton 完成，秋招模块已接入，主题层已落地。现有两个模块
-（todo、campus-recruit）、一层共享设计基座（`packages/ui`：15 个组件 + 主题上下文 +
-图标集）、以及带请求编号的错误追踪。秋招模块的接入过程验证了架构主张：core 只多了一个
-通用的 `delete(moduleId, id)`，三条铁律未破。
+当前状态：Walking Skeleton 完成，秋招模块已接入，主题层已落地，工作台模块的服务端
+已完成。现有三个模块（todo、workbench、campus-recruit）、一层共享设计基座
+（`packages/ui`：15 个组件 + 主题上下文 + 图标集）、以及带请求编号的错误追踪。
 
-**一处已知的临时归属，动 todo 前必须知道：`modules/todo` 眼下同时扮演着工作台。**
+两次架构考试都过了，且考的是不同的东西：
+
+- **秋招模块**：模块可以有自己的领域实体。core 只多了一个通用的 `delete(moduleId, id)`。
+- **工作台模块**：模块也可以**零自有表**（`migrations: []`），纯粹是 core 之上的一个
+  视图 + 一个动作。core 只多了一个通用查询维度 `unscheduled`。
+
+三条铁律均未破。
+
+**一处已知的临时归属，动 todo 前必须知道：`modules/todo` 前端那侧仍扮演着工作台。**
 它的 `GET /api/todo/today` 不按 `sourceModule` 过滤，秋招的事项也会出现在今日页；
 但所有写操作（完成、编辑、回收站）只认 `sourceModule === 'todo'` 的项。这条不对称目前
 靠前端 `TodayPage.tsx` 里散布的 `task.sourceModule === TODO_MODULE_ID` 判断兜住——
 **后端约束泄漏成了前端逻辑。**
 
-设计文档 §14.3 的「工作台模块」工作流就是来收拾这件事的：`modules/workbench` 建起来后，
-跨模块聚合与排程归它，todo 退回只管自己的任务。**在那之前，不要再往 todo 里加跨模块能力**
-——每加一条，将来搬迁就多一分成本。
+`modules/workbench` 的服务端已经建好，**但 UI 还没搬**。两个 `today` 端点因此并存：
+
+| 端点                       | 状态                                                 |
+| -------------------------- | ---------------------------------------------------- |
+| `GET /api/workbench/today` | 正主。跨模块聚合，带 `scheduled` 两分支形状与 `kind` |
+| `GET /api/todo/today`      | 待退休。前端完成 UI 搬迁后删除                       |
+
+**在搬迁完成前，不要再往 todo 里加跨模块能力**——每加一条，搬迁就多一分成本。
 
 ## 命令
 
@@ -95,8 +107,9 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 
 **接缝是每个模块的 `src/contract.ts`，且只有它。** 里面同时放着两样东西：
 
-- **端点路径**（`TODO_API` / `CAMPUS_API`）：路径构造函数传 `ID_PARAM` 得到 Fastify 注册模式，
+- **端点路径**（`TODO_API` / `WORKBENCH_API` / `CAMPUS_API`）：路径构造函数传 `ID_PARAM` 得到 Fastify 注册模式，
   传真实 id 得到转义后的请求路径。服务端与客户端共用同一份，因此不可能各改一半。
+  `WORKBENCH_API` 三个：今日视图、待排程抽屉、排程（PATCH）。
   `TODO_API` 现有 13 个端点：今日视图、创建、编辑（PATCH）、完成 / 取消完成、
   软删除 / 恢复 / 彻底删除，以及回收站的列表与四个批量操作。
 - **请求/响应形状**（Zod schema）：服务端用它校验入参，客户端用它 `.parse()` 校验响应。
@@ -130,6 +143,23 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 **禁止在 SQL 里做时区转换。** 本地日边界一律在应用层用 `localDayRange()` 换算成 UTC 区间再查询，SQL 只做字符串比较。
 
 已知限制：不存每记录时区，跨时区旅行时旧排程会显示偏移。见 `docs/adr/0004-time-storage.md`。
+
+### 排程：跨模块，且只到天
+
+`scheduled`（打算哪天做）属于使用者，不属于创建事项的模块。所以工作台的排程
+端点**不校验 `sourceModule`**，可以给任何模块的 Item 排程。
+
+作为交换，**工作台不提供任何其他跨模块写操作**：不完成、不编辑、不删除。
+秋招的 Item 是 `reconcileAllProjections` 生成的投影，绕过秋招把它置为 `done`，
+下次对账会覆盖回去——症状是「点了完成，刷新又变回来」。
+**「完成」属于源模块的领域语义，「排程」不属于任何模块。**
+
+**排程只到天**，入参是 `{ date: 'YYYY-MM-DD' | null }`，写入恒为 `all-day` 分支。
+这条在服务端焊死，不只在 UI 上限制。排程只写 `scheduled`，**绝不碰 `due_at`**。
+
+一条现存的坑：**手动给秋招 Item 排程，重启会回弹**（对账覆盖）。这是正确行为——
+笔试时间是客观事实，不是「我打算什么时候做」。但**周日历 UI 开工前必须先解决
+「前端怎么知道哪些能拖」这个信号**，且不能靠硬编码模块名。详见 ADR-0010。
 
 ### 回收站借用了 `cancelled`
 
@@ -188,7 +218,7 @@ Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss
 
 1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
 2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-3. `docs/adr/` — 九条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+3. `docs/adr/` — 十条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 
