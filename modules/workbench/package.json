@@ -7,10 +7,14 @@
   "types": "./src/server/index.ts",
   "exports": {
     ".": "./src/server/index.ts",
-    "./contract": "./src/contract.ts"
+    "./contract": "./src/contract.ts",
+    "./ui": "./src/ui/index.tsx"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.101.4",
     "@workbench/core": "*",
+    "@workbench/ui": "*",
+    "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
