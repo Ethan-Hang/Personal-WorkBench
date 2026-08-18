@@ -1098,6 +1098,7 @@ export function TodayPage() {
                 onChange={setScheduleDateInput}
                 placeholder="年 / 月 / 日"
                 className="w-full"
+                showTime={false}
               />
             </Field>
 
@@ -1378,11 +1379,12 @@ export function TodayPage() {
               </div>
             </Field>
 
-            <Field label="截止日期">
+            <Field label="截止日期 / 时间">
               <DatePicker
                 value={editDueDate}
                 onChange={setEditDueDate}
-                placeholder="年 / 月 / 日"
+                placeholder="年 / 月 / 日  时 : 分"
+                showTime={true}
                 className="w-full"
               />
             </Field>

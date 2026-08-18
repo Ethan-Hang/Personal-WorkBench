@@ -108,11 +108,12 @@ export function QuickAddBar({
 
           {/* 截止日：精致的自定义年月日与日历组件 */}
           <div className="flex items-center gap-1.5 text-secondary">
-            <span className="text-[11px]">截止日:</span>
+            <span className="text-[11px]">截止:</span>
             <DatePicker
               value={dueDate}
               onChange={setDueDate}
-              placeholder="年 / 月 / 日"
+              placeholder="年 / 月 / 日  时 : 分"
+              showTime={true}
               size="sm"
               disabled={disabled}
             />

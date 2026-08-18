@@ -282,6 +282,7 @@ function ApplicationEditForm({
           value={form.applyDeadlineDate}
           onChange={(val) => set('applyDeadlineDate', val)}
           placeholder="年 / 月 / 日"
+          showTime={false}
           className="w-full"
         />
       </Field>
@@ -494,7 +495,8 @@ function AddRoundForm({
       await onCreate({
         name: name.trim(),
         kind,
-        scheduledAt: scheduledLocal === '' ? null : new Date(scheduledLocal).toISOString(),
+        scheduledAt:
+          scheduledLocal === '' ? null : new Date(scheduledLocal.replace(' ', 'T')).toISOString(),
         format: nullableText(format),
         durationMin: duration === '' ? null : Number(duration),
       });
@@ -542,11 +544,12 @@ function AddRoundForm({
         </select>
       </Field>
       <Field label="时间" className="sm:col-span-2">
-        <input
-          type="datetime-local"
+        <DatePicker
           value={scheduledLocal}
-          onChange={(event) => setScheduledLocal(event.target.value)}
-          className={controlClass}
+          onChange={setScheduledLocal}
+          placeholder="年 / 月 / 日  时 : 分"
+          showTime={true}
+          className="w-full"
         />
       </Field>
       <Field label="时长（分钟）">
@@ -936,6 +939,7 @@ export function ApplicationsPage() {
                 }))
               }
               placeholder="年 / 月 / 日"
+              showTime={false}
               className="w-full"
             />
           </Field>
