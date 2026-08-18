@@ -8,7 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 因此本项目的首要目标不是实现某组功能，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。** 所有架构选择都服务于这一条；遇到取舍时，以它为准。
 
-当前状态：迭代 1（Walking Skeleton）完成——从 React 界面到 SQLite 文件的完整链路已贯通，只有 todo 一个模块。
+当前状态：迭代 1（Walking Skeleton）完成，秋招模块已接入。现有两个模块（todo、campus-recruit）、
+一层共享设计基座（`packages/ui`）、以及带请求编号的错误追踪。秋招模块的接入过程验证了架构主张：
+core 只多了一个通用的 `delete(moduleId, id)`，三条铁律未破。
 
 ## 命令
 
@@ -78,6 +80,26 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 
 联动机制很平淡：模块创建一条 core `Item`，日历查 `Item` 表就看得见——日历完全不知道该模块存在。
 
+### 前后端的接缝
+
+**接缝是每个模块的 `src/contract.ts`，且只有它。** 里面同时放着两样东西：
+
+- **端点路径**（`TODO_API` / `CAMPUS_API`）：路径构造函数传 `ID_PARAM` 得到 Fastify 注册模式，
+  传真实 id 得到转义后的请求路径。服务端与客户端共用同一份，因此不可能各改一半。
+- **请求/响应形状**（Zod schema）：服务端用它校验入参，客户端用它 `.parse()` 校验响应。
+  后端改了形状，前端会在接缝处大声失败，而不是页面静默变空。
+
+由此得出一条对协作重要的性质：**写前端只需要读 `contract.ts`，不需要读 `src/server/`。**
+反向也成立——UI 层从不 import `server/`（可用 grep 验证）。
+
+已知缺口，动前端前值得知道：
+
+- **UI 没有任何自动化测试**：Vitest 的 `include` 刻意不收集 `.tsx`。这在只有一个页面时是对的
+  取舍，页面多起来后就是没有安全网——改坏渲染 CI 依然全绿。要改这条策略请先更新本文件。
+- **前端不能脱离后端运行**：没有 mock 层，`npm run dev:web` 单跑所有请求都会失败。
+- **传输层每个模块各写一份** `request()`：修一次要改 N 遍。第三个模块出现时再考虑抽取，
+  那时才知道它们真正共享多少。
+
 ## 会咬人的约定
 
 ### 时间存储
@@ -133,15 +155,28 @@ Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss
 
 ## 改代码前先读
 
-1. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-2. `docs/adr/` — 六条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
+2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
+3. `docs/adr/` — 八条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 
 `prototype-workbench/` 是已归档的抛弃式 UI 原型，其 `NOTES.md` 记录了已确认的产品结论（导航主线、逾期摘要按需展开、视觉方向），仅作参考，代码不延用。
 
-## 后续迭代
+## 后续工作：工作流，不是迭代序号
 
-2 周日历 + 待排程抽屉 → 3 目标页 → 4 视觉统一到「现代温暖」→ **5 秋招模块（整个架构的真正考试）** → 之后习惯、每日总结、社招。
+**「迭代 1..6」这套线性编号已停止使用。** 秋招模块（原迭代 5）已完成，架构考试通过；
+设计基座（原迭代 4 的一部分）也已提前落地。实际执行顺序早就不是编号顺序，而编号一旦与
+现实脱节就会持续误导——曾有一个叫 `feat/iteration-1-walking-skeleton` 的分支（现已修复），里面装着
+秋招模块和设计基座。**迭代号会漂移，功能名不会。**
 
-迭代 5 是刻意安排的早期压力测试：首次以「外部模块」身份接入一个 core 完全没预料过的领域。顺利 = 架构成立；若必须改 core = 前面某个假设有误，而那时修正代价仍然可控。
+剩余工作改为有归属、有依赖的工作流：主题层（前端）、工作台模块（后端）、周日历 UI、
+目标页、以及习惯 / 每日总结 / 社招。完整表格见主设计文档 §14.3。
+
+## 两人并行开发
+
+`main` 是主干，分支从 `main` 切，**按功能命名、不带迭代号**（`feat/theme-layer`，不是 `feat/iteration-2`）。
+
+目录归属、交接点与踩踏规避顺序见 **`docs/parallel-development.md`**——开工前先读那一页。
+一句话版本：**交接点只有 `modules/*/src/contract.ts`**，改它等于改契约、会影响对方；
+其余目录各改各的。
