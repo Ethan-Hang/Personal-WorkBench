@@ -513,6 +513,149 @@
 }
 
 /* ==========================================================================
+   待办完成、重开与删除的高性能 GPU 硬件加速时序关键帧动效
+   ========================================================================== */
+@keyframes taskCompleteGlideOut {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  20% {
+    /* 阶段 1: 打勾亮起并在原位停留提供清晰确认感 */
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  65% {
+    /* 阶段 2: 整条向右优雅匀速滑出，高度保持不变 */
+    transform: translate3d(115%, 0, 0);
+    opacity: 0;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  100% {
+    /* 阶段 3: 整条已在屏幕外，槽位高度与内外边距平滑坍缩至 0 */
+    transform: translate3d(115%, 0, 0);
+    opacity: 0;
+    max-height: 0px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    border-width: 0px;
+  }
+}
+
+@keyframes taskUncompleteGlideOut {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  20% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+  65% {
+    transform: translate3d(-115%, 0, 0);
+    opacity: 0;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  100% {
+    transform: translate3d(-115%, 0, 0);
+    opacity: 0;
+    max-height: 0px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    border-width: 0px;
+  }
+}
+
+@keyframes taskTrashGlideOut {
+  0% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  20% {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+  }
+  65% {
+    transform: translate3d(-115%, 0, 0);
+    opacity: 0;
+    max-height: 96px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+  100% {
+    transform: translate3d(-115%, 0, 0);
+    opacity: 0;
+    max-height: 0px;
+    padding-top: 0px;
+    padding-bottom: 0px;
+    margin-top: 0px;
+    margin-bottom: 0px;
+    border-width: 0px;
+  }
+}
+
+.animate-task-complete-out {
+  animation: taskCompleteGlideOut 850ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  will-change: transform, opacity, max-height;
+}
+
+.animate-task-uncomplete-out {
+  animation: taskUncompleteGlideOut 750ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  will-change: transform, opacity, max-height;
+}
+
+.animate-task-trash-out {
+  animation: taskTrashGlideOut 750ms cubic-bezier(0.2, 0.9, 0.3, 1) forwards !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  will-change: transform, opacity, max-height;
+}
+
+/* ==========================================================================
    全局细节与交互微调
    ========================================================================== */
 html {

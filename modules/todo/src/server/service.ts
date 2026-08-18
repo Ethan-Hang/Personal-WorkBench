@@ -11,7 +11,13 @@ import {
   type Item,
   type ModuleContext,
 } from '@workbench/core';
-import type { CreateTaskInput, TaskView, TodayResponse } from '../contract.js';
+import type {
+  CreateTaskInput,
+  TaskView,
+  TodayResponse,
+  TrashResponse,
+  UpdateTaskInput,
+} from '../contract.js';
 
 export interface ServiceOptions {
   zone: string;
@@ -70,6 +76,29 @@ export async function createTask(
   return toView(item, now);
 }
 
+export async function updateTask(
+  ctx: ModuleContext,
+  id: string,
+  input: UpdateTaskInput,
+  opts: ServiceOptions,
+): Promise<TaskView> {
+  const now = resolveNow(opts);
+  const patch: Parameters<typeof ctx.items.update>[1] = {};
+
+  if (input.title !== undefined) {
+    patch.title = input.title;
+  }
+  if (input.importance !== undefined) {
+    patch.importance = input.importance;
+  }
+  if (input.dueDate !== undefined) {
+    patch.dueAt = input.dueDate === null ? null : endOfLocalDayUtc(input.dueDate, opts.zone);
+  }
+
+  const updated = await ctx.items.update(id, patch);
+  return toView(updated, now);
+}
+
 export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promise<TodayResponse> {
   const now = resolveNow(opts);
   const date = localDayOf(now, opts.zone);
@@ -87,6 +116,12 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
     statuses: [...OPEN_STATUSES],
   });
 
+  const completedItems = await ctx.items.list({
+    scheduledWithin: range,
+    scheduledOnOrBeforeDate: date,
+    statuses: ['done'],
+  });
+
   const overdueIds = new Set(overdueItems.map((i) => i.id));
 
   return {
@@ -97,6 +132,7 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
       .map((i) => toView(i, now))
       .sort(byPriority),
     overdue: overdueItems.map((i) => toView(i, now)).sort(byPriority),
+    completed: completedItems.map((i) => toView(i, now)),
   };
 }
 
@@ -108,4 +144,96 @@ export async function completeTask(
   const now = resolveNow(opts);
   const updated = await ctx.items.update(id, { status: 'done', completedAt: now });
   return toView(updated, now);
+}
+
+export async function uncompleteTask(
+  ctx: ModuleContext,
+  id: string,
+  opts: ServiceOptions,
+): Promise<TaskView> {
+  const now = resolveNow(opts);
+  const updated = await ctx.items.update(id, { status: 'todo', completedAt: null });
+  return toView(updated, now);
+}
+
+export async function trashTask(
+  ctx: ModuleContext,
+  id: string,
+  opts: ServiceOptions,
+): Promise<TaskView> {
+  const now = resolveNow(opts);
+  const updated = await ctx.items.update(id, { status: 'cancelled' });
+  return toView(updated, now);
+}
+
+export async function restoreTask(
+  ctx: ModuleContext,
+  id: string,
+  opts: ServiceOptions,
+): Promise<TaskView> {
+  const now = resolveNow(opts);
+  const updated = await ctx.items.update(id, { status: 'todo' });
+  return toView(updated, now);
+}
+
+export async function deleteTaskPermanently(ctx: ModuleContext, id: string): Promise<boolean> {
+  return ctx.items.delete(ctx.moduleId, id);
+}
+
+export async function listTrash(ctx: ModuleContext, opts: ServiceOptions): Promise<TrashResponse> {
+  const now = resolveNow(opts);
+  const items = await ctx.items.list({
+    statuses: ['cancelled'],
+    sourceModules: [ctx.moduleId],
+  });
+  return {
+    items: items.map((i) => toView(i, now)),
+  };
+}
+
+export async function batchRestoreTrash(ctx: ModuleContext, ids: string[]): Promise<number> {
+  let count = 0;
+  for (const id of ids) {
+    const item = await ctx.items.getById(id);
+    if (item && item.sourceModule === ctx.moduleId && item.status === 'cancelled') {
+      await ctx.items.update(id, { status: 'todo' });
+      count++;
+    }
+  }
+  return count;
+}
+
+export async function batchDeleteTrash(ctx: ModuleContext, ids: string[]): Promise<number> {
+  let count = 0;
+  for (const id of ids) {
+    const deleted = await ctx.items.delete(ctx.moduleId, id);
+    if (deleted) count++;
+  }
+  return count;
+}
+
+export async function restoreAllTrash(ctx: ModuleContext): Promise<number> {
+  const items = await ctx.items.list({
+    statuses: ['cancelled'],
+    sourceModules: [ctx.moduleId],
+  });
+  let count = 0;
+  for (const item of items) {
+    await ctx.items.update(item.id, { status: 'todo' });
+    count++;
+  }
+  return count;
+}
+
+export async function clearTrash(ctx: ModuleContext): Promise<number> {
+  const items = await ctx.items.list({
+    statuses: ['cancelled'],
+    sourceModules: [ctx.moduleId],
+  });
+  let count = 0;
+  for (const item of items) {
+    const deleted = await ctx.items.delete(ctx.moduleId, item.id);
+    if (deleted) count++;
+  }
+  return count;
 }

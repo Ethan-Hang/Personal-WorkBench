@@ -137,6 +137,7 @@ export function DatePicker({
 }: DatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [openUpward, setOpenUpward] = useState(false);
 
   const [inputText, setInputText] = useState(() => {
     if (!value) return '';
@@ -182,6 +183,19 @@ export function DatePicker({
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  // Check orientation (open upward if below space is constrained)
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      if (spaceBelow < 340 && rect.top > 340) {
+        setOpenUpward(true);
+      } else {
+        setOpenUpward(false);
+      }
+    }
   }, [isOpen]);
 
   function handleInputChange(e: ChangeEvent<HTMLInputElement>) {
@@ -339,7 +353,11 @@ export function DatePicker({
   const inputHeight = size === 'sm' ? 'h-7 text-xs px-2' : 'h-9 text-xs px-2.5';
 
   return (
-    <div ref={containerRef} onBlur={handleBlur} className={`relative inline-block ${className}`}>
+    <div
+      ref={containerRef}
+      onBlur={handleBlur}
+      className={`relative inline-block ${isOpen ? 'z-30' : ''} ${className}`}
+    >
       {/* 触发输入框（失焦校验错误时细框变红，带温和红色光晕） */}
       <div
         className={`group relative flex items-center justify-between gap-1.5 rounded-control border bg-surface transition-all duration-150 ${
@@ -413,10 +431,14 @@ export function DatePicker({
         </div>
       )}
 
-      {/* 弹出式专属日历下拉面板（拥有平滑缩放、方向划入与主题色映衬动效） */}
+      {/* 弹出式专属日历下拉面板（z-[60] 置顶，拥有平滑缩放、方向划入与主题色映衬动效） */}
       {isOpen && (
         <div
-          className="absolute left-0 top-full z-50 mt-1.5 w-72 rounded-panel border border-line bg-surface p-3.5 shadow-xl ring-1 ring-black/5 dark:ring-white/10 animate-scale-in origin-top-left"
+          className={`absolute left-0 z-[60] w-72 rounded-panel border border-line bg-surface p-3.5 shadow-2xl ring-1 ring-black/10 dark:ring-white/10 ${
+            openUpward
+              ? 'bottom-full mb-1.5 animate-scale-in origin-bottom-left'
+              : 'top-full mt-1.5 animate-scale-in origin-top-left'
+          }`}
           role="dialog"
           aria-modal="true"
         >

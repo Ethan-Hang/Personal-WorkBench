@@ -2,22 +2,25 @@ import {
   TODO_API,
   todayResponseSchema,
   taskViewSchema,
+  trashResponseSchema,
+  batchCountResponseSchema,
   type CreateTaskInput,
   type TaskView,
   type TodayResponse,
+  type TrashResponse,
+  type UpdateTaskInput,
 } from '../contract.js';
 
 async function request(url: string, init?: RequestInit): Promise<unknown> {
-  // 只有真的带 body 时才声明 JSON content-type。Fastify 的默认解析器会以
-  // FST_ERR_CTP_EMPTY_JSON_BODY（400）拒绝「声明了 JSON 却没有 body」的请求，
-  // 而 complete 请求正是无 body 的。
   const headers = init?.body === undefined ? undefined : { 'Content-Type': 'application/json' };
   const res = await fetch(url, { ...init, headers });
+  if (res.status === 204) {
+    return null;
+  }
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const payload = body as { error?: string; requestId?: string };
     const message = payload.error ?? `请求失败（${res.status}）`;
-    // 附上服务端的请求编号：界面上这一句报错据此才能和日志里的整段堆栈对上号。
     throw new Error(
       payload.requestId === undefined ? message : `${message}（编号 ${payload.requestId}）`,
     );
@@ -26,7 +29,6 @@ async function request(url: string, init?: RequestInit): Promise<unknown> {
 }
 
 export async function fetchToday(): Promise<TodayResponse> {
-  // 用 Zod 校验响应：后端改了形状，这里会立刻报错而不是页面静默变空
   return todayResponseSchema.parse(await request(TODO_API.today));
 }
 
@@ -38,6 +40,60 @@ export async function postTask(
   );
 }
 
+export async function patchTask(id: string, input: UpdateTaskInput): Promise<TaskView> {
+  return taskViewSchema.parse(
+    await request(TODO_API.task(id), { method: 'PATCH', body: JSON.stringify(input) }),
+  );
+}
+
 export async function postComplete(id: string): Promise<TaskView> {
   return taskViewSchema.parse(await request(TODO_API.completeTask(id), { method: 'POST' }));
+}
+
+export async function postUncomplete(id: string): Promise<TaskView> {
+  return taskViewSchema.parse(await request(TODO_API.uncompleteTask(id), { method: 'POST' }));
+}
+
+export async function postTrash(id: string): Promise<TaskView> {
+  return taskViewSchema.parse(await request(TODO_API.trashTask(id), { method: 'POST' }));
+}
+
+export async function postRestore(id: string): Promise<TaskView> {
+  return taskViewSchema.parse(await request(TODO_API.restoreTask(id), { method: 'POST' }));
+}
+
+export async function deleteTaskPermanently(id: string): Promise<void> {
+  await request(TODO_API.task(id), { method: 'DELETE' });
+}
+
+export async function fetchTrash(): Promise<TrashResponse> {
+  return trashResponseSchema.parse(await request(TODO_API.trash));
+}
+
+export async function postBatchRestore(ids: string[]): Promise<{ count: number }> {
+  return batchCountResponseSchema.parse(
+    await request(TODO_API.batchRestoreTrash, {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+  );
+}
+
+export async function postBatchDelete(ids: string[]): Promise<{ count: number }> {
+  return batchCountResponseSchema.parse(
+    await request(TODO_API.batchDeleteTrash, {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    }),
+  );
+}
+
+export async function postRestoreAll(): Promise<{ count: number }> {
+  return batchCountResponseSchema.parse(
+    await request(TODO_API.restoreAllTrash, { method: 'POST' }),
+  );
+}
+
+export async function postClearTrash(): Promise<{ count: number }> {
+  return batchCountResponseSchema.parse(await request(TODO_API.clearTrash, { method: 'POST' }));
 }

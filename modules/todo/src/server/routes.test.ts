@@ -38,6 +38,24 @@ describe('todo HTTP 接口', () => {
     expect(res.json().error).toBeTruthy();
   });
 
+  it('PATCH /api/todo/tasks/:id 更新任务', async () => {
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/todo/tasks',
+      payload: { title: '待修改' },
+    });
+    const id = created.json().id;
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/todo/tasks/${id}`,
+      payload: { title: '已修改', importance: 'high' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().title).toBe('已修改');
+    expect(res.json().importance).toBe('high');
+  });
+
   it('GET /api/todo/today 返回今天的任务', async () => {
     await app.inject({ method: 'POST', url: '/api/todo/tasks', payload: { title: 'A' } });
     await app.inject({ method: 'POST', url: '/api/todo/tasks', payload: { title: 'B' } });
@@ -49,7 +67,7 @@ describe('todo HTTP 接口', () => {
     expect(body.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('POST /api/todo/tasks/:id/complete 完成任务后它不再出现在今日列表', async () => {
+  it('POST /api/todo/tasks/:id/complete 完成与取消完成任务', async () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/todo/tasks',
@@ -61,8 +79,74 @@ describe('todo HTTP 接口', () => {
     expect(done.statusCode).toBe(200);
     expect(done.json().status).toBe('done');
 
-    const today = await app.inject({ method: 'GET', url: '/api/todo/today' });
+    let today = await app.inject({ method: 'GET', url: '/api/todo/today' });
     expect(today.json().tasks).toHaveLength(0);
+    expect(today.json().completed).toHaveLength(1);
+
+    // 取消完成
+    const undone = await app.inject({ method: 'POST', url: `/api/todo/tasks/${id}/uncomplete` });
+    expect(undone.statusCode).toBe(200);
+    expect(undone.json().status).toBe('todo');
+
+    today = await app.inject({ method: 'GET', url: '/api/todo/today' });
+    expect(today.json().tasks).toHaveLength(1);
+    expect(today.json().completed).toHaveLength(0);
+  });
+
+  it('软删除、批量恢复、批量删除与全部恢复流程', async () => {
+    const c1 = await app.inject({
+      method: 'POST',
+      url: '/api/todo/tasks',
+      payload: { title: '任务1' },
+    });
+    const c2 = await app.inject({
+      method: 'POST',
+      url: '/api/todo/tasks',
+      payload: { title: '任务2' },
+    });
+    const id1 = c1.json().id;
+    const id2 = c2.json().id;
+
+    // 软删除
+    await app.inject({ method: 'POST', url: `/api/todo/tasks/${id1}/trash` });
+    await app.inject({ method: 'POST', url: `/api/todo/tasks/${id2}/trash` });
+
+    // 批量恢复
+    const batchRestoreRes = await app.inject({
+      method: 'POST',
+      url: '/api/todo/trash/batch-restore',
+      payload: { ids: [id1, id2] },
+    });
+    expect(batchRestoreRes.statusCode).toBe(200);
+    expect(batchRestoreRes.json().count).toBe(2);
+
+    // 重新软删除
+    await app.inject({ method: 'POST', url: `/api/todo/tasks/${id1}/trash` });
+    await app.inject({ method: 'POST', url: `/api/todo/tasks/${id2}/trash` });
+
+    // 全部恢复
+    const restoreAllRes = await app.inject({
+      method: 'POST',
+      url: '/api/todo/trash/restore-all',
+    });
+    expect(restoreAllRes.statusCode).toBe(200);
+    expect(restoreAllRes.json().count).toBe(2);
+
+    // 再次软删除并批量删除
+    await app.inject({ method: 'POST', url: `/api/todo/tasks/${id1}/trash` });
+    await app.inject({ method: 'POST', url: `/api/todo/tasks/${id2}/trash` });
+
+    const batchDeleteRes = await app.inject({
+      method: 'POST',
+      url: '/api/todo/trash/batch-delete',
+      payload: { ids: [id1] },
+    });
+    expect(batchDeleteRes.statusCode).toBe(200);
+    expect(batchDeleteRes.json().count).toBe(1);
+
+    const listTrashRes = await app.inject({ method: 'GET', url: '/api/todo/trash' });
+    expect(listTrashRes.json().items).toHaveLength(1);
+    expect(listTrashRes.json().items[0].id).toBe(id2);
   });
 
   it('完成不存在的任务返回 404', async () => {
