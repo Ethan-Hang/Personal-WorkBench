@@ -11,8 +11,10 @@ import {
   type UpdateRoundInput,
 } from '../contract.js';
 
-async function request(url: string, init?: RequestInit): Promise<unknown> {
-  const headers = init?.body === undefined ? undefined : { 'Content-Type': 'application/json' };
+async function request(url: string, init: RequestInit = {}): Promise<unknown> {
+  const headers = new Headers(init.headers);
+  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
+
   const response = await fetch(url, { ...init, headers });
   const body = response.status === 204 ? undefined : await response.json().catch(() => ({}));
 
