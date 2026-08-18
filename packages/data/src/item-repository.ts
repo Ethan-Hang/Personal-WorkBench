@@ -167,6 +167,15 @@ export class SqliteItemRepository implements ItemRepository {
     return rows.map(toItem);
   }
 
+  async delete(moduleId: string, id: string): Promise<boolean> {
+    const deleted = this.db
+      .delete(items)
+      .where(and(eq(items.id, id), eq(items.sourceModule, moduleId)))
+      .returning({ id: items.id })
+      .get();
+    return deleted !== undefined;
+  }
+
   async deleteBySourceModule(moduleId: string): Promise<number> {
     const deleted = this.db
       .delete(items)

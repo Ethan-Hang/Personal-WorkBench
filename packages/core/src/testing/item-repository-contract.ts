@@ -196,6 +196,24 @@ export function runItemRepositoryContract(
       expect(found.map((i) => i.title)).toEqual(['已逾期']);
     });
 
+    it('delete 删除自己的 Item，并返回 true', async () => {
+      const own = await repo.create('campus-recruit', { kind: 'task', title: '截止任务' });
+
+      expect(await repo.delete('campus-recruit', own.id)).toBe(true);
+      expect(await repo.getById(own.id)).toBeNull();
+    });
+
+    it('delete 不得删除其他模块的 Item', async () => {
+      const todo = await repo.create('todo', { kind: 'task', title: 'todo 的任务' });
+
+      expect(await repo.delete('campus-recruit', todo.id)).toBe(false);
+      expect(await repo.getById(todo.id)).toMatchObject({ id: todo.id, sourceModule: 'todo' });
+    });
+
+    it('delete 不存在的 Item 返回 false', async () => {
+      expect(await repo.delete('campus-recruit', 'does-not-exist')).toBe(false);
+    });
+
     it('deleteBySourceModule 只删该模块的 Item（spec §5.6）', async () => {
       await repo.create('todo', { kind: 'task', title: '留下' });
       await repo.create('campus-recruit', { kind: 'event', title: '删掉 1' });

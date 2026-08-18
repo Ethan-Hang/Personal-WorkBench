@@ -59,6 +59,31 @@ export default tseslint.config(
               group: ['@workbench/data', '@workbench/data/*'],
               message: '违反 spec §4.3：模块不得直连数据层，只能经由 ModuleContext。',
             },
+            {
+              group: ['better-sqlite3', 'drizzle-orm', 'drizzle-orm/*'],
+              message: '数据库依赖只能出现在模块 storage 目录（ADR-0008）。',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  {
+    files: ['modules/*/src/storage/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@workbench/module-*'],
+              message: '违反 spec §4.2 铁律 1：模块之间零依赖。需要共享的东西应上提到 core。',
+            },
+            {
+              group: ['@workbench/data', '@workbench/data/*'],
+              message: '模块不得直连数据层；storage 适配器由组合根注入连接（ADR-0008）。',
+            },
           ],
         },
       ],

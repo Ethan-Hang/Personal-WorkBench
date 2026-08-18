@@ -47,6 +47,8 @@ export interface ItemRepository {
   getById(id: string): Promise<Item | null>;
   update(id: string, patch: UpdateItemPatch): Promise<Item>;
   list(query: ListItemsQuery): Promise<Item[]>;
+  /** 删除调用模块拥有的单条 Item；不存在或不属于调用方均返回 false。 */
+  delete(moduleId: string, id: string): Promise<boolean>;
   /** 模块卸载用：删除某模块产生的全部 Item（spec §5.6），返回删除条数。 */
   deleteBySourceModule(moduleId: string): Promise<number>;
 }

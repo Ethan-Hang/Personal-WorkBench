@@ -60,4 +60,26 @@ describe('模块边界规则（架构守卫的回归测试）', () => {
     );
     expect(exempt.join('\n')).not.toContain('违反 spec');
   });
+
+  it('模块业务代码不得 import SQLite 或 Drizzle', async () => {
+    const messages = await messagesFor(
+      'modules/probe/src/server/service.ts',
+      "import 'drizzle-orm';\nimport 'better-sqlite3';\n",
+    );
+    expect(messages.join('\n')).toContain('数据库依赖只能出现在模块 storage 目录');
+  });
+
+  it('模块 storage 可用 Drizzle，但仍不得 import @workbench/data', async () => {
+    const drizzle = await messagesFor(
+      'modules/probe/src/storage/schema.ts',
+      "import 'drizzle-orm/sqlite-core';\n",
+    );
+    expect(drizzle.join('\n')).not.toContain('数据库依赖只能出现在模块 storage 目录');
+
+    const data = await messagesFor(
+      'modules/probe/src/storage/schema.ts',
+      "import '@workbench/data';\n",
+    );
+    expect(data.join('\n')).toContain('模块不得直连数据层');
+  });
 });
