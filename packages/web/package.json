@@ -8,6 +8,7 @@
     "@workbench/core": "*",
     "@workbench/module-campus-recruit": "*",
     "@workbench/module-todo": "*",
+    "@workbench/ui": "*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.0"

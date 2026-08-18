@@ -1,7 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Importance } from '@workbench/core';
-import { Button, Chip, Field, PageHeader, Panel, controlClass } from '@workbench/ui';
+import {
+  Button,
+  Chip,
+  Field,
+  PageHeader,
+  Panel,
+  controlClass,
+  useModuleLabel,
+} from '@workbench/ui';
 import { TODO_MODULE_ID, type TaskView } from '../contract.js';
 import { fetchToday, postComplete, postTask } from './api.js';
 
@@ -26,7 +34,9 @@ const URGENCY_TONE: Record<TaskView['urgency'], 'neutral' | 'warning' | 'critica
 
 function TaskRow({ task, onComplete }: { task: TaskView; onComplete: (id: string) => void }) {
   const isTodo = task.sourceModule === TODO_MODULE_ID;
-  const sourceLabel = task.sourceModule === 'campus-recruit' ? '秋招' : task.sourceModule;
+  // 展示名从外壳下发的注册表取，todo 因此不需要认识任何同级模块——
+  // 加第三个模块时这里一行都不用改。
+  const sourceLabel = useModuleLabel(task.sourceModule);
 
   return (
     <li className="flex items-center gap-3 border-b border-line py-3 last:border-b-0">
