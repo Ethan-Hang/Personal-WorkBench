@@ -164,3 +164,35 @@ export const statsResponseSchema = z.object({
   ),
 });
 export type StatsResponse = z.infer<typeof statsResponseSchema>;
+
+/**
+ * 路径参数占位符。把它传给下面的路径构造函数，得到的是 Fastify 注册用的模式；
+ * 传真实 id 则得到可直接请求的路径。
+ */
+export const ID_PARAM = ':id';
+
+function segment(value: string): string {
+  return value === ID_PARAM ? value : encodeURIComponent(value);
+}
+
+/**
+ * 本模块的 HTTP 端点。服务端注册与前端调用**共用同一份定义**——
+ * 路径不再在 routes.ts 与 api.ts 各写一遍、各改一半。
+ *
+ * 前端需要知道的一切都在本文件：端点在这里，请求/响应形状在上面的 Zod schema。
+ * 不必为了写界面去读服务端代码。
+ */
+export const CAMPUS_API = {
+  /** GET → { applications: ApplicationView[] }；POST CreateApplicationInput → ApplicationView（201） */
+  applications: '/api/campus/applications',
+  /** PATCH UpdateApplicationInput → ApplicationView；DELETE → 204 */
+  application: (id: string): string => `/api/campus/applications/${segment(id)}`,
+  /** POST → ApplicationView：标记为已投递 */
+  applyApplication: (id: string): string => `/api/campus/applications/${segment(id)}/apply`,
+  /** POST CreateRoundInput → ApplicationView：给该投递新增一轮 */
+  applicationRounds: (id: string): string => `/api/campus/applications/${segment(id)}/rounds`,
+  /** PATCH UpdateRoundInput → ApplicationView；DELETE → 204 */
+  round: (id: string): string => `/api/campus/rounds/${segment(id)}`,
+  /** GET → StatsResponse */
+  stats: '/api/campus/stats',
+} as const;

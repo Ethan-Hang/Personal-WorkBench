@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CAMPUS_API,
+  ID_PARAM,
   createApplicationInputSchema,
   updateApplicationInputSchema,
   updateRoundInputSchema,
@@ -100,5 +102,26 @@ describe('campus recruit contract', () => {
       notes: null,
       sequence: 1,
     });
+  });
+});
+
+describe('CAMPUS_API 端点定义', () => {
+  it('传占位符得到 Fastify 注册用的模式', () => {
+    expect(CAMPUS_API.application(ID_PARAM)).toBe('/api/campus/applications/:id');
+    expect(CAMPUS_API.round(ID_PARAM)).toBe('/api/campus/rounds/:id');
+    expect(CAMPUS_API.applicationRounds(ID_PARAM)).toBe('/api/campus/applications/:id/rounds');
+  });
+
+  it('传真实 id 得到转义后的请求路径', () => {
+    expect(CAMPUS_API.application('a b/c')).toBe('/api/campus/applications/a%20b%2Fc');
+  });
+
+  /**
+   * 这条守的是一个会静默炸掉的改动：若有人「简化」segment() 去掉占位符直通，
+   * ':id' 会被转义成 '%3Aid'，Fastify 于是注册了一个字面量路径——
+   * 所有带参数的路由全部失效，且不报任何错。
+   */
+  it('占位符不得被转义', () => {
+    expect(CAMPUS_API.application(ID_PARAM)).not.toContain('%3A');
   });
 });

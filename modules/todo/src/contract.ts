@@ -42,3 +42,29 @@ export const todayResponseSchema = z.object({
   overdue: z.array(taskViewSchema),
 });
 export type TodayResponse = z.infer<typeof todayResponseSchema>;
+
+/**
+ * 路径参数占位符。把它传给下面的路径构造函数，得到的是 Fastify 注册用的模式；
+ * 传真实 id 则得到可直接请求的路径。
+ */
+export const ID_PARAM = ':id';
+
+function segment(value: string): string {
+  return value === ID_PARAM ? value : encodeURIComponent(value);
+}
+
+/**
+ * 本模块的 HTTP 端点。服务端注册与前端调用**共用同一份定义**——
+ * 路径不再在 routes.ts 与 api.ts 各写一遍、各改一半。
+ *
+ * 前端需要知道的一切都在本文件：端点在这里，请求/响应形状在上面的 Zod schema。
+ * 不必为了写界面去读服务端代码。
+ */
+export const TODO_API = {
+  /** GET → TodayResponse */
+  today: '/api/todo/today',
+  /** POST CreateTaskInput → TaskView（201） */
+  tasks: '/api/todo/tasks',
+  /** POST → TaskView；不存在或不属于本模块时 404 */
+  completeTask: (id: string): string => `/api/todo/tasks/${segment(id)}/complete`,
+} as const;

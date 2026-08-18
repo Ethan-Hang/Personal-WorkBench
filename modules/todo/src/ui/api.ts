@@ -1,4 +1,5 @@
 import {
+  TODO_API,
   todayResponseSchema,
   taskViewSchema,
   type CreateTaskInput,
@@ -26,17 +27,17 @@ async function request(url: string, init?: RequestInit): Promise<unknown> {
 
 export async function fetchToday(): Promise<TodayResponse> {
   // 用 Zod 校验响应：后端改了形状，这里会立刻报错而不是页面静默变空
-  return todayResponseSchema.parse(await request('/api/todo/today'));
+  return todayResponseSchema.parse(await request(TODO_API.today));
 }
 
 export async function postTask(
   input: Pick<CreateTaskInput, 'title' | 'importance' | 'dueDate'>,
 ): Promise<TaskView> {
   return taskViewSchema.parse(
-    await request('/api/todo/tasks', { method: 'POST', body: JSON.stringify(input) }),
+    await request(TODO_API.tasks, { method: 'POST', body: JSON.stringify(input) }),
   );
 }
 
 export async function postComplete(id: string): Promise<TaskView> {
-  return taskViewSchema.parse(await request(`/api/todo/tasks/${id}/complete`, { method: 'POST' }));
+  return taskViewSchema.parse(await request(TODO_API.completeTask(id), { method: 'POST' }));
 }

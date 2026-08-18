@@ -2,6 +2,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import type { ModuleContext } from '@workbench/core';
 import {
+  CAMPUS_API,
+  ID_PARAM,
   createApplicationInputSchema,
   createRoundInputSchema,
   updateApplicationInputSchema,
@@ -43,9 +45,9 @@ export function registerCampusRecruitRoutes(
   ctx: ModuleContext,
   repo: CampusRecruitRepository,
 ): void {
-  app.get('/api/campus/applications', async () => listApplications(repo, { zone: resolveZone() }));
+  app.get(CAMPUS_API.applications, async () => listApplications(repo, { zone: resolveZone() }));
 
-  app.post('/api/campus/applications', async (request, reply) => {
+  app.post(CAMPUS_API.applications, async (request, reply) => {
     const input = createApplicationInputSchema.safeParse(request.body);
     if (!input.success) return invalid(reply, input.error);
     return reply
@@ -53,7 +55,7 @@ export function registerCampusRecruitRoutes(
       .send(await createApplication(ctx, repo, input.data, { zone: resolveZone() }));
   });
 
-  app.patch('/api/campus/applications/:id', async (request, reply) => {
+  app.patch(CAMPUS_API.application(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
     if (!params.success) return invalid(reply, params.error);
     const input = updateApplicationInputSchema.safeParse(request.body);
@@ -67,7 +69,7 @@ export function registerCampusRecruitRoutes(
     }
   });
 
-  app.post('/api/campus/applications/:id/apply', async (request, reply) => {
+  app.post(CAMPUS_API.applyApplication(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
     if (!params.success) return invalid(reply, params.error);
     try {
@@ -77,7 +79,7 @@ export function registerCampusRecruitRoutes(
     }
   });
 
-  app.delete('/api/campus/applications/:id', async (request, reply) => {
+  app.delete(CAMPUS_API.application(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
     if (!params.success) return invalid(reply, params.error);
     try {
@@ -88,7 +90,7 @@ export function registerCampusRecruitRoutes(
     }
   });
 
-  app.post('/api/campus/applications/:id/rounds', async (request, reply) => {
+  app.post(CAMPUS_API.applicationRounds(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
     if (!params.success) return invalid(reply, params.error);
     const input = createRoundInputSchema.safeParse(request.body);
@@ -102,7 +104,7 @@ export function registerCampusRecruitRoutes(
     }
   });
 
-  app.patch('/api/campus/rounds/:id', async (request, reply) => {
+  app.patch(CAMPUS_API.round(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
     if (!params.success) return invalid(reply, params.error);
     const input = updateRoundInputSchema.safeParse(request.body);
@@ -114,7 +116,7 @@ export function registerCampusRecruitRoutes(
     }
   });
 
-  app.delete('/api/campus/rounds/:id', async (request, reply) => {
+  app.delete(CAMPUS_API.round(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);
     if (!params.success) return invalid(reply, params.error);
     try {
@@ -124,5 +126,5 @@ export function registerCampusRecruitRoutes(
     }
   });
 
-  app.get('/api/campus/stats', async () => getStats(repo, { zone: resolveZone() }));
+  app.get(CAMPUS_API.stats, async () => getStats(repo, { zone: resolveZone() }));
 }
