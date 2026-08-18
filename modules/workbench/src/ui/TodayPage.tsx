@@ -14,6 +14,7 @@ import {
   ProgressBar,
   MetricRing,
   QuickAddBar,
+  TodayClockCard,
   controlClass,
   useModuleLabel,
   IconCheck,
@@ -978,6 +979,9 @@ export function TodayPage() {
 
       {/* 右侧 1 栏 */}
       <div className="space-y-5 animate-slide-right-in">
+        {/* 今日实时时分秒与日期卡片 */}
+        <TodayClockCard />
+
         {/* 今日执行度仪表盘卡片 */}
         <TodayExecutionCard doneCount={doneTasks.length} totalCount={totalTasksCount} />
 

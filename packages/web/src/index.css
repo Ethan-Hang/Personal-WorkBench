@@ -490,6 +490,41 @@
   animation: spinRing 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* 时钟数字平滑翻滚进入动效 (Digit Roll Animation) */
+@keyframes digitRollIn {
+  0% {
+    transform: translateY(35%);
+    opacity: 0.15;
+    filter: blur(1px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.animate-digit-roll {
+  animation: digitRollIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 时钟冒号平滑呼吸动效 (Blinking Colon) */
+@keyframes colonBlink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+}
+
+.animate-colon-blink {
+  animation: colonBlink 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 /* 阶梯进入动效 (Staggered Children) */
 .stagger-1 {
   animation-delay: 80ms;

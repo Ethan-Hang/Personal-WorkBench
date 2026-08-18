@@ -25,6 +25,7 @@ export type { TimezoneOption, DstMode } from './TimezoneContext.js';
 export { ScheduleRangePicker } from './ScheduleRangePicker.js';
 export type { ScheduleRangeValue, ScheduleRangePickerProps } from './ScheduleRangePicker.js';
 export { TimezoneMapSelector } from './TimezoneMapSelector.js';
+export { TodayClockCard } from './TodayClockCard.js';
 export { AppShell } from './AppShell.js';
 export type { ShellNavGroup, ShellNavItem } from './AppShell.js';
 export * from './icons.js';
