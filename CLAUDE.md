@@ -159,7 +159,7 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 
 一条现存的坑：**手动给秋招 Item 排程，重启会回弹**（对账覆盖）。这是正确行为——
 笔试时间是客观事实，不是「我打算什么时候做」。但**周日历 UI 开工前必须先解决
-「前端怎么知道哪些能拖」这个信号**，且不能靠硬编码模块名。详见 ADR-0010。
+「前端怎么知道哪些能拖」这个信号**，且不能靠硬编码模块名。详见 ADR-0012。
 
 ### 回收站借用了 `cancelled`
 
@@ -218,7 +218,7 @@ Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss
 
 1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
 2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-3. `docs/adr/` — 十条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+3. `docs/adr/` — 十二条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 

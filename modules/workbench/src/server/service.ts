@@ -124,7 +124,7 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
  *
  * 注意：目前两个既有模块建 Item 时都会填上 scheduled——todo 默认排今天，
  * 秋招投影带着客观时间——所以抽屉的现实数据源只有本模块的
- * `scheduleItem(id, { date: null })`。见 ADR-0010「已知限制」。
+ * `scheduleItem(id, { date: null })`。见 ADR-0012「已知限制」。
  */
 export async function listUnscheduled(
   ctx: ModuleContext,
@@ -142,7 +142,7 @@ export async function listUnscheduled(
 /**
  * 排程：把事项放到某一天，或取消排程退回抽屉。
  *
- * **不校验 sourceModule** —— 排程是跨模块能力，这正是工作台的意义（ADR-0010）。
+ * **不校验 sourceModule** —— 排程是跨模块能力，这正是工作台的意义（ADR-0012）。
  * 只写 scheduled，绝不碰 dueAt：死线是客观的，排程是主观意图，
  * 混为一谈是许多 todo 应用排不好程的根因（spec §5.3 决策 ①）。
  */

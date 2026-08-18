@@ -48,7 +48,7 @@ npm run dev
 ## 要改代码先读什么
 
 1. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与功能规范
-2. `docs/adr/` — 十一条架构决策记录（ADR）。**动 core 之前必读**。其中
+2. `docs/adr/` — 十二条架构决策记录（ADR）。**动 core 之前必读**。其中
    `docs/adr/0005-module-boundaries.md` 记录了三条铁律里唯一 lint 不强制的一条（铁律 3：模块自带迁移与注册项）——这条靠人守，不靠 CI。
 
 ## 加一个新模块
@@ -85,3 +85,4 @@ npm run dev
 - `docs/adr/0009-todo-trash-reuses-cancelled-status.md` — 回收站复用 cancelled 状态
 - `docs/adr/0010-todo-completion-and-reopen-lifecycle.md` — 待办完成、重开与已完成归集生命周期
 - `docs/adr/0011-optimistic-ui-and-hardware-accelerated-animations.md` — 乐观缓存同步与 GPU 动效架构
+- `docs/adr/0012-scheduling-is-a-cross-module-capability.md` — 排程是跨模块能力，归工作台所有

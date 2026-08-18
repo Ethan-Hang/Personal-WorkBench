@@ -29,7 +29,7 @@ export function registerWorkbenchRoutes(app: FastifyInstance, ctx: ModuleContext
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? '请求不合法' });
     }
 
-    // 刻意不校验 sourceModule：排程是跨模块能力（ADR-0010）。
+    // 刻意不校验 sourceModule：排程是跨模块能力（ADR-0012）。
     // 存在性检查仍要做，否则 update 会以 500 冒出去而不是 404。
     const existing = await ctx.items.getById(params.data.id);
     if (existing === null) {

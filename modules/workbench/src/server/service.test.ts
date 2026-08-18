@@ -168,7 +168,7 @@ describe('scheduleItem', () => {
     });
   });
 
-  it('能给其他模块的事项排程——这正是工作台存在的意义（ADR-0010）', async () => {
+  it('能给其他模块的事项排程——这正是工作台存在的意义（ADR-0012）', async () => {
     const item = await items.create('campus-recruit', { kind: 'task', title: '投递截止' });
 
     const view = await scheduleItem(ctx, item.id, { date: '2026-09-21' }, OPTS);
