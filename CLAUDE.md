@@ -26,14 +26,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 靠前端 `TodayPage.tsx` 里散布的 `task.sourceModule === TODO_MODULE_ID` 判断兜住——
 **后端约束泄漏成了前端逻辑。**
 
-`modules/workbench` 的服务端已经建好，**但 UI 还没搬**。两个 `today` 端点因此并存：
+`modules/workbench` 的 UI 搬迁**已经完成**——`packages/web/src/modules.ts` 现在只注册
+`workbenchUiModule` 与 `campusRecruitUiModule`，`modules/todo/src/ui/` 已不再挂载
+（1380 行的 `TodayPage.tsx` 就此成为死代码）。两个 `today` 端点仍并存：
 
 | 端点                       | 状态                                                 |
 | -------------------------- | ---------------------------------------------------- |
 | `GET /api/workbench/today` | 正主。跨模块聚合，带 `scheduled` 两分支形状与 `kind` |
-| `GET /api/todo/today`      | 待退休。前端完成 UI 搬迁后删除                       |
+| `GET /api/todo/today`      | 待退休。已无消费者，随 itemActions 那一轮一并删除    |
 
-**在搬迁完成前，不要再往 todo 里加跨模块能力**——每加一条，搬迁就多一分成本。
+**注意：`modules/todo/src/ui/TodayPage.tsx` 虽已不再挂载，但仍在被改动**
+（`1d16a57 时钟组件` 同时改了两份 TodayPage）。**删它之前必须先与对方对齐**，
+不要因为「它是死代码」就单方面删。
+
+**不要再往 todo 里加跨模块能力。** 跨模块视图调用源模块写操作的正确机制是 core 的
+`itemActions` 能力槽，方案见
+`docs/superpowers/specs/2026-08-18-item-actions-registry-design.md`。
+`modules/workbench/src/ui/api.ts` 里那 12 条硬编码的 `/api/todo/...` 是待还的债，
+文件顶部有 TODO 标注，并已由 lint 规则封住新增（见下）。
 
 ## 命令
 
@@ -73,6 +83,13 @@ core 定义 `ItemRepository` 接口，data 提供实现（DIP）。
 3. **模块自带迁移与注册项**——删模块 = 删一个目录 + 删一行注册
 
 **前两条由 `eslint.config.js` 的 `no-restricted-imports` 强制**，违反即 CI 失败，且有回归测试（`packages/core/src/eslint.boundaries.test.ts` 用 ESLint 的 Node API 对真实配置断言，包括「测试文件豁免不会波及生产文件」这一条）。
+
+**但 `no-restricted-imports` 只能拦 `import`，拦不住裸字符串。** 2026-08 工作台今日页
+搬迁时，workbench 的 UI 手抄了 12 条 `/api/todo/...` 路径，铁律 1 就此被绕过而 lint 全绿；
+手抄的响应形状漏了一个 `kind` 字段，导致六个写操作在生产里必抛。因此另有一条
+`no-restricted-syntax` 规则：**`modules/*/src/ui/**` 里禁止以 `/api/` 开头的字符串
+字面量与模板字面量**，路径一律来自本模块 `contract.ts` 的常量。作用域限定在 `ui/`
+是刻意的——`contract.ts` 里定义路径字面量正是它的职责。
 
 **第三条没有、也不可能有 lint 规则**——它不是 import 约束，而是结构性质，由 `ServerModuleDefinition.migrations` 与注册表的形状保证。把某个模块的迁移搬进 core 的集中目录，lint 和 CI 都不会报错，但「删模块 = 删一个目录」的承诺就此失效。**这是唯一需要人来守的一条。**
 
