@@ -8,9 +8,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 因此本项目的首要目标不是实现某组功能，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。** 所有架构选择都服务于这一条；遇到取舍时，以它为准。
 
-当前状态：Walking Skeleton 完成，秋招模块已接入，主题层已落地，工作台模块的服务端
-已完成。现有三个模块（todo、workbench、campus-recruit）、一层共享设计基座
-（`packages/ui`：15 个组件 + 主题上下文 + 图标集）、以及带请求编号的错误追踪。
+当前状态：Walking Skeleton 完成，秋招模块与工作台模块已全量接入（UI 已全部迁移至
+`modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化。
+现有三个模块（todo、workbench、campus-recruit）、一层共享设计基座
+（`packages/ui`：18+ 个组件 + 主题/时区/偏好三套上下文 + Apple-Style 胶囊开关 + 图标集）、以及带请求编号的错误追踪。
 
 两次架构考试都过了，且考的是不同的东西：
 
@@ -19,21 +20,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   视图 + 一个动作。core 只多了一个通用查询维度 `unscheduled`。
 
 三条铁律均未破。
-
-**一处已知的临时归属，动 todo 前必须知道：`modules/todo` 前端那侧仍扮演着工作台。**
-它的 `GET /api/todo/today` 不按 `sourceModule` 过滤，秋招的事项也会出现在今日页；
-但所有写操作（完成、编辑、回收站）只认 `sourceModule === 'todo'` 的项。这条不对称目前
-靠前端 `TodayPage.tsx` 里散布的 `task.sourceModule === TODO_MODULE_ID` 判断兜住——
-**后端约束泄漏成了前端逻辑。**
-
-`modules/workbench` 的服务端已经建好，**但 UI 还没搬**。两个 `today` 端点因此并存：
-
-| 端点                       | 状态                                                 |
-| -------------------------- | ---------------------------------------------------- |
-| `GET /api/workbench/today` | 正主。跨模块聚合，带 `scheduled` 两分支形状与 `kind` |
-| `GET /api/todo/today`      | 待退休。前端完成 UI 搬迁后删除                       |
-
-**在搬迁完成前，不要再往 todo 里加跨模块能力**——每加一条，搬迁就多一分成本。
 
 ## 命令
 

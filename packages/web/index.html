@@ -23,6 +23,15 @@
           }
           root.setAttribute('data-theme', palette);
           root.setAttribute('data-mode', isDark ? 'dark' : 'light');
+
+          var rawPrefs = localStorage.getItem('workbench_preferences');
+          if (rawPrefs) {
+            var prefs = JSON.parse(rawPrefs);
+            if (prefs && prefs.enableAnimations === false) {
+              root.setAttribute('data-reduced-motion', 'true');
+              root.setAttribute('data-animations', 'disabled');
+            }
+          }
         } catch (e) {}
       })();
     </script>

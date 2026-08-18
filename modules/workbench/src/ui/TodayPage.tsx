@@ -15,6 +15,7 @@ import {
   MetricRing,
   QuickAddBar,
   TodayClockCard,
+  usePreferences,
   controlClass,
   useModuleLabel,
   IconCheck,
@@ -104,12 +105,17 @@ function formatScheduledTime(scheduled: WorkbenchItem['scheduled']): string {
  * 缓动数值动画 Hook：
  * 隔离在卡片内部独立运行，避免 RAF 高频更新导致整页和列表产生无谓的 React 重新渲染
  */
-function useAnimatedValue(targetValue: number, duration = 850): number {
-  const [displayValue, setDisplayValue] = useState(0);
-  const currentRef = useRef(0);
+function useAnimatedValue(targetValue: number, duration = 850, enabled = true): number {
+  const [displayValue, setDisplayValue] = useState(targetValue);
+  const currentRef = useRef(targetValue);
   const animFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!enabled) {
+      currentRef.current = targetValue;
+      setDisplayValue(targetValue);
+      return;
+    }
     const startVal = currentRef.current;
     const endVal = targetValue;
     if (startVal === endVal) return;
@@ -140,9 +146,9 @@ function useAnimatedValue(targetValue: number, duration = 850): number {
         cancelAnimationFrame(animFrameRef.current);
       }
     };
-  }, [targetValue, duration]);
+  }, [targetValue, duration, enabled]);
 
-  return displayValue;
+  return enabled ? displayValue : targetValue;
 }
 
 /**
@@ -155,8 +161,9 @@ const TodayExecutionCard = memo(function TodayExecutionCard({
   doneCount: number;
   totalCount: number;
 }) {
+  const { preferences } = usePreferences();
   const targetRate = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
-  const animatedRate = useAnimatedValue(targetRate, 850);
+  const animatedRate = useAnimatedValue(targetRate, 850, preferences.enableAnimations);
 
   return (
     <section className="relative overflow-hidden rounded-panel border border-slate-700/60 bg-gradient-to-br from-slate-900 via-[#182338] to-[#0f172a] text-white p-5 shadow-lg hover-lift">
@@ -395,8 +402,14 @@ function TaskItemRow({
 
 export function TodayPage() {
   const queryClient = useQueryClient();
-  const [isOverdueExpanded, setIsOverdueExpanded] = useState(false);
+  const { preferences } = usePreferences();
+  const [isOverdueExpanded, setIsOverdueExpanded] = useState(() => preferences.autoExpandOverdue);
   const [isCompletedExpanded, setIsCompletedExpanded] = useState(false);
+
+  // 当用户在偏好设置中切换自动展开选项时，响应偏好变更
+  useEffect(() => {
+    setIsOverdueExpanded(preferences.autoExpandOverdue);
+  }, [preferences.autoExpandOverdue]);
 
   // 动画状态映射: taskId -> Action
   const [taskAnimActions, setTaskAnimActions] = useState<Map<string, TaskRowAnimAction>>(new Map());
@@ -782,10 +795,10 @@ export function TodayPage() {
         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
           <div>
             <p className="text-xs font-bold tracking-wider text-accent uppercase">
-              {date} · 今日执行舱
+              {preferences.showGreeting ? `${date} · 今日执行舱` : date}
             </p>
             <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
-              {greeting.title}
+              {preferences.showGreeting ? greeting.title : '今日执行舱'}
             </h1>
             <p className="mt-1 text-xs text-secondary">
               今日共 {totalTasksCount} 项排程，已达成 {doneTasks.length} 项（
@@ -904,7 +917,7 @@ export function TodayPage() {
               )}
 
               {/* 已完成事项分组折叠区 */}
-              {renderedDoneTasks.length > 0 && (
+              {preferences.showCompletedTasks && renderedDoneTasks.length > 0 && (
                 <div className={`border-t border-line/60 pt-3 ${doneSectionAnimClass}`}>
                   <button
                     type="button"

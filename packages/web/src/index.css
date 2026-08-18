@@ -807,3 +807,36 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-muted);
 }
+
+/* ==========================================================================
+   无障碍与动效开关支持 (Reduced Motion & Animation Preference)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 开关等基础交互控件始终保留轻量平滑的位移反馈 */
+:root[data-reduced-motion='true'] [role='switch'],
+:root[data-reduced-motion='true'] [role='switch'] * {
+  transition-duration: 250ms !important;
+}
+
+:root[data-reduced-motion='true'] .hover-lift:hover {
+  transform: none !important;
+}

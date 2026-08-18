@@ -1,5 +1,6 @@
 export { Panel } from './Panel.js';
 export { Button } from './Button.js';
+export { Switch, type SwitchProps } from './Switch.js';
 export { Chip } from './Chip.js';
 export { Field, controlClass } from './Field.js';
 export { PageHeader } from './PageHeader.js';
@@ -26,6 +27,13 @@ export { ScheduleRangePicker } from './ScheduleRangePicker.js';
 export type { ScheduleRangeValue, ScheduleRangePickerProps } from './ScheduleRangePicker.js';
 export { TimezoneMapSelector } from './TimezoneMapSelector.js';
 export { TodayClockCard } from './TodayClockCard.js';
+export {
+  PreferencesProvider,
+  usePreferences,
+  DEFAULT_PREFERENCES,
+  PREFERENCES_STORAGE_KEY,
+} from './PreferencesContext.js';
+export type { WorkbenchPreferences, PreferencesContextValue } from './PreferencesContext.js';
 export { AppShell } from './AppShell.js';
 export type { ShellNavGroup, ShellNavItem } from './AppShell.js';
 export * from './icons.js';

@@ -19,7 +19,7 @@ npm run dev
 | --------------------- | --------------------------------------------------- |
 | `npm run dev`         | 同时启动后端与前端                                  |
 | `npm run check`       | 格式 + 类型 + lint + 测试（提交前跑这个，必须全绿） |
-| `npm run test`        | 运行全部 Vitest 自动化测试 (200+ tests)             |
+| `npm run test`        | 运行全部 Vitest 自动化测试 (310+ tests)             |
 | `npm run format`      | 使用 Prettier 自动格式化代码                        |
 | `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移       |
 
@@ -45,10 +45,15 @@ npm run dev
    - **乐观同步更新**：动效结束瞬间由 `queryClient.setQueryData` 乐观更新本地缓存，彻底消除异步网络回拉延时导致的「瞬间闪现回跳」；
    - **全场景 0 ↔ 1 动效**：逾期警告横幅、待办列表与已完成折叠区在「0 到 1 产生」与「1 到 0 清空」全生命周期均具备平滑展开与折叠离场动效。
 
+4. **工作台偏好系统与苹果风格胶囊开关 (`PreferencesContext` & `Switch`)**：
+   - **全局偏好持久化**：支持时段问候语、逾期列表默认展开、全局动效控制与已完成任务展示，配置秒级持久化至 `localStorage`；
+   - **Apple-Style 胶囊开关**：纯 GPU 加速的 `cubic-bezier(0.16, 1, 0.3, 1)` 弹性位移动画与微按压形变，高频极速连击不掉帧；
+   - **无障碍动效联动**：支持 `data-reduced-motion` 全局动效降级，同时对基础物理交互控件保持轻量位移反馈。
+
 ## 要改代码先读什么
 
 1. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与功能规范
-2. `docs/adr/` — 十四条架构决策记录（ADR）。**动 core 之前必读**。其中
+2. `docs/adr/` — 十六条架构决策记录（ADR）。**动 core 之前必读**。其中
    `docs/adr/0005-module-boundaries.md` 记录了三条铁律里唯一 lint 不强制的一条（铁律 3：模块自带迁移与注册项）——这条靠人守，不靠 CI。
 
 ## 加一个新模块
@@ -88,3 +93,5 @@ npm run dev
 - `docs/adr/0012-scheduling-is-a-cross-module-capability.md` — 排程是跨模块能力，归工作台所有
 - `docs/adr/0013-minimalist-datetime-picker-with-direct-hand-manipulation.md` — 极简现代双指针模拟钟表与时分一体化日历组件架构
 - `docs/adr/0014-timezone-management-and-three-way-deduction.md` — 全局时区上下文、UTC 标准化存储与时间段三者互推引擎架构
+- `docs/adr/0015-in-place-accordion-table-and-fluid-process-stepper.md` — 原地展开表格、吸顶控制区与自适应流转推进图架构
+- `docs/adr/0016-workbench-preferences-and-apple-style-switch.md` — 工作台行为偏好持久化与苹果风格胶囊开关架构

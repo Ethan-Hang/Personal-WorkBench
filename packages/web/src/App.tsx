@@ -4,6 +4,7 @@ import {
   ModuleLabelProvider,
   ThemeProvider,
   TimezoneProvider,
+  PreferencesProvider,
   AppShell,
   type ShellNavGroup,
 } from '@workbench/ui';
@@ -44,27 +45,29 @@ export function App() {
   return (
     <ThemeProvider defaultMode="system" defaultPalette="warm">
       <TimezoneProvider>
-        <ModuleLabelProvider labels={MODULE_LABELS}>
-          <AppShell
-            navGroups={navGroups}
-            activePath={location.pathname}
-            LinkComponent={NavLink}
-            dbStatus="本地 SQLite 已就绪 · 零延迟"
-          >
-            <Routes>
-              {firstPath !== undefined && (
-                <Route path="/" element={<Navigate to={firstPath} replace />} />
-              )}
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/about" element={<AboutPage />} />
-              {uiModules.flatMap((m) =>
-                m.routes.map((r) => (
-                  <Route key={r.path} path={r.path} element={r.element as ReactNode} />
-                )),
-              )}
-            </Routes>
-          </AppShell>
-        </ModuleLabelProvider>
+        <PreferencesProvider>
+          <ModuleLabelProvider labels={MODULE_LABELS}>
+            <AppShell
+              navGroups={navGroups}
+              activePath={location.pathname}
+              LinkComponent={NavLink}
+              dbStatus="本地 SQLite 已就绪 · 零延迟"
+            >
+              <Routes>
+                {firstPath !== undefined && (
+                  <Route path="/" element={<Navigate to={firstPath} replace />} />
+                )}
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/about" element={<AboutPage />} />
+                {uiModules.flatMap((m) =>
+                  m.routes.map((r) => (
+                    <Route key={r.path} path={r.path} element={r.element as ReactNode} />
+                  )),
+                )}
+              </Routes>
+            </AppShell>
+          </ModuleLabelProvider>
+        </PreferencesProvider>
       </TimezoneProvider>
     </ThemeProvider>
   );

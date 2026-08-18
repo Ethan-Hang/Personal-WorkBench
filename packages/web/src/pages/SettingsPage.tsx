@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Button,
+  Switch,
   Chip,
   PageHeader,
   Panel,
   useTheme,
+  usePreferences,
   PALETTES,
   type ThemeMode,
   TimezoneMapSelector,
@@ -27,10 +29,16 @@ export function SettingsPage() {
   const { mode, palette, setMode, setPalette } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [cacheCleared, setCacheCleared] = useState(false);
+  const [resetToast, setResetToast] = useState(false);
 
-  // 偏好状态
-  const [showGreeting, setShowGreeting] = useState(true);
-  const [autoExpandOverdue, setAutoExpandOverdue] = useState(false);
+  // 全局持久化工作台偏好
+  const { preferences, togglePreference, resetPreferences } = usePreferences();
+
+  function handleResetPreferences() {
+    resetPreferences();
+    setResetToast(true);
+    setTimeout(() => setResetToast(false), 2500);
+  }
 
   const modeOptions: Array<{
     id: ThemeMode;
@@ -275,49 +283,123 @@ export function SettingsPage() {
 
           {activeTab === 'preferences' && (
             <div key="preferences" className="space-y-6 animate-slide-right-in">
-              <div>
-                <h2 className="text-base font-bold text-ink">工作台行为偏好</h2>
-                <p className="text-xs text-secondary">定制今日执行舱的提醒、折叠与交互逻辑</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-ink">工作台行为偏好</h2>
+                  <p className="text-xs text-secondary">
+                    定制今日执行舱的问候语、逾期折叠、已完成视图与动效体验，设置即时保存生效
+                  </p>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={handleResetPreferences}>
+                  {resetToast ? '✓ 已恢复默认偏好' : '恢复默认偏好'}
+                </Button>
               </div>
 
               <Panel>
                 <div className="divide-y divide-line text-xs">
-                  <div className="flex items-center justify-between py-3.5 first:pt-0">
-                    <div>
-                      <div className="font-bold text-ink">显示时段问候语</div>
-                      <div className="text-muted mt-0.5">
-                        在今日执行舱顶部显示「早上好/下午好」与任务概况
+                  {/* 时段问候语 */}
+                  <div
+                    onClick={() => togglePreference('showGreeting')}
+                    className="flex items-center justify-between py-3.5 first:pt-0 cursor-pointer hover:bg-surface-2/40 -mx-4 px-4 transition-colors select-none"
+                  >
+                    <div className="pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-ink text-[13px]">显示时段问候语</span>
+                        {preferences.showGreeting ? (
+                          <Chip tone="accent">已启用</Chip>
+                        ) : (
+                          <Chip tone="neutral">已关闭</Chip>
+                        )}
+                      </div>
+                      <div className="text-muted mt-1 leading-relaxed">
+                        在今日执行舱顶部显示「早上好/下午好，今天专注三件事」与排程概况（关闭后展示简洁规范标题）
                       </div>
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={showGreeting}
-                      onChange={(e) => setShowGreeting(e.target.checked)}
-                      className="size-4 rounded border-line accent-accent"
+                    <Switch
+                      checked={preferences.showGreeting}
+                      onChange={() => togglePreference('showGreeting')}
+                      label="显示时段问候语"
                     />
                   </div>
 
-                  <div className="flex items-center justify-between py-3.5">
-                    <div>
-                      <div className="font-bold text-ink">逾期任务默认自动展开</div>
-                      <div className="text-muted mt-0.5">
-                        默认直接展开逾期任务列表，无需手动点击展开
+                  {/* 逾期任务默认展开 */}
+                  <div
+                    onClick={() => togglePreference('autoExpandOverdue')}
+                    className="flex items-center justify-between py-3.5 cursor-pointer hover:bg-surface-2/40 -mx-4 px-4 transition-colors select-none"
+                  >
+                    <div className="pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-ink text-[13px]">逾期任务默认自动展开</span>
+                        {preferences.autoExpandOverdue ? (
+                          <Chip tone="warning">默认展开</Chip>
+                        ) : (
+                          <Chip tone="neutral">默认收起</Chip>
+                        )}
+                      </div>
+                      <div className="text-muted mt-1 leading-relaxed">
+                        进入今日工作台时默认直接展开逾期事项警告列表，无需手动点击展开查看
                       </div>
                     </div>
-                    <input
-                      type="checkbox"
-                      checked={autoExpandOverdue}
-                      onChange={(e) => setAutoExpandOverdue(e.target.checked)}
-                      className="size-4 rounded border-line accent-accent"
+                    <Switch
+                      checked={preferences.autoExpandOverdue}
+                      onChange={() => togglePreference('autoExpandOverdue')}
+                      tone="warning"
+                      label="逾期任务默认自动展开"
                     />
                   </div>
 
-                  <div className="flex items-center justify-between py-3.5 last:pb-0">
-                    <div>
-                      <div className="font-bold text-ink">界面动效与平滑过渡</div>
-                      <div className="text-muted mt-0.5">开启组件进入滑行动效与卡片微悬浮提升</div>
+                  {/* 界面动效与平滑过渡 */}
+                  <div
+                    onClick={() => togglePreference('enableAnimations')}
+                    className="flex items-center justify-between py-3.5 cursor-pointer hover:bg-surface-2/40 -mx-4 px-4 transition-colors select-none"
+                  >
+                    <div className="pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-ink text-[13px]">界面动效与平滑过渡</span>
+                        {preferences.enableAnimations ? (
+                          <Chip tone="good">已启用</Chip>
+                        ) : (
+                          <Chip tone="neutral">已关闭</Chip>
+                        )}
+                      </div>
+                      <div className="text-muted mt-1 leading-relaxed">
+                        开启组件进入滑行动效、数字缓动与卡片微悬浮提升（关闭可降低渲染开销，提升纯粹速度）
+                      </div>
                     </div>
-                    <Chip tone="good">已启用</Chip>
+                    <Switch
+                      checked={preferences.enableAnimations}
+                      onChange={() => togglePreference('enableAnimations')}
+                      tone="good"
+                      label="界面动效与平滑过渡"
+                    />
+                  </div>
+
+                  {/* 显示今日已完成事项 */}
+                  <div
+                    onClick={() => togglePreference('showCompletedTasks')}
+                    className="flex items-center justify-between py-3.5 last:pb-0 cursor-pointer hover:bg-surface-2/40 -mx-4 px-4 transition-colors select-none"
+                  >
+                    <div className="pr-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-ink text-[13px]">
+                          显示今日已完成任务分组
+                        </span>
+                        {preferences.showCompletedTasks ? (
+                          <Chip tone="good">已展示</Chip>
+                        ) : (
+                          <Chip tone="neutral">已隐藏</Chip>
+                        )}
+                      </div>
+                      <div className="text-muted mt-1 leading-relaxed">
+                        在今日执行舱待办列表底部展示「今日已完成事项」回顾抽屉与达成勾选记录
+                      </div>
+                    </div>
+                    <Switch
+                      checked={preferences.showCompletedTasks}
+                      onChange={() => togglePreference('showCompletedTasks')}
+                      tone="good"
+                      label="显示今日已完成任务分组"
+                    />
                   </div>
                 </div>
               </Panel>
