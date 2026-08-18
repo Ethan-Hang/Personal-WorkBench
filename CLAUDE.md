@@ -1,0 +1,213 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## 项目定位
+
+本地优先的个人工作台。第一批功能是日历与 todo，此后会持续加入深度定制的领域模块（秋招管理、社招管理等），**需求增长没有终点**。
+
+因此本项目的首要目标不是实现某组功能，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。** 所有架构选择都服务于这一条；遇到取舍时，以它为准。
+
+当前状态：Walking Skeleton 完成，秋招模块已接入，主题层已落地。现有两个模块
+（todo、campus-recruit）、一层共享设计基座（`packages/ui`：15 个组件 + 主题上下文 +
+图标集）、以及带请求编号的错误追踪。秋招模块的接入过程验证了架构主张：core 只多了一个
+通用的 `delete(moduleId, id)`，三条铁律未破。
+
+**一处已知的临时归属，动 todo 前必须知道：`modules/todo` 眼下同时扮演着工作台。**
+它的 `GET /api/todo/today` 不按 `sourceModule` 过滤，秋招的事项也会出现在今日页；
+但所有写操作（完成、编辑、回收站）只认 `sourceModule === 'todo'` 的项。这条不对称目前
+靠前端 `TodayPage.tsx` 里散布的 `task.sourceModule === TODO_MODULE_ID` 判断兜住——
+**后端约束泄漏成了前端逻辑。**
+
+设计文档 §14.3 的「工作台模块」工作流就是来收拾这件事的：`modules/workbench` 建起来后，
+跨模块聚合与排程归它，todo 退回只管自己的任务。**在那之前，不要再往 todo 里加跨模块能力**
+——每加一条，将来搬迁就多一分成本。
+
+## 命令
+
+| 命令                           | 用途                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| `npm run dev`                  | 同时启动后端（:3000）与前端（:5173）。Vite 代理 `/api` 到后端，浏览器只见一个源 |
+| `npm run check`                | 提交前跑这个：format:check → typecheck → lint → test，四步全绿才算过            |
+| `npm run test`                 | 只跑测试                                                                        |
+| `npx vitest run <路径>`        | 跑单个测试文件，例如 `npx vitest run packages/core/src/time.test.ts`            |
+| `npx vitest run -t "<用例名>"` | 按用例名筛选                                                                    |
+| `npm run db:generate`          | 改完 `packages/data/src/schema.ts` 后生成迁移                                   |
+
+本地数据在 `data/local/workbench.db`（已 gitignore）。删掉它即可从空库重来。
+
+pre-commit hook 只跑 Prettier（lint-staged），**不跑测试**——测试是 CI 的职责，在 commit 时跑会抑制提交频率。
+
+## 架构
+
+### 分层与依赖方向
+
+```
+packages/core     纯领域逻辑，零 IO 依赖，不知道任何模块存在
+packages/data     SQLite + Drizzle + 迁移 + 仓储实现
+packages/server   Fastify，装配 core + data + 已注册模块
+packages/web      React 外壳、导航、主题
+modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
+```
+
+项目内依赖箭头**恒指向内层**：`data → core`，`server → core/data`，`modules → core`。
+模块可依赖 React、Zod、Drizzle 等外部库，但不得依赖其他模块或 `@workbench/data`。
+core 定义 `ItemRepository` 接口，data 提供实现（DIP）。
+
+### 三条铁律
+
+1. **模块只能依赖 core，模块之间零依赖**
+2. **core 永不感知模块**——加十个模块，core 一行不改
+3. **模块自带迁移与注册项**——删模块 = 删一个目录 + 删一行注册
+
+**前两条由 `eslint.config.js` 的 `no-restricted-imports` 强制**，违反即 CI 失败，且有回归测试（`packages/core/src/eslint.boundaries.test.ts` 用 ESLint 的 Node API 对真实配置断言，包括「测试文件豁免不会波及生产文件」这一条）。
+
+**第三条没有、也不可能有 lint 规则**——它不是 import 约束，而是结构性质，由 `ServerModuleDefinition.migrations` 与注册表的形状保证。把某个模块的迁移搬进 core 的集中目录，lint 和 CI 都不会报错，但「删模块 = 删一个目录」的承诺就此失效。**这是唯一需要人来守的一条。**
+
+### 模块如何接入
+
+模块通过两个注册表接入，各一行：
+
+- 服务端：`packages/server/src/index.ts` 的 `modules` 数组
+- 前端：`packages/web/src/modules.ts` 的 `uiModules` 数组
+
+`ModuleDefinition` **刻意拆成 `ServerModuleDefinition` 与 `UiModuleDefinition` 两个接口**——合并会让 web 打包时把 Fastify 拉进浏览器产物，拆分同时也是 ISP 的正确应用。
+
+模块的 service/routes 拿不到数据库句柄，只拿到受限的 `ModuleContext`（仅 `moduleId` +
+`items`）与模块自有 Repository。需要自有表时，模块在 storage 目录实现 Repository 的
+SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连接。该适配器不得 import
+`@workbench/data`，连接不得继续向业务代码扩散。详见 ADR-0008。
+
+`registerRoutes(app: unknown)` 与 `UiRoute.element: unknown` 里的 `unknown` 是**刻意的**：core 不得依赖 Fastify 或 React，类型断言在各自消费侧完成。不要「改进」成具体类型。
+
+### 模块如何扩展数据
+
+模块自建表，以 `item_id` **指向** core 的 `items` 表。外键方向恒为**模块 → core**；core 的建表语句里不存在任何模块名称。表名前缀 = `moduleId` 把连字符换成下划线再加 `_`（`campus-recruit` → `campus_recruit_`）。
+
+模块自有表的 Drizzle schema、迁移、Repository 接口与 SQLite 实现全部放在模块目录内。
+`packages/data` 不得出现任何模块表或模块 Repository。
+
+已否决 EAV（万能键值表）：同时牺牲类型安全与查询性能。
+
+联动机制很平淡：模块创建一条 core `Item`，日历查 `Item` 表就看得见——日历完全不知道该模块存在。
+
+### 前后端的接缝
+
+**接缝是每个模块的 `src/contract.ts`，且只有它。** 里面同时放着两样东西：
+
+- **端点路径**（`TODO_API` / `CAMPUS_API`）：路径构造函数传 `ID_PARAM` 得到 Fastify 注册模式，
+  传真实 id 得到转义后的请求路径。服务端与客户端共用同一份，因此不可能各改一半。
+  `TODO_API` 现有 13 个端点：今日视图、创建、编辑（PATCH）、完成 / 取消完成、
+  软删除 / 恢复 / 彻底删除，以及回收站的列表与四个批量操作。
+- **请求/响应形状**（Zod schema）：服务端用它校验入参，客户端用它 `.parse()` 校验响应。
+  后端改了形状，前端会在接缝处大声失败，而不是页面静默变空。
+
+由此得出一条对协作重要的性质：**写前端只需要读 `contract.ts`，不需要读 `src/server/`。**
+反向也成立——UI 层从不 import `server/`（可用 grep 验证）。
+
+已知缺口，动前端前值得知道：
+
+- **UI 没有任何自动化测试**：Vitest 的 `include` 刻意不收集 `.tsx`。这在只有一个页面时是对的
+  取舍，页面多起来后就是没有安全网——改坏渲染 CI 依然全绿。要改这条策略请先更新本文件。
+  **注意页面数已达 5**（今日、秋招投递、秋招统计、设置、关于），设计文档 §10 给 Playwright
+  定的引入门槛是「页面达 3 个以上」——这条门槛已经越过，但尚未动手。
+- **前端不能脱离后端运行**：没有 mock 层，`npm run dev:web` 单跑所有请求都会失败。
+- **传输层每个模块各写一份** `request()`：修一次要改 N 遍。第三个模块出现时再考虑抽取，
+  那时才知道它们真正共享多少。
+
+## 会咬人的约定
+
+### 时间存储
+
+三类时间，三种存法，**混用是本类应用最经典的事故来源**：
+
+- **时刻（instant）**：UTC ISO8601 文本（`2026-09-20T11:00:00.000Z`）。字典序等于时间序，SQL 可直接 `ORDER BY`/`BETWEEN`。`Z` 后缀与三位毫秒是承重的，不是美观问题。
+- **浮动日期**：全天排程存 `YYYY-MM-DD`，**绝不转 UTC**。转了会在某些时区整体偏移一天（RFC 5545 区分 DATE 与 DATE-TIME 正是为此）。
+- **`due_at` 恒为时刻**，永不用浮动日期。UI 只选到天时，由服务端补成该本地日最后一毫秒。
+
+数据库用**一组列 + `is_all_day` 标记**（而非两组列）；类型安全由 core 的 `ScheduledTime` discriminated union 保证。处理它的 `switch` **不要加 `default` 分支**——没有 default，将来加第三种形态时 TypeScript 会直接编译报错。
+
+**禁止在 SQL 里做时区转换。** 本地日边界一律在应用层用 `localDayRange()` 换算成 UTC 区间再查询，SQL 只做字符串比较。
+
+已知限制：不存每记录时区，跨时区旅行时旧排程会显示偏移。见 `docs/adr/0004-time-storage.md`。
+
+### 回收站借用了 `cancelled`
+
+todo 的回收站是软删除，落地方式是把 `status` 置为 core 的 `cancelled`。**`cancelled` 的
+含义因此变成依模块而定**：在 todo 里它表示「在回收站中」，不再是「已取消」。
+
+两条随之而来的规则：
+
+- 软删除**不清 `completedAt`**，恢复时的状态由它反推（有值 → `done`，无值 → `todo`）。
+  一律恢复成 `todo` 会静默丢掉「已完成」，并留下 `status='todo'` 却带着 `completedAt`
+  的自相矛盾记录。
+- `listTrash` 按 `sourceModules: [ctx.moduleId]` 过滤，所以其他模块用 `cancelled`
+  表达自己的语义不会污染 todo 的回收站。
+
+理由与代价见 `docs/adr/0009-todo-trash-reuses-cancelled-status.md`。
+**这不是可以照抄的模式**——下一个模块若也想借用 core 的枚举值表达自己的概念，先读那一条。
+
+### 优先级
+
+`importance` 手动存储；**`urgency` 与 `priorityScore` 是派生的，永不入库**。手工维护的紧急度必然腐化——没人会回头逐条更新。阈值是 core 里的具名常量（`IMMINENT_HOURS` / `SOON_HOURS`）。
+
+已接受的取舍：**没有 DDL 就不算紧急**。
+
+### 工作区依赖
+
+每个 `packages/*` 与 `modules/*` 都必须在自己的 `package.json` 里声明它实际 import 的东西。本地包写 `"*"`，安装用 `npm install <pkg> -w <workspace>`，**不得**装到根 manifest 靠 hoisting 生效。
+
+运行期真正 import 的进 `dependencies`，仅测试或仅类型用途的进 `devDependencies`——例如 `modules/todo` 把 `@workbench/data` 列为 devDependency，在 manifest 层面诚实表达了「测试可用真实数据库、生产代码不许碰数据层」。
+
+例外：仅由根 npm script 调用的 CLI（如 `drizzle-kit`）留在根 devDependencies。
+
+### 前端样式
+
+Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss'`，**没有 `tailwind.config.js`，也没有 PostCSS 配置**（跟 v3 完全不同，别按记忆造配置文件）。
+
+`packages/web/src/index.css` 里的 `@source "../../../modules";` 是必需的——Tailwind 的自动扫描以 Vite root 为界，删掉它每个模块的 UI 都会没有样式，而且**没有任何报错**。
+
+## 测试策略
+
+分层投入，**不设覆盖率门槛**：
+
+| 层            | 投入                                               |
+| ------------- | -------------------------------------------------- |
+| core 领域逻辑 | 接近全覆盖，TDD                                    |
+| data 迁移     | 必测——唯一「写错会毁掉真实数据」的地方             |
+| 模块 service  | 关键路径，TDD，用 `:memory:` SQLite 跑真实集成测试 |
+| UI            | 只做少量冒烟，**不测 React 渲染细节**              |
+
+明确不做：**不 mock 数据库**（`:memory:` 建库是毫秒级的）、不测组件渲染细节、不设覆盖率指标。Vitest 的 `include` 刻意不收集 `.tsx`。
+
+`ItemRepository` 的行为契约在 `packages/core/src/testing/item-repository-contract.ts`（15 个用例），由 core 拥有、由实现方运行。**任何新的 Repository 实现都必须原样通过它**（LSP）。
+
+有个真实教训值得记住：`app.inject({ method, url })` 不带任何 header，跑的是浏览器**永远不会发出**的请求形状——曾因此漏掉一个 400。涉及请求形状的守卫要放在客户端传输层（见 `modules/todo/src/ui/api.test.ts`）。
+
+## 改代码前先读
+
+1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
+2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
+3. `docs/adr/` — 九条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+
+**如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
+
+`prototype-workbench/` 是已归档的抛弃式 UI 原型，其 `NOTES.md` 记录了已确认的产品结论（导航主线、逾期摘要按需展开、视觉方向），仅作参考，代码不延用。
+
+## 后续工作：工作流，不是迭代序号
+
+**「迭代 1..6」这套线性编号已停止使用。** 秋招模块（原迭代 5）已完成，架构考试通过；
+设计基座（原迭代 4 的一部分）也已提前落地。实际执行顺序早就不是编号顺序，而编号一旦与
+现实脱节就会持续误导——曾有一个叫 `feat/iteration-1-walking-skeleton` 的分支（现已修复），里面装着
+秋招模块和设计基座。**迭代号会漂移，功能名不会。**
+
+剩余工作改为有归属、有依赖的工作流：主题层（前端）、工作台模块（后端）、周日历 UI、
+目标页、以及习惯 / 每日总结 / 社招。完整表格见主设计文档 §14.3。
+
+## 两人并行开发
+
+`main` 是主干，分支从 `main` 切，**按功能命名、不带迭代号**（`feat/theme-layer`，不是 `feat/iteration-2`）。
+
+目录归属、交接点与踩踏规避顺序见 **`docs/parallel-development.md`**——开工前先读那一页。
+一句话版本：**交接点只有 `modules/*/src/contract.ts`**，改它等于改契约、会影响对方；
+其余目录各改各的。

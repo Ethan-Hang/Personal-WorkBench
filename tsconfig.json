@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@workbench/core": ["packages/core/src/index.ts"],
+      "@workbench/core/testing": ["packages/core/src/testing/item-repository-contract.ts"],
+      "@workbench/data": ["packages/data/src/index.ts"],
+      "@workbench/server": ["packages/server/src/app.ts"],
+      "@workbench/ui": ["packages/ui/src/index.tsx"],
+      "@workbench/module-todo": ["modules/todo/src/server/index.ts"],
+      "@workbench/module-todo/contract": ["modules/todo/src/contract.ts"],
+      "@workbench/module-todo/ui": ["modules/todo/src/ui/index.tsx"],
+      "@workbench/module-campus-recruit": ["modules/campus-recruit/src/server/index.ts"],
+      "@workbench/module-campus-recruit/contract": ["modules/campus-recruit/src/contract.ts"],
+      "@workbench/module-campus-recruit/storage": [
+        "modules/campus-recruit/src/storage/sqlite-repository.ts"
+      ],
+      "@workbench/module-campus-recruit/ui": ["modules/campus-recruit/src/ui/index.tsx"]
+    }
+  },
+  "include": ["packages/**/*", "modules/**/*", "*.ts", "*.config.ts"],
+  "exclude": ["node_modules", "**/dist", "prototype-workbench"]
+}

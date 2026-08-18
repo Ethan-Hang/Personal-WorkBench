@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>个人工作台</title>
+    <script>
+      (function () {
+        try {
+          var mode = localStorage.getItem('workbench_theme_mode') || 'system';
+          var palette = localStorage.getItem('workbench_theme_palette') || 'warm';
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var isDark = mode === 'dark' || (mode === 'system' && prefersDark);
+          var root = document.documentElement;
+          if (isDark) {
+            root.classList.add('dark');
+            root.style.colorScheme = 'dark';
+            root.style.backgroundColor = '#131416';
+          } else {
+            root.classList.remove('dark');
+            root.style.colorScheme = 'light';
+            root.style.backgroundColor = '#f6f5f1';
+          }
+          root.setAttribute('data-theme', palette);
+          root.setAttribute('data-mode', isDark ? 'dark' : 'light');
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
