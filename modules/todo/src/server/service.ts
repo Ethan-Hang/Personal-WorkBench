@@ -166,13 +166,26 @@ export async function trashTask(
   return toView(updated, now);
 }
 
+/**
+ * 回收站恢复后的状态由 completedAt 反推。
+ * 一律恢复成 'todo' 会让「已完成」这条信息在删除→恢复的往返中静默丢失，
+ * 并留下 status='todo' 却带着 completedAt 的自相矛盾记录。
+ */
+function statusBeforeTrash(item: Item): 'todo' | 'done' {
+  return item.completedAt === null ? 'todo' : 'done';
+}
+
 export async function restoreTask(
   ctx: ModuleContext,
   id: string,
   opts: ServiceOptions,
 ): Promise<TaskView> {
   const now = resolveNow(opts);
-  const updated = await ctx.items.update(id, { status: 'todo' });
+  const existing = await ctx.items.getById(id);
+  if (existing === null) {
+    throw new Error(`任务不存在：${id}`);
+  }
+  const updated = await ctx.items.update(id, { status: statusBeforeTrash(existing) });
   return toView(updated, now);
 }
 
@@ -196,7 +209,7 @@ export async function batchRestoreTrash(ctx: ModuleContext, ids: string[]): Prom
   for (const id of ids) {
     const item = await ctx.items.getById(id);
     if (item && item.sourceModule === ctx.moduleId && item.status === 'cancelled') {
-      await ctx.items.update(id, { status: 'todo' });
+      await ctx.items.update(id, { status: statusBeforeTrash(item) });
       count++;
     }
   }
@@ -219,7 +232,7 @@ export async function restoreAllTrash(ctx: ModuleContext): Promise<number> {
   });
   let count = 0;
   for (const item of items) {
-    await ctx.items.update(item.id, { status: 'todo' });
+    await ctx.items.update(item.id, { status: statusBeforeTrash(item) });
     count++;
   }
   return count;

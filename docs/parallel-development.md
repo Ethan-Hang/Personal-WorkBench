@@ -59,11 +59,30 @@
 
 ## 5. 避免踩踏的排序
 
-某些工作会动同一个文件，先后顺序比同时开工便宜：
+某些工作会动同一个文件，先后顺序比同时开工便宜。
 
-- **`modules/workbench` 的结构搬迁要先于主题层动今日页面。** 后端会把 `TodayPage.tsx` 从
-  `modules/todo` 搬到 `modules/workbench`；若前端已在旧位置重做样式，那次 `git mv` 会打乱他的工作。
-  前端的前期工作（token 体系、原语扩充）不碰页面文件，可与搬迁并行。
+### 已发生的一次逆序（保留作为教训）
+
+本节原本写着：「`modules/workbench` 的结构搬迁要先于主题层动今日页面」——因为后端会把
+`TodayPage.tsx` 从 `modules/todo` 搬到 `modules/workbench`，若前端已在旧位置重做样式，
+那次 `git mv` 会打乱他的工作。
+
+**实际顺序反了。** 主题层先动，`TodayPage.tsx` 从 60 行涨到 1300 行，且顺带写了 todo 的
+回收站、编辑与批量操作（`src/server/**` 与 `contract.ts`，均非前端归属）。后果：
+
+- 搬迁成本从「改几个 import」变成了「大规模冲突」；
+- 工作台模块因此拆成两步：后端先建 `modules/workbench` 的服务端切片（不碰任何 `.tsx`），
+  UI 搬迁作为 `contract.ts` 交接点推后由前端完成；
+- 两个 `today` 端点（`/api/todo/today` 与 `/api/workbench/today`）会短暂并存。
+
+**教训：并行开发里真正昂贵的不是改错文件，是做错顺序。**
+改错文件有 lint 和审查拦得住；做错顺序只能靠人开工前读这一页。
+
+### 当前生效的排序约束
+
+- **不要再往 `modules/todo` 里加跨模块能力。** 它现在兼职工作台（`/api/todo/today` 不按
+  `sourceModule` 过滤），每多一条跨模块逻辑，将来搬到 `modules/workbench` 就多一分成本。
+- **UI 搬迁开始前，两边先对一次 `contract.ts`。** 它是唯一的交接点（§3）。
 
 ## 6. 提交前
 
@@ -73,11 +92,25 @@
 `npm install` 会以 `EBADENGINE` 直接失败并打印所需版本——这是刻意的：曾有人因 Node 过旧
 撞上运行时故障，症状伪装成 SQLite 问题，排查方向被带偏很久。
 
-## 7. 待办：远端还没对齐
+## 7. 待办：主干还没对齐
 
-⚠️ 截至本文写作时，远端仍有两处需要仓库所有者处理，**并行开发正式开始前必须解决**：
+⚠！本节描述的是一个**正在变差的**情况，并行开发正式展开前必须解决。
 
-- `origin/main` 停在旧位置（落后本地 22 个提交）
-- `origin/HEAD` 仍指向 `origin/feat/iteration-1-walking-skeleton`——**新人 clone 下来默认检出的是那个已废弃的分支**
+§1 说「所有分支从 `main` 切」，**但这条目前不能照做**：
 
-两者都需要推送 / 修改远端默认分支，只能由仓库所有者操作。
+| 引用                                  | 位置                                             |
+| ------------------------------------- | ------------------------------------------------ |
+| `main` / `origin/main` / `gitee/main` | 停在 `a5604d7`（Walking Skeleton 实现计划文档）  |
+| `origin/HEAD`                         | 指向已废弃的 `feat/iteration-1-walking-skeleton` |
+| 实际主干                              | `feat/theme-layer`，**领先 `main` 26 个提交**    |
+
+从 `main` 切分支会丢掉秋招模块、整个 `packages/ui`、错误追踪与主题层——即几乎全部现有工作。
+新人 `clone` 下来默认检出的又是那个已废弃的迭代分支。
+
+**需仓库所有者做三件事**（都只能由他操作）：
+
+1. 把已完成的分支合回 `main`，让 `main` 重新成为真实主干；
+2. 把 `origin/HEAD` 指回 `main`；
+3. 删掉或归档 `feat/iteration-1-walking-skeleton`。
+
+**在此之前，新分支从 `feat/theme-layer` 切，不从 `main` 切。**

@@ -113,6 +113,66 @@ describe('trash & restore & delete', () => {
     expect(today.tasks.map((t) => t.id)).toContain(task.id);
   });
 
+  it('已完成的任务从回收站恢复后仍是已完成', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      { title: '已完成后被误删', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    await completeTask(ctx, task.id, { zone: SH, now: NOW });
+    await trashTask(ctx, task.id, { zone: SH, now: NOW });
+
+    const restored = await restoreTask(ctx, task.id, { zone: SH, now: NOW });
+    expect(restored.status).toBe('done');
+
+    // completedAt 与 status 必须始终自洽：done 有值，todo 无值
+    const item = await ctx.items.getById(task.id);
+    expect(item?.completedAt).not.toBeNull();
+
+    const today = await listToday(ctx, { zone: SH, now: NOW });
+    expect(today.completed.map((t) => t.id)).toContain(task.id);
+    expect(today.tasks.map((t) => t.id)).not.toContain(task.id);
+  });
+
+  it('未完成的任务从回收站恢复后不带 completedAt', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      { title: '未完成被删', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    await trashTask(ctx, task.id, { zone: SH, now: NOW });
+    const restored = await restoreTask(ctx, task.id, { zone: SH, now: NOW });
+
+    expect(restored.status).toBe('todo');
+    const item = await ctx.items.getById(task.id);
+    expect(item?.completedAt).toBeNull();
+  });
+
+  it('批量恢复与全部恢复同样保留已完成状态', async () => {
+    const ctx = makeCtx();
+    const doneTask = await createTask(
+      ctx,
+      { title: '批量-已完成', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    const openTask = await createTask(
+      ctx,
+      { title: '批量-未完成', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    await completeTask(ctx, doneTask.id, { zone: SH, now: NOW });
+    await trashTask(ctx, doneTask.id, { zone: SH, now: NOW });
+    await trashTask(ctx, openTask.id, { zone: SH, now: NOW });
+
+    expect(await batchRestoreTrash(ctx, [doneTask.id])).toBe(1);
+    expect((await ctx.items.getById(doneTask.id))?.status).toBe('done');
+
+    expect(await restoreAllTrash(ctx)).toBe(1);
+    expect((await ctx.items.getById(openTask.id))?.status).toBe('todo');
+  });
+
   it('多选批量恢复与批量删除', async () => {
     const ctx = makeCtx();
     const t1 = await createTask(
