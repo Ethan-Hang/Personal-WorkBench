@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, EmptyState, IconBriefcase, PageHeader, Panel } from '@workbench/ui';
 import type {
@@ -57,6 +57,43 @@ export function ApplicationsPage() {
     queryKey: APPLICATIONS_KEY,
     queryFn: fetchApplications,
   });
+
+  // 监听 URL 参数，支持从周历/今日工作台跳转时自动定位并展开目标岗位
+  useEffect(() => {
+    if (!applicationsQuery.data?.applications) return;
+    const apps = applicationsQuery.data.applications;
+    const params = new URLSearchParams(window.location.search);
+    const targetItemId = params.get('targetItemId');
+    const targetAppId = params.get('appId') || params.get('id');
+    const targetCompany = params.get('company');
+
+    let matchedApp = null;
+    if (targetAppId) {
+      matchedApp = apps.find((a) => a.id === targetAppId);
+    }
+    if (!matchedApp && targetItemId) {
+      matchedApp = apps.find(
+        (a) =>
+          a.id === targetItemId ||
+          a.deadlineItemId === targetItemId ||
+          a.rounds.some((r) => r.itemId === targetItemId),
+      );
+    }
+    if (!matchedApp && targetCompany) {
+      matchedApp = apps.find((a) => a.company.includes(targetCompany));
+    }
+
+    if (matchedApp) {
+      setViewMode('table');
+      setExpandedIds((prev) => new Set([...prev, matchedApp.id]));
+      setTimeout(() => {
+        const el = document.getElementById(`app-row-${matchedApp.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 100);
+    }
+  }, [applicationsQuery.data]);
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
@@ -218,10 +255,10 @@ export function ApplicationsPage() {
     filterOptions.priorityFilter !== 'all';
 
   return (
-    <div className="space-y-4">
-      {/* 顶部固定吸顶区：标题、工具栏、以及表格表头（向下滚动时永不滚出视口，加载时从上方滑入） */}
-      <div className="sticky top-14 z-20 -mx-4 -mt-6 bg-page/95 px-4 pt-4 pb-2.5 backdrop-blur-md sm:-mx-8 sm:-mt-8 sm:px-8 sm:pt-6 space-y-3 transition-colors border-b border-line/30 shadow-xs animate-slide-down-in">
-        <div className="mx-auto max-w-6xl space-y-2.5">
+    <div className="space-y-4 w-full">
+      {/* 顶部固定吸顶区：标题、工具栏、以及表格表头（向下滚动时吸顶可见，加载时平滑滑入） */}
+      <div className="sticky top-0 z-20 bg-page/95 pt-0.5 pb-2.5 backdrop-blur-md space-y-3 transition-colors border-b border-line/40 shadow-xs animate-slide-down-in">
+        <div className="w-full space-y-2.5">
           <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
           <ApplicationsToolbar
             options={filterOptions}
@@ -248,7 +285,7 @@ export function ApplicationsPage() {
       {actionError && (
         <div
           role="alert"
-          className="mx-auto max-w-6xl flex items-center justify-between rounded-lg bg-critical-soft px-4 py-2.5 text-[13px] text-critical animate-item-enter"
+          className="w-full flex items-center justify-between rounded-lg bg-critical-soft px-4 py-2.5 text-[13px] text-critical animate-item-enter"
         >
           <span>操作失败：{actionError.message}，请重试。</span>
           <button
@@ -262,7 +299,7 @@ export function ApplicationsPage() {
       )}
 
       {/* 主视图内容区域 */}
-      <div className="mx-auto max-w-6xl animate-fade-in">
+      <div className="w-full animate-fade-in">
         {rawApplications.length === 0 ? (
           <EmptyState
             icon={IconBriefcase}

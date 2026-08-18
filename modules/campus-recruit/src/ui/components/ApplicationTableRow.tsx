@@ -736,6 +736,7 @@ export function ApplicationTableRow({
 
   return (
     <div
+      id={`app-row-${application.id}`}
       style={{ animationDelay: `${Math.min(index * 60, 600)}ms` }}
       className={`border-b border-line last:border-b-0 transition-colors animate-slide-left-in ${
         isExpanded ? 'bg-surface-2/30' : 'hover:bg-surface-2/40'

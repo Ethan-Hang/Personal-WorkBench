@@ -152,6 +152,7 @@ export const applicationViewSchema = z.object({
     failedRoundName: z.string().nullable(),
   }),
   rounds: z.array(roundViewSchema),
+  deadlineItemId: z.string().nullable().optional(),
   createdAt: instantSchema,
   updatedAt: instantSchema,
 });

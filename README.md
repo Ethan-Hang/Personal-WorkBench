@@ -50,10 +50,16 @@ npm run dev
    - **Apple-Style 胶囊开关**：纯 GPU 加速的 `cubic-bezier(0.16, 1, 0.3, 1)` 弹性位移动画与微按压形变，高频极速连击不掉帧；
    - **无障碍动效联动**：支持 `data-reduced-motion` 全局动效降级，同时对基础物理交互控件保持轻量位移反馈。
 
+5. **周历指挥台全屏视口沉浸与跨模块联动 (`CalendarPage`)**：
+   - **零外层滚动纯 Flex 视口计算**：纯响应式高度自适应，24 小时时间轴弹性填满剩余空间，外层页面彻底消除滚动条；
+   - **全天栏动态拖拽调高 (`Splitter Resizer Bar`)**：支持自由拖拽调节全天栏高度（`44px ~ 260px`），双击快速切换，偏好持久化并支持单元格内独立滚动；
+   - **智能周导航与悬浮快速选择器**：ISO 周计算跨年无缝支持、快捷键（`←`/`→`/`T`）、年份滚轮纯净横向滚动、悬浮窗点击外部区域自动关闭；
+   - **操作行为分流与跨模块直达**：左键单击看事项详情并支持一键跳转展开秋招岗位全套面试流程；右键单击直接唤起排期调整；超长标题鼠标悬停跑马灯平滑滚动。
+
 ## 要改代码先读什么
 
 1. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与功能规范
-2. `docs/adr/` — 十六条架构决策记录（ADR）。**动 core 之前必读**。其中
+2. `docs/adr/` — 十七条架构决策记录（ADR）。**动 core 之前必读**。其中
    `docs/adr/0005-module-boundaries.md` 记录了三条铁律里唯一 lint 不强制的一条（铁律 3：模块自带迁移与注册项）——这条靠人守，不靠 CI。
 
 ## 加一个新模块
@@ -95,3 +101,4 @@ npm run dev
 - `docs/adr/0014-timezone-management-and-three-way-deduction.md` — 全局时区上下文、UTC 标准化存储与时间段三者互推引擎架构
 - `docs/adr/0015-in-place-accordion-table-and-fluid-process-stepper.md` — 原地展开表格、吸顶控制区与自适应流转推进图架构
 - `docs/adr/0016-workbench-preferences-and-apple-style-switch.md` — 工作台行为偏好持久化与苹果风格胶囊开关架构
+- `docs/adr/0017-weekly-calendar-viewport-containment-and-all-day-resizing.md` — 周历指挥台视口自适应锁定、全天栏动态缩放与跨模块交互规范

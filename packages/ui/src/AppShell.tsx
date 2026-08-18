@@ -11,6 +11,7 @@ import {
   IconChevronRight,
   IconSettings,
   IconInfo,
+  IconCalendar,
 } from './icons.js';
 
 export interface ShellNavItem {
@@ -46,6 +47,7 @@ export function AppShell({
 
   const defaultIconForPath = (path: string) => {
     if (path === '/today' || path === '/') return <IconHome size={16} />;
+    if (path === '/calendar') return <IconCalendar size={16} />;
     if (path === '/campus') return <IconBriefcase size={16} />;
     if (path === '/campus/stats') return <IconBarChart size={16} />;
     if (path === '/settings') return <IconSettings size={16} />;
@@ -267,8 +269,10 @@ export function AppShell({
         </header>
 
         {/* 页面主内容 */}
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
-          <div className="mx-auto max-w-6xl">{children}</div>
+        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 flex flex-col min-h-0 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1680px] flex-1 flex flex-col min-h-0">
+            {children}
+          </div>
         </main>
       </div>
     </div>

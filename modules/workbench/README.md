@@ -262,9 +262,38 @@ const calendarKey = (from: string, to: string) => ['workbench', 'calendar', from
 
 ---
 
+## 周历指挥台（CalendarPage）UI 实现
+
+工作台模块提供全功能的周历视图（路由 `/calendar`），核心能力包括：
+
+1. **周范围计算与导航**：
+   - ISO 周计算 (`weekUtils.ts`)，支持跨年边界、任意年份周数推算与起止范围；
+   - 快捷键支持：`←` 上一周、`→` 下一周、`T` 回到本周；
+   - 年周快速切换浮层（4 列矩阵、支持鼠标滚轮在年份栏纯净横向滚动、点击窗口外部自动关闭）；
+   - 定位日期锁定周（输入或选择任意日期立即跳转并高亮该日）。
+
+2. **视口自适应与零外层滚动**：
+   - 采用纯 Flexbox 容器布局，外层浏览器窗口始终无滚动条；
+   - 24 小时时间轴（`flex-1 min-h-0`）自动填满屏幕剩余纵向高度并独立滚动；
+   - 包含实时当前时间红线（每 10 秒刷新并精准定位）。
+
+3. **全天栏高度自由调节（Splitter Resizer）**：
+   - 全天栏与时间轴之间配备高灵敏度拖拽调节分割条；
+   - 支持在 `44px ~ 260px` 之间自由拖拽，高度持久化至 `localStorage`；
+   - 双击分割条可在 `64px`（默认）与 `130px`（展开）之间快捷切换；
+   - 单日全天单元格超出时支持内部独立垂直滚动。
+
+4. **左右键行为分流与跨模块深度联动**：
+   - **左键单击**：打开事项详情弹窗，查看完整信息与所属模块；秋招事项提供一键直达链接（`/campus?targetItemId=...`），跳转至秋招页面自动定位并原地展开该企业全套面试流程；
+   - **右键单击**：直接打开专属排期弹窗，快捷调整全天/定时时段或移入未排程抽屉；
+   - **长标题跑马灯**：`ScrollableTitle` 组件在鼠标悬停时自动平滑滚动显示完整文字。
+
+---
+
 ## 相关文档
 
 - `src/contract.ts` — 端点与 Zod schema，唯一的接缝
-- `docs/adr/0012-scheduling-is-a-cross-module-capability.md` — 上面每条边界的完整理由
+- `docs/adr/0012-scheduling-is-a-cross-module-capability.md` — 排程作为跨模块能力的理由
+- `docs/adr/0017-weekly-calendar-viewport-containment-and-all-day-resizing.md` — 周历视口锁定与全天栏调节规范
 - `docs/parallel-development.md` — 目录归属、分支规则、UI 搬迁的交接点
 - 设计文档 §5.3（死线 vs 排程）、§6（时间存储）、§14.3（剩余工作流）

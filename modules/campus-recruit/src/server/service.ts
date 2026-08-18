@@ -85,6 +85,7 @@ async function applicationView(
       notes: round.notes,
       itemId: round.itemId,
     })),
+    deadlineItemId: application.deadlineItemId,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt,
   };

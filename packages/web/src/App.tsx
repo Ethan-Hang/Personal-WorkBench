@@ -29,14 +29,14 @@ export function App() {
     {
       label: '核心工作',
       items: uiModules
-        .filter((m) => m.id === 'todo')
+        .filter((m) => m.id === 'workbench' || m.id === 'todo')
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
     },
     {
       label: '专业模块',
       items: uiModules
-        .filter((m) => m.id !== 'todo')
+        .filter((m) => m.id !== 'workbench' && m.id !== 'todo')
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
     },
