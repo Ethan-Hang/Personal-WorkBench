@@ -7,12 +7,15 @@ import {
   localDayRange,
   nowIso,
   priorityScore,
+  truncateToMinute,
   type IsoInstant,
   type Item,
   type ModuleContext,
+  type ScheduledTime,
 } from '@workbench/core';
 import type {
   CreateTaskInput,
+  ScheduledTimeView,
   TaskView,
   TodayResponse,
   TrashResponse,
@@ -28,6 +31,45 @@ function resolveNow(opts: ServiceOptions): IsoInstant {
   return opts.now ?? nowIso();
 }
 
+/**
+ * core 的 ScheduledTime ↔ 接缝形状。
+ *
+ * switch 刻意不带 default：core 将来加第三种排程形态时这里会编译报错，
+ * 而不是静默漏掉一个分支（CLAUDE.md 的时间存储约定）。
+ */
+function toScheduledView(scheduled: ScheduledTime | null): ScheduledTimeView | null {
+  if (scheduled === null) return null;
+  switch (scheduled.kind) {
+    case 'all-day':
+      return { kind: 'all-day', date: scheduled.date };
+    case 'timed':
+      return scheduled.end === undefined
+        ? { kind: 'timed', start: scheduled.start }
+        : { kind: 'timed', start: scheduled.start, end: scheduled.end };
+  }
+}
+
+/**
+ * 接缝形状 → core，并把定时分支的颗粒度压到分钟。
+ * 截零在服务端做，不挂到 Zod schema 上——schema 是前后端共用的形状描述，
+ * 在它上面挂 transform 会让前端 parse 响应时也跟着改数据。
+ */
+function toScheduledTime(input: ScheduledTimeView | null): ScheduledTime | null {
+  if (input === null) return null;
+  switch (input.kind) {
+    case 'all-day':
+      return { kind: 'all-day', date: input.date };
+    case 'timed':
+      return input.end === undefined
+        ? { kind: 'timed', start: truncateToMinute(input.start) }
+        : {
+            kind: 'timed',
+            start: truncateToMinute(input.start),
+            end: truncateToMinute(input.end),
+          };
+  }
+}
+
 function toView(item: Item, now: IsoInstant): TaskView {
   const urgency = deriveUrgency(item.dueAt, now);
   return {
@@ -37,6 +79,7 @@ function toView(item: Item, now: IsoInstant): TaskView {
     status: item.status,
     importance: item.importance,
     dueAt: item.dueAt,
+    scheduled: toScheduledView(item.scheduled),
     urgency,
     priorityScore: priorityScore(item.importance, urgency),
     isImportantQuadrant: isImportantQuadrant(item.importance),
@@ -69,8 +112,11 @@ export async function createTask(
     importance: input.importance,
     // 只精确到天的 DDL 补成该本地日最后一毫秒（spec §5.3 决策 ③）
     dueAt: input.dueDate === null ? null : endOfLocalDayUtc(input.dueDate, opts.zone),
-    // 新建任务默认排在今天，走全天排程分支
-    scheduled: { kind: 'all-day', date: today },
+    // 缺省排在今天全天；显式传 null 则不排程，直接进待排程抽屉
+    scheduled:
+      input.scheduled === undefined
+        ? { kind: 'all-day', date: today }
+        : toScheduledTime(input.scheduled),
   });
 
   return toView(item, now);
@@ -93,6 +139,9 @@ export async function updateTask(
   }
   if (input.dueDate !== undefined) {
     patch.dueAt = input.dueDate === null ? null : endOfLocalDayUtc(input.dueDate, opts.zone);
+  }
+  if (input.scheduled !== undefined) {
+    patch.scheduled = toScheduledTime(input.scheduled);
   }
 
   const updated = await ctx.items.update(id, patch);

@@ -1,6 +1,6 @@
 # 0012. 排程是跨模块能力，归工作台所有
 
-日期：2026-08-18
+日期：2026-08-18（同日修订：排程颗粒度由天改为 1 分钟，并增加日历区间端点）
 状态：已接受
 
 ## 背景
@@ -41,16 +41,40 @@ unscheduled?: boolean;   // 只取 scheduled === null 的 Item
 这次 core 改动不构成 CLAUDE.md 所说的「core 的假设错了」：加的是通用查询维度，
 不含任何模块知识，core 依然不知道 workbench 存在。
 
-### 三、排程只到天
+### 三、排程颗粒度为 **1 分钟**
 
-`PATCH /api/workbench/items/:id/schedule` 的入参是 `{ date: 'YYYY-MM-DD' | null }`，
-写入恒为 `ScheduledTime` 的 `all-day` 分支。`null` 表示取消排程，退回抽屉。
+> 本节于 2026-08-18 修订。原决定是「只到天」，理由是「拖到某一天」与「拖到某个小时」
+> 的交互复杂度差一个量级，而后者尚无需求。**需求随即出现了**：日历要把事件画在
+> 时间轴上，只到天就只能画成块，与秋招已有的分钟级笔试 / 面试也对不齐。
+> 原决定保留在这里，因为它解释了为什么接缝会有一次形状变更。
 
-在服务端就焊死，而非只在 UI 上限制：给时段留口子，「拖到某一天」与「拖到某个小时」的
-交互复杂度差一个量级，而后者尚无需求（spec §14.3）。
+`PATCH /api/workbench/items/:id/schedule` 的入参与 core 的 `ScheduledTime` 同构：
+
+```jsonc
+{ "scheduled": { "kind": "all-day", "date": "2026-09-20" } }
+{ "scheduled": { "kind": "timed", "start": "...", "end": "..." } }  // end 可缺省
+{ "scheduled": null }                                              // 取消排程
+```
+
+**颗粒度由服务端保证，不靠调用方自觉**：`start` / `end` 写入前经 `truncateToMinute`
+把秒与毫秒截零。不截的后果是同一分钟里出现多个不相等的排程值，日历上就成了
+肉眼看不出差别的重叠块。**这条适用于所有模块**：`modules/todo` 的建 / 改、
+`modules/campus-recruit` 的轮次时刻，写入前均截零。
+
+`start` / `end` 是 **UTC 时刻**，由前端把本地墙钟时间换算好再发——它知道用户在哪个
+时区，服务端只知道自己进程的时区。
 
 排程只写 `scheduled`，**绝不碰 `dueAt`**。死线是客观的，排程是主观意图，混为一谈是许多
 todo 应用排不好程的根因（spec §5.3 决策 ①）。
+
+### 四、日历区间端点，与 core 的第二个查询维度
+
+`GET /api/workbench/calendar?from=&to=`，`from` / `to` 是**本地浮动日期，含两端**。
+周视图传一周，月视图传一个月，同一个端点。上限 96 天，避免一个请求拉出整库。
+
+为此 `ListItemsQuery` 再加一维 `scheduledDateBetween`（全天排程落在浮动日期区间内）。
+它与已有的 `scheduledWithin`（定时排程落在 UTC 区间内）取并集，一次把两类事项拿全。
+两者必须分开：浮动日期不转 UTC（spec §6.2），拿它去比时刻区间在某些时区会整体偏移一天。
 
 ## 后果
 

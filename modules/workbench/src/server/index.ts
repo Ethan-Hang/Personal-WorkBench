@@ -18,5 +18,5 @@ export const workbenchServerModule: ServerModuleDefinition = {
   },
 };
 
-export { listToday, listUnscheduled, scheduleItem } from './service.js';
+export { listCalendar, listToday, listUnscheduled, scheduleItem } from './service.js';
 export type { ServiceOptions } from './service.js';

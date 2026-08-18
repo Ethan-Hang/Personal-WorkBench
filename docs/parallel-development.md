@@ -88,11 +88,12 @@
 
 ### UI 搬迁该读什么
 
-后端已交付 `modules/workbench/src/contract.ts`，里面有全部三个端点与响应形状。
+后端已交付 `modules/workbench/src/contract.ts`，里面有全部四个端点与响应形状。
 与 `TODO_API.today` 相比的差异：
 
 - 字段名从 `tasks` 改为 `scheduled`（`overdue` / `completed` 不变）；
 - 每条多出 `kind`（task / event）与 `scheduled`（core 的两分支形状，周日历需要）；
+  **`TODO_API` 的 `TaskView` 也新增了 `scheduled`**，且是必填字段；
 - **没有 `canEdit`。** 工作台不知道哪个模块允许编辑——那是各模块自己的规则，
   它只透出 `sourceModule`。`TodayPage.tsx` 里那些 `sourceModule === TODO_MODULE_ID`
   判断的正解是给 `UiModuleDefinition` 加一个能力声明，由前端注册表回答。

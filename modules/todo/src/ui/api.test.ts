@@ -36,6 +36,7 @@ beforeEach(() => {
           status: 'done',
           importance: 'normal',
           dueAt: null,
+          scheduled: { kind: 'all-day', date: '2026-09-20' },
           urgency: 'none',
           priorityScore: 10,
           isImportantQuadrant: false,

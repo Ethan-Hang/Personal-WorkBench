@@ -1,8 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ModuleContext } from '@workbench/core';
-import { ID_PARAM, WORKBENCH_API, scheduleInputSchema } from '../contract.js';
-import { listToday, listUnscheduled, scheduleItem, type ServiceOptions } from './service.js';
+import { ID_PARAM, WORKBENCH_API, calendarQuerySchema, scheduleInputSchema } from '../contract.js';
+import {
+  listCalendar,
+  listToday,
+  listUnscheduled,
+  scheduleItem,
+  type ServiceOptions,
+} from './service.js';
 
 /** 用系统时区；跨时区支持见 spec §6.5 的已知限制。 */
 function resolveZone(): string {
@@ -17,6 +23,14 @@ export function registerWorkbenchRoutes(app: FastifyInstance, ctx: ModuleContext
   app.get(WORKBENCH_API.today, async () => listToday(ctx, opts()));
 
   app.get(WORKBENCH_API.unscheduled, async () => listUnscheduled(ctx, opts()));
+
+  app.get(WORKBENCH_API.calendar, async (request, reply) => {
+    const parsed = calendarQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? '区间不合法' });
+    }
+    return listCalendar(ctx, parsed.data, opts());
+  });
 
   app.patch(WORKBENCH_API.schedule(ID_PARAM), async (request, reply) => {
     const params = idParamsSchema.safeParse(request.params);

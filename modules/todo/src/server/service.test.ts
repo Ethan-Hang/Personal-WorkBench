@@ -392,3 +392,104 @@ describe('completeTask & uncompleteTask', () => {
     await expect(completeTask(ctx, 'nope', { zone: SH, now: NOW })).rejects.toThrow();
   });
 });
+
+describe('任务的分钟级排程', () => {
+  it('不传 scheduled 时仍然排到今天全天（行为不变）', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      { title: '缺省排程', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+    expect(task.scheduled).toEqual({ kind: 'all-day', date: '2026-09-20' });
+  });
+
+  it('建任务时直接指定具体时刻', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      {
+        title: '下午三点半开会',
+        importance: 'normal',
+        dueDate: null,
+        scheduled: {
+          kind: 'timed',
+          start: '2026-09-20T07:30:00.000Z',
+          end: '2026-09-20T08:30:00.000Z',
+        },
+      },
+      { zone: SH, now: NOW },
+    );
+
+    expect(task.scheduled).toEqual({
+      kind: 'timed',
+      start: '2026-09-20T07:30:00.000Z',
+      end: '2026-09-20T08:30:00.000Z',
+    });
+  });
+
+  it('秒与毫秒被截零', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      {
+        title: '带秒',
+        importance: 'normal',
+        dueDate: null,
+        scheduled: { kind: 'timed', start: '2026-09-20T07:30:48.512Z' },
+      },
+      { zone: SH, now: NOW },
+    );
+    expect(task.scheduled).toEqual({ kind: 'timed', start: '2026-09-20T07:30:00.000Z' });
+  });
+
+  it('显式传 null 则不排程，任务直接进待排程抽屉', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      { title: '先收集不排期', importance: 'normal', dueDate: null, scheduled: null },
+      { zone: SH, now: NOW },
+    );
+
+    expect(task.scheduled).toBeNull();
+    const today = await listToday(ctx, { zone: SH, now: NOW });
+    expect(today.tasks.map((t) => t.id)).not.toContain(task.id);
+  });
+
+  it('编辑时改排程，不传则不动', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      { title: '改排程', importance: 'normal', dueDate: null },
+      { zone: SH, now: NOW },
+    );
+
+    const renamed = await updateTask(ctx, task.id, { title: '只改名' }, { zone: SH, now: NOW });
+    expect(renamed.scheduled).toEqual({ kind: 'all-day', date: '2026-09-20' });
+
+    const rescheduled = await updateTask(
+      ctx,
+      task.id,
+      { scheduled: { kind: 'timed', start: '2026-09-21T01:00:00.000Z' } },
+      { zone: SH, now: NOW },
+    );
+    expect(rescheduled.scheduled).toEqual({ kind: 'timed', start: '2026-09-21T01:00:00.000Z' });
+  });
+
+  it('排程不影响 dueAt——死线与意图是两回事（spec §5.3 决策 ①）', async () => {
+    const ctx = makeCtx();
+    const task = await createTask(
+      ctx,
+      {
+        title: '两回事',
+        importance: 'normal',
+        dueDate: '2026-09-25',
+        scheduled: { kind: 'timed', start: '2026-09-21T01:00:00.000Z' },
+      },
+      { zone: SH, now: NOW },
+    );
+
+    expect(task.dueAt).toBe('2026-09-25T15:59:59.999Z');
+    expect(task.scheduled).toEqual({ kind: 'timed', start: '2026-09-21T01:00:00.000Z' });
+  });
+});

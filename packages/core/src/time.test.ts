@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { localDayOf, localDayRange, endOfLocalDayUtc, toIsoInstant } from './time.js';
+import {
+  localDayOf,
+  localDayRange,
+  endOfLocalDayUtc,
+  toIsoInstant,
+  truncateToMinute,
+} from './time.js';
 
 const SH = 'Asia/Shanghai';
 const NY = 'America/New_York';
@@ -56,5 +62,27 @@ describe('toIsoInstant', () => {
     expect(toIsoInstant(new Date(Date.UTC(2026, 8, 20, 11, 0, 0)))).toBe(
       '2026-09-20T11:00:00.000Z',
     );
+  });
+});
+
+describe('truncateToMinute', () => {
+  it('把秒与毫秒归零', () => {
+    expect(truncateToMinute('2026-09-20T11:37:48.512Z')).toBe('2026-09-20T11:37:00.000Z');
+  });
+
+  it('已对齐到分钟时原样返回', () => {
+    expect(truncateToMinute('2026-09-20T11:37:00.000Z')).toBe('2026-09-20T11:37:00.000Z');
+  });
+
+  it('截断而非四舍五入—— 59.999 秒仍归当前分钟', () => {
+    expect(truncateToMinute('2026-09-20T11:37:59.999Z')).toBe('2026-09-20T11:37:00.000Z');
+  });
+
+  it('带时区偏移的输入先归一到 UTC', () => {
+    expect(truncateToMinute('2026-09-20T19:37:48.512+08:00')).toBe('2026-09-20T11:37:00.000Z');
+  });
+
+  it('无效输入抛错', () => {
+    expect(() => truncateToMinute('not-a-time')).toThrow();
   });
 });

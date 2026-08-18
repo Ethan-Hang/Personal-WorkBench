@@ -140,6 +140,16 @@ export class SqliteItemRepository implements ItemRepository {
         and(eq(items.isAllDay, true), lte(items.scheduledStart, query.scheduledOnOrBeforeDate))!,
       );
     }
+    if (query.scheduledDateBetween !== undefined) {
+      // 'YYYY-MM-DD' 的字典序等于日期序，含两端即 >= from AND <= to
+      scheduleAlternatives.push(
+        and(
+          eq(items.isAllDay, true),
+          gte(items.scheduledStart, query.scheduledDateBetween.from),
+          lte(items.scheduledStart, query.scheduledDateBetween.to),
+        )!,
+      );
+    }
     if (scheduleAlternatives.length === 1) conditions.push(scheduleAlternatives[0]!);
     if (scheduleAlternatives.length > 1) conditions.push(or(...scheduleAlternatives)!);
 

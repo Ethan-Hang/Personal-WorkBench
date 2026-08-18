@@ -2,14 +2,29 @@ import { z } from 'zod';
 
 export const WORKBENCH_MODULE_ID = 'workbench';
 
+/** 浮动日期 'YYYY-MM-DD'。全天排程用它，绝不转 UTC（spec §6.2）。 */
+export const plainDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式须为 YYYY-MM-DD');
+
+/** UTC ISO8601 时刻，形如 '2026-09-20T11:00:00.000Z'。三位毫秒与 Z 后缀是承重的。 */
+export const isoInstantSchema = z
+  .string()
+  .datetime({ precision: 3, message: '时刻须为 UTC ISO8601，形如 2026-09-20T11:00:00.000Z' });
+
 /**
  * core 的 ScheduledTime 值对象在接缝上的镜像（spec §6.3）。
  * 两个分支必须与 core 保持一致——加第三种形态时这里也要加，
  * 否则服务端能产出前端 parse 不了的形状。
+ *
+ * `timed` 分支的颗粒度是**分钟**：服务端会把 `start` / `end` 的秒与毫秒截零。
  */
 export const scheduledTimeSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('all-day'), date: z.string() }),
-  z.object({ kind: z.literal('timed'), start: z.string(), end: z.string().optional() }),
+  z.object({ kind: z.literal('all-day'), date: plainDateSchema }),
+  z.object({
+    kind: z.literal('timed'),
+    start: isoInstantSchema,
+    /** 结束时刻，可缺省。缺省时日历按自身默认时长绘制。 */
+    end: isoInstantSchema.optional(),
+  }),
 ]);
 export type ScheduledTimeView = z.infer<typeof scheduledTimeSchema>;
 
@@ -49,20 +64,59 @@ export const unscheduledResponseSchema = z.object({
 export type UnscheduledResponse = z.infer<typeof unscheduledResponseSchema>;
 
 /**
- * 排程只到天，不到时段。
+ * 排程入参。两种形态，与 core 的 `ScheduledTime` 同构：
  *
- * 这是 spec §14.3 对周日历的明确限定，在服务端就焊死：给时段留口子，
- * 「拖到某一天」与「拖到某个小时」的交互复杂度差一个量级，而后者尚无需求。
+ * - `{ scheduled: { kind: 'all-day', date } }`      整天
+ * - `{ scheduled: { kind: 'timed', start, end? } }` 定时，**颗粒度到分钟**
+ * - `{ scheduled: null }`                           取消排程，退回待排程抽屉
  *
- * `date: null` 表示取消排程，把事项退回待排程抽屉。
+ * `start` / `end` 是 UTC 时刻，由前端把本地墙钟时间换算好再发——它知道用户在哪个时区，
+ * 服务端只知道自己进程的时区。服务端会把秒与毫秒截零，因此颗粒度是分钟这件事
+ * 由服务端保证，而不是靠前端自觉。
  */
-export const scheduleInputSchema = z.object({
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式须为 YYYY-MM-DD')
-    .nullable(),
-});
+export const scheduleInputSchema = z
+  .object({
+    scheduled: scheduledTimeSchema.nullable(),
+  })
+  .refine(
+    (input) =>
+      input.scheduled === null ||
+      input.scheduled.kind === 'all-day' ||
+      input.scheduled.end === undefined ||
+      input.scheduled.end > input.scheduled.start,
+    { message: '结束时刻必须晚于开始时刻' },
+  );
 export type ScheduleInput = z.infer<typeof scheduleInputSchema>;
+
+/** 日历区间一次最多取多少天。防止一个请求把整库拉出来。 */
+export const CALENDAR_MAX_DAYS = 96;
+
+/**
+ * 日历区间查询。`from` / `to` 是**本地浮动日期，含两端**。
+ * 周视图传一周，月视图传一个月，用同一个端点。
+ */
+export const calendarQuerySchema = z
+  .object({
+    from: plainDateSchema,
+    to: plainDateSchema,
+  })
+  .refine((q) => q.from <= q.to, { message: 'from 不得晚于 to' })
+  .refine(
+    (q) =>
+      (Date.parse(`${q.to}T00:00:00.000Z`) - Date.parse(`${q.from}T00:00:00.000Z`)) / 86_400_000 <
+      CALENDAR_MAX_DAYS,
+    { message: `区间最多 ${CALENDAR_MAX_DAYS} 天` },
+  );
+export type CalendarQuery = z.infer<typeof calendarQuerySchema>;
+
+export const calendarResponseSchema = z.object({
+  from: plainDateSchema,
+  to: plainDateSchema,
+  zone: z.string(),
+  /** 区间内全部模块的事项，含全天与定时两类。按排程先后排序。 */
+  items: z.array(workbenchItemSchema),
+});
+export type CalendarResponse = z.infer<typeof calendarResponseSchema>;
 
 /**
  * 路径参数占位符。传给下面的路径构造函数得到 Fastify 注册模式；
@@ -86,6 +140,14 @@ export const WORKBENCH_API = {
   today: '/api/workbench/today',
   /** GET → UnscheduledResponse（有 DDL 但还没决定哪天做的事项） */
   unscheduled: '/api/workbench/unscheduled',
+  /** GET（Fastify 注册用；请求路径用下面的 calendarPath） → CalendarResponse */
+  calendar: '/api/workbench/calendar',
   /** PATCH ScheduleInput → WorkbenchItem；不存在时 404 */
   schedule: (id: string): string => `/api/workbench/items/${segment(id)}/schedule`,
 } as const;
+
+/** 带查询串的日历请求路径。`from` / `to` 含两端。 */
+export function calendarPath(from: string, to: string): string {
+  const query = new URLSearchParams({ from, to });
+  return `${WORKBENCH_API.calendar}?${query.toString()}`;
+}
