@@ -60,3 +60,32 @@ export function truncateToMinute(instant: IsoInstant): IsoInstant {
   const dt = assertValid(DateTime.fromISO(instant, { zone: 'utc' }), instant);
   return new Date(dt.startOf('minute').toMillis()).toISOString();
 }
+
+/**
+ * 把前端传来的 dueDate（支持 "YYYY-MM-DD"、"YYYY-MM-DD HH:mm" 或 UTC ISO 字符串）
+ * 统一解析为 UTC IsoInstant。
+ * - 若只到天（YYYY-MM-DD）：补成该本地日最后一毫秒（23:59:59.999）的 UTC instant；
+ * - 若包含时分（YYYY-MM-DD HH:mm）：按目标时区换算为 UTC instant 并截零到分钟；
+ * - 若已经是 ISO 字符串（带 T 或 Z）：解析并转换。
+ */
+export function resolveDueDateUtc(input: string, zone: string): IsoInstant {
+  const trimmed = input.trim();
+  // 1. 纯日期 "YYYY-MM-DD"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return endOfLocalDayUtc(trimmed, zone);
+  }
+  // 2. 带时分的本地墙钟时间 "YYYY-MM-DD HH:mm"
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(trimmed)) {
+    const dt = DateTime.fromFormat(trimmed, 'yyyy-MM-dd HH:mm', { zone });
+    if (!dt.isValid) {
+      throw new Error(`无效的日期时间输入 "${input}"：${dt.invalidReason ?? 'unknown'}`);
+    }
+    return new Date(dt.toUTC().startOf('minute').toMillis()).toISOString();
+  }
+  // 3. ISO 8601 字符串 (形如 2026-08-18T15:30 或 2026-08-18T07:30:00.000Z)
+  const isoDt = DateTime.fromISO(trimmed, { zone });
+  if (isoDt.isValid) {
+    return new Date(isoDt.toUTC().startOf('minute').toMillis()).toISOString();
+  }
+  throw new Error(`无法识别的日期时间格式 "${input}"`);
+}

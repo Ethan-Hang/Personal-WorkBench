@@ -5,6 +5,7 @@ import {
   endOfLocalDayUtc,
   toIsoInstant,
   truncateToMinute,
+  resolveDueDateUtc,
 } from './time.js';
 
 const SH = 'Asia/Shanghai';
@@ -84,5 +85,23 @@ describe('truncateToMinute', () => {
 
   it('无效输入抛错', () => {
     expect(() => truncateToMinute('not-a-time')).toThrow();
+  });
+});
+
+describe('resolveDueDateUtc', () => {
+  it('支持纯日期 YYYY-MM-DD，补为本地日最后一毫秒的 UTC instant', () => {
+    expect(resolveDueDateUtc('2026-09-20', SH)).toBe('2026-09-20T15:59:59.999Z');
+  });
+
+  it('支持带时分的本地墙钟时间 YYYY-MM-DD HH:mm，精准按时区转为 UTC instant 并截零到分钟', () => {
+    expect(resolveDueDateUtc('2026-09-20 15:30', SH)).toBe('2026-09-20T07:30:00.000Z');
+  });
+
+  it('支持 ISO8601 UTC 字符串输入', () => {
+    expect(resolveDueDateUtc('2026-09-20T07:30:00.000Z', SH)).toBe('2026-09-20T07:30:00.000Z');
+  });
+
+  it('无法识别的格式抛错', () => {
+    expect(() => resolveDueDateUtc('invalid-date', SH)).toThrow();
   });
 });

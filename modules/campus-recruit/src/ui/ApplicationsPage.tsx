@@ -282,8 +282,8 @@ function ApplicationEditForm({
         <DatePicker
           value={form.applyDeadlineDate}
           onChange={(val) => set('applyDeadlineDate', val)}
-          placeholder="年 / 月 / 日"
-          showTime={false}
+          placeholder="年 / 月 / 日  时 : 分"
+          showTime={true}
           className="w-full"
         />
       </Field>
@@ -939,8 +939,8 @@ export function ApplicationsPage() {
                   applyDeadlineDate: val,
                 }))
               }
-              placeholder="年 / 月 / 日"
-              showTime={false}
+              placeholder="年 / 月 / 日  时 : 分"
+              showTime={true}
               className="w-full"
             />
           </Field>

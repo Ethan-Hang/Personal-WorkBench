@@ -41,6 +41,30 @@ describe('campus recruit Item projections', () => {
     expect((await h.repo.getApplication('a1'))!.deadlineItemId).toBe(projected[0]!.id);
   });
 
+  it('creates timed deadline task when applyDeadlineDate has HH:mm', async () => {
+    const h = makeCampusHarness();
+    await h.repo.insertApplication(
+      applicationFixture({
+        id: 'a1',
+        priority: 'S',
+        applyDeadlineDate: '2026-09-20 18:00',
+        appliedAt: null,
+      }),
+    );
+
+    await reconcileAllProjections(h.ctx, h.repo, NOW, SH);
+    const projected = await h.items.list({ sourceModules: [CAMPUS_RECRUIT_MODULE_ID] });
+    expect(projected).toHaveLength(1);
+    expect(projected[0]).toMatchObject({
+      kind: 'task',
+      title: '投递 星云科技 固件工程师',
+      importance: 'high',
+      dueAt: '2026-09-20T10:00:00.000Z',
+      scheduled: { kind: 'timed', start: '2026-09-20T10:00:00.000Z' },
+      status: 'todo',
+    });
+  });
+
   it('marks an existing deadline task done after application', async () => {
     const h = makeCampusHarness();
     await h.repo.insertApplication(

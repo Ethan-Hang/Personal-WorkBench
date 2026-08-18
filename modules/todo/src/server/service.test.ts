@@ -52,6 +52,15 @@ describe('createTask', () => {
     expect(task.dueAt).toBe('2026-09-20T15:59:59.999Z');
   });
 
+  it('带时分的 dueDate 精确转换为对应时区的 UTC instant', async () => {
+    const task = await createTask(
+      ctx,
+      { title: '下午三点半截止', importance: 'high', dueDate: '2026-09-20 15:30' },
+      { zone: SH, now: NOW },
+    );
+    expect(task.dueAt).toBe('2026-09-20T07:30:00.000Z');
+  });
+
   it('无 dueDate 时 urgency 为 none（spec §7.4）', async () => {
     const task = await createTask(
       ctx,

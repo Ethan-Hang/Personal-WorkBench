@@ -1,5 +1,5 @@
 import {
-  endOfLocalDayUtc,
+  resolveDueDateUtc,
   type CreateItemInput,
   type Importance,
   type Item,
@@ -105,12 +105,19 @@ function deadlineProjection(
   ) {
     return null;
   }
+  const raw = application.applyDeadlineDate.trim();
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const dueAt = resolveDueDateUtc(raw, zone);
+  const scheduled: ScheduledTime = isDateOnly
+    ? { kind: 'all-day', date: raw }
+    : { kind: 'timed', start: dueAt };
+
   return {
     kind: 'task',
     title: `投递 ${application.company} ${application.position}`,
     importance: priorityToImportance(application.priority),
-    dueAt: endOfLocalDayUtc(application.applyDeadlineDate, zone),
-    scheduled: { kind: 'all-day', date: application.applyDeadlineDate },
+    dueAt,
+    scheduled,
     status: application.appliedAt === null ? 'todo' : 'done',
     completedAt: application.appliedAt,
   };

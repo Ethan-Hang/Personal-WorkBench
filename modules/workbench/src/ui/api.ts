@@ -96,53 +96,53 @@ export interface TrashItemView {
 }
 
 export async function postTodoTask(input: CreateTodoInput): Promise<WorkbenchItem> {
-  return workbenchItemSchema.parse(
-    await request('/api/todo/tasks', {
-      method: 'POST',
-      body: JSON.stringify(input),
-    }),
-  );
+  const res = (await request('/api/todo/tasks', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })) as Record<string, unknown>;
+  if (!res.kind) res.kind = 'task';
+  return workbenchItemSchema.parse(res);
 }
 
 export async function patchTodoTask(id: string, input: UpdateTodoInput): Promise<WorkbenchItem> {
-  return workbenchItemSchema.parse(
-    await request(`/api/todo/tasks/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(input),
-    }),
-  );
+  const res = (await request(`/api/todo/tasks/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })) as Record<string, unknown>;
+  if (!res.kind) res.kind = 'task';
+  return workbenchItemSchema.parse(res);
 }
 
 export async function postTodoComplete(id: string): Promise<WorkbenchItem> {
-  return workbenchItemSchema.parse(
-    await request(`/api/todo/tasks/${encodeURIComponent(id)}/complete`, {
-      method: 'POST',
-    }),
-  );
+  const res = (await request(`/api/todo/tasks/${encodeURIComponent(id)}/complete`, {
+    method: 'POST',
+  })) as Record<string, unknown>;
+  if (!res.kind) res.kind = 'task';
+  return workbenchItemSchema.parse(res);
 }
 
 export async function postTodoUncomplete(id: string): Promise<WorkbenchItem> {
-  return workbenchItemSchema.parse(
-    await request(`/api/todo/tasks/${encodeURIComponent(id)}/uncomplete`, {
-      method: 'POST',
-    }),
-  );
+  const res = (await request(`/api/todo/tasks/${encodeURIComponent(id)}/uncomplete`, {
+    method: 'POST',
+  })) as Record<string, unknown>;
+  if (!res.kind) res.kind = 'task';
+  return workbenchItemSchema.parse(res);
 }
 
 export async function postTodoTrash(id: string): Promise<WorkbenchItem> {
-  return workbenchItemSchema.parse(
-    await request(`/api/todo/tasks/${encodeURIComponent(id)}/trash`, {
-      method: 'POST',
-    }),
-  );
+  const res = (await request(`/api/todo/tasks/${encodeURIComponent(id)}/trash`, {
+    method: 'POST',
+  })) as Record<string, unknown>;
+  if (!res.kind) res.kind = 'task';
+  return workbenchItemSchema.parse(res);
 }
 
 export async function postTodoRestore(id: string): Promise<WorkbenchItem> {
-  return workbenchItemSchema.parse(
-    await request(`/api/todo/tasks/${encodeURIComponent(id)}/restore`, {
-      method: 'POST',
-    }),
-  );
+  const res = (await request(`/api/todo/tasks/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+  })) as Record<string, unknown>;
+  if (!res.kind) res.kind = 'task';
+  return workbenchItemSchema.parse(res);
 }
 
 export async function deleteTodoPermanently(id: string): Promise<void> {

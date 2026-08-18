@@ -6,6 +6,7 @@ export {
   localDayRange,
   endOfLocalDayUtc,
   truncateToMinute,
+  resolveDueDateUtc,
 } from './time.js';
 
 export type { ItemKind, ItemStatus, Importance, ScheduledTime, Item } from './item.js';

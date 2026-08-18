@@ -1,6 +1,6 @@
 import {
   deriveUrgency,
-  endOfLocalDayUtc,
+  resolveDueDateUtc,
   isImportantQuadrant,
   isUrgentQuadrant,
   localDayOf,
@@ -76,6 +76,7 @@ function toView(item: Item, now: IsoInstant): TaskView {
     id: item.id,
     title: item.title,
     sourceModule: item.sourceModule,
+    kind: item.kind,
     status: item.status,
     importance: item.importance,
     dueAt: item.dueAt,
@@ -110,8 +111,8 @@ export async function createTask(
     kind: 'task',
     title: input.title,
     importance: input.importance,
-    // 只精确到天的 DDL 补成该本地日最后一毫秒（spec §5.3 决策 ③）
-    dueAt: input.dueDate === null ? null : endOfLocalDayUtc(input.dueDate, opts.zone),
+    // 支持纯日期与带时分（或 UTC ISO）的 DDL，统一解析为 UTC instant
+    dueAt: input.dueDate === null ? null : resolveDueDateUtc(input.dueDate, opts.zone),
     // 缺省排在今天全天；显式传 null 则不排程，直接进待排程抽屉
     scheduled:
       input.scheduled === undefined
@@ -138,7 +139,7 @@ export async function updateTask(
     patch.importance = input.importance;
   }
   if (input.dueDate !== undefined) {
-    patch.dueAt = input.dueDate === null ? null : endOfLocalDayUtc(input.dueDate, opts.zone);
+    patch.dueAt = input.dueDate === null ? null : resolveDueDateUtc(input.dueDate, opts.zone);
   }
   if (input.scheduled !== undefined) {
     patch.scheduled = toScheduledTime(input.scheduled);

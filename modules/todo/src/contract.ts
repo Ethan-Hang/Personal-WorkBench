@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IMPORTANCES, ITEM_STATUSES, URGENCIES } from '@workbench/core';
+import { IMPORTANCES, ITEM_KINDS, ITEM_STATUSES, URGENCIES } from '@workbench/core';
 
 export const TODO_MODULE_ID = 'todo';
 
@@ -8,6 +8,16 @@ export const urgencySchema = z.enum(URGENCIES);
 
 /** 浮动日期 'YYYY-MM-DD'。全天排程用它，绝不转 UTC（spec §6.2）。 */
 export const plainDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式须为 YYYY-MM-DD');
+
+/**
+ * 截止时间 DDL：支持浮动日期 'YYYY-MM-DD'、带时分的 'YYYY-MM-DD HH:mm' 或 UTC ISO8601 字符串。
+ */
+export const dueDateSchema = z
+  .string()
+  .regex(
+    /^\d{4}-\d{2}-\d{2}(([ T]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z?)?)$/,
+    '日期格式须为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm',
+  );
 
 /** UTC ISO8601 时刻，形如 '2026-09-20T11:00:00.000Z'。 */
 export const isoInstantSchema = z
@@ -47,8 +57,8 @@ export const createTaskInputSchema = z
   .object({
     title: z.string().trim().min(1, '标题不能为空').max(200, '标题最长 200 字'),
     importance: importanceSchema.default('normal'),
-    /** 只精确到天的 DDL；服务端补成该本地日 23:59:59.999 的 instant（spec §5.3 决策 ③） */
-    dueDate: plainDateSchema.nullable().default(null),
+    /** 截止时间：支持 'YYYY-MM-DD' 或带时分的 'YYYY-MM-DD HH:mm'；服务端统一换算为 UTC instant */
+    dueDate: dueDateSchema.nullable().default(null),
     /**
      * 排程：打算什么时候做。与 dueDate（死线）是两回事（spec §5.3 决策 ①）。
      *
@@ -64,7 +74,7 @@ export const updateTaskInputSchema = z
   .object({
     title: z.string().trim().min(1, '标题不能为空').max(200, '标题最长 200 字').optional(),
     importance: importanceSchema.optional(),
-    dueDate: plainDateSchema.nullable().optional(),
+    dueDate: dueDateSchema.nullable().optional(),
     /** 缺省不动排程；传 null 取消排程。 */
     scheduled: scheduledTimeSchema.nullable().optional(),
   })
@@ -80,6 +90,7 @@ export const taskViewSchema = z.object({
   id: z.string(),
   title: z.string(),
   sourceModule: z.string(),
+  kind: z.enum(ITEM_KINDS).default('task'),
   status: z.enum(ITEM_STATUSES),
   importance: importanceSchema,
   dueAt: z.string().nullable(),
