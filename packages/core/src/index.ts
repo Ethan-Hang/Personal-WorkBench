@@ -44,3 +44,20 @@ export type {
   UiRoute,
   UiModuleDefinition,
 } from './module.js';
+
+export type {
+  SettingCodec,
+  SettingKey,
+  AppSettings,
+  SettingsPatchResult,
+  SettingsRepository,
+} from './settings.js';
+export {
+  SETTINGS_CODECS,
+  SETTING_KEYS,
+  DEFAULT_SETTINGS,
+  SETTINGS_API,
+  isSettingKey,
+  resolveSettings,
+  parseSettingsPatch,
+} from './settings.js';
