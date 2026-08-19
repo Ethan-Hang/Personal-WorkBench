@@ -490,6 +490,40 @@
   animation: spinRing 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+/* 下拉卡片与浮层平滑进入与退出动效 (Popover Enter & Exit Animations) */
+@keyframes popoverEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes popoverExit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+}
+
+.animate-popover-enter {
+  animation: popoverEnter 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-popover-exit {
+  animation: popoverExit 150ms cubic-bezier(0.4, 0, 1, 1) forwards !important;
+  pointer-events: none !important;
+  will-change: transform, opacity;
+}
+
 /* 时钟数字平滑翻滚进入动效 (Digit Roll Animation) */
 @keyframes digitRollIn {
   0% {
