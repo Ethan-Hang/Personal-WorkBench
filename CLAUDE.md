@@ -59,7 +59,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `npx vitest run -t "<用例名>"` | 按用例名筛选                                                                          |
 | `npm run db:generate`          | 改完 `packages/data/src/schema.ts` 后生成迁移                                         |
 
-本地数据在 `data/local/workbench.db`（已 gitignore）。删掉它即可从空库重来。
+本地数据在 `data/local/accounts/<账号 id>/workbench.db`（已 gitignore），默认账号是
+`local-default`。删掉整个 `data/local/` 即可从空库重来。账号根目录由 `WORKBENCH_DATA_DIR`
+决定（默认 `./data/local`）；`WORKBENCH_DB` 保留为**逃生舱**——显式设置时锁定单库、
+跳过账号机制与一次性迁移，供 CI 与测试用。
+
+启动时若 `accounts.json` 不存在而旧的 `data/local/workbench.db` 还在，会做一次性迁移：
+**先正常打开旧库再 close 让 WAL checkpoint 掉**，然后只 rename 一个主库文件。顺序是
+承重的——这样不必同时处理 `-wal`/`-shm`，也不会搬出半截状态。
 
 **装依赖只走 `npm run setup`，不要直接 `npm install`。** 后者在没有 MSVC 工具链的机器上必挂：
 `better-sqlite3` 带 `binding.gyp` 又没有 `install` 脚本，npm 于是默认触发 `node-gyp rebuild`。

@@ -36,7 +36,7 @@ npm run dev
 
 ## 数据存储
 
-本地 SQLite 数据库保存在 `data/local/workbench.db`（已在 `.gitignore` 中）。删掉它即可从空库重来。
+本地 SQLite 数据库保存在 `data/local/accounts/local-default/workbench.db`（已在 `.gitignore` 中）。删掉整个 `data/local/` 即可从空库重来。
 
 ## 核心交互与体验特性
 
