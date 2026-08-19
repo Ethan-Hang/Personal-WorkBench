@@ -5,6 +5,9 @@ export { Chip } from './Chip.js';
 export { Field, controlClass } from './Field.js';
 export { PageHeader } from './PageHeader.js';
 export { ModuleLabelProvider, useModuleLabel } from './ModuleLabels.js';
+export { SettingsProvider, useSettings } from './SettingsContext.js';
+export type { SettingsContextValue } from './SettingsContext.js';
+export type { SettingsStore, SettingsSnapshot } from './settingsSync.js';
 export { ThemeProvider, useTheme, PALETTES } from './ThemeContext.js';
 export type { ThemeMode, ThemePalette, PaletteMeta } from './ThemeContext.js';
 export { ThemeSelector } from './ThemeSelector.js';
@@ -27,12 +30,7 @@ export { ScheduleRangePicker } from './ScheduleRangePicker.js';
 export type { ScheduleRangeValue, ScheduleRangePickerProps } from './ScheduleRangePicker.js';
 export { TimezoneMapSelector } from './TimezoneMapSelector.js';
 export { TodayClockCard } from './TodayClockCard.js';
-export {
-  PreferencesProvider,
-  usePreferences,
-  DEFAULT_PREFERENCES,
-  PREFERENCES_STORAGE_KEY,
-} from './PreferencesContext.js';
+export { PreferencesProvider, usePreferences, DEFAULT_PREFERENCES } from './PreferencesContext.js';
 export type { WorkbenchPreferences, PreferencesContextValue } from './PreferencesContext.js';
 export { AppShell } from './AppShell.js';
 export type { ShellNavGroup, ShellNavItem } from './AppShell.js';

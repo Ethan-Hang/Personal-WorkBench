@@ -1,4 +1,6 @@
-import { createContext, useContext, useState, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { DEFAULT_SETTINGS, type AppSettings } from '@workbench/core';
+import { useSettings } from './SettingsContext.js';
 
 export interface TimezoneOption {
   id: string; // e.g. 'Asia/Shanghai'
@@ -158,11 +160,9 @@ export const WORLD_TIMEZONES: TimezoneOption[] = [
   },
 ];
 
-export const DEFAULT_TIMEZONE = 'Asia/Shanghai';
-const TIMEZONE_STORAGE_KEY = 'workbench_timezone';
-const DST_MODE_STORAGE_KEY = 'workbench_dst_mode';
+export const DEFAULT_TIMEZONE = DEFAULT_SETTINGS['timezone.id'];
 
-export type DstMode = 'auto' | 'standard' | 'daylight';
+export type DstMode = AppSettings['timezone.dstMode'];
 
 interface TimezoneContextValue {
   timezone: string;
@@ -301,53 +301,23 @@ export function getTimezoneInfo(timeZone: string) {
 }
 
 export function TimezoneProvider({ children }: { children: ReactNode }) {
-  const [timezone, setTimezoneState] = useState<string>(() => {
-    try {
-      return localStorage.getItem(TIMEZONE_STORAGE_KEY) || DEFAULT_TIMEZONE;
-    } catch {
-      return DEFAULT_TIMEZONE;
-    }
-  });
-
-  const [dstMode, setDstModeState] = useState<DstMode>(() => {
-    try {
-      return (localStorage.getItem(DST_MODE_STORAGE_KEY) as DstMode) || 'auto';
-    } catch {
-      return 'auto';
-    }
-  });
-
-  const setTimezone = (tz: string) => {
-    setTimezoneState(tz);
-    try {
-      localStorage.setItem(TIMEZONE_STORAGE_KEY, tz);
-    } catch {
-      // ignore
-    }
-  };
-
-  const setDstMode = (mode: DstMode) => {
-    setDstModeState(mode);
-    try {
-      localStorage.setItem(DST_MODE_STORAGE_KEY, mode);
-    } catch {
-      // ignore
-    }
-  };
+  const { settings, update } = useSettings();
+  const timezone = settings['timezone.id'];
+  const dstMode = settings['timezone.dstMode'];
 
   const timezoneInfo = useMemo(() => getTimezoneInfo(timezone), [timezone]);
 
   const value = useMemo(
     () => ({
       timezone,
-      setTimezone,
+      setTimezone: (tz: string) => update({ 'timezone.id': tz }),
       dstMode,
-      setDstMode,
+      setDstMode: (m: DstMode) => update({ 'timezone.dstMode': m }),
       timezoneInfo,
       toUtcIso: (localStr: string) => toUtcIso(localStr, timezone),
       formatUtcToLocal: (utcIso: string) => formatUtcToLocal(utcIso, timezone),
     }),
-    [timezone, dstMode, timezoneInfo],
+    [timezone, dstMode, timezoneInfo, update],
   );
 
   return <TimezoneContext.Provider value={value}>{children}</TimezoneContext.Provider>;

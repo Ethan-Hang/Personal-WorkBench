@@ -1,12 +1,6 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, type ReactNode } from 'react';
+import { DEFAULT_SETTINGS, type AppSettings, type SettingKey } from '@workbench/core';
+import { useSettings } from './SettingsContext.js';
 
 export interface WorkbenchPreferences {
   /** 在今日执行舱顶部显示时段问候语（如「早上好，今天专注三件事」） */
@@ -19,14 +13,32 @@ export interface WorkbenchPreferences {
   showCompletedTasks: boolean;
 }
 
-export const DEFAULT_PREFERENCES: Readonly<WorkbenchPreferences> = {
-  showGreeting: true,
-  autoExpandOverdue: false,
-  enableAnimations: true,
-  showCompletedTasks: true,
-};
+const PREF_KEYS = {
+  showGreeting: 'workbench.showGreeting',
+  autoExpandOverdue: 'workbench.autoExpandOverdue',
+  enableAnimations: 'workbench.enableAnimations',
+  showCompletedTasks: 'workbench.showCompletedTasks',
+} as const satisfies Record<keyof WorkbenchPreferences, SettingKey>;
 
-export const PREFERENCES_STORAGE_KEY = 'workbench_preferences';
+function toPreferences(settings: AppSettings): WorkbenchPreferences {
+  return {
+    showGreeting: settings['workbench.showGreeting'],
+    autoExpandOverdue: settings['workbench.autoExpandOverdue'],
+    enableAnimations: settings['workbench.enableAnimations'],
+    showCompletedTasks: settings['workbench.showCompletedTasks'],
+  };
+}
+
+function toPatch(patch: Partial<WorkbenchPreferences>): Partial<AppSettings> {
+  const out: Partial<AppSettings> = {};
+  for (const [uiKey, value] of Object.entries(patch)) {
+    if (value === undefined) continue;
+    out[PREF_KEYS[uiKey as keyof WorkbenchPreferences]] = value;
+  }
+  return out;
+}
+
+export const DEFAULT_PREFERENCES: Readonly<WorkbenchPreferences> = toPreferences(DEFAULT_SETTINGS);
 
 export interface PreferencesContextValue {
   preferences: WorkbenchPreferences;
@@ -45,55 +57,9 @@ export interface PreferencesContextValue {
 
 const PreferencesContext = createContext<PreferencesContextValue | null>(null);
 
-function loadSavedPreferences(): WorkbenchPreferences {
-  if (typeof window === 'undefined') return { ...DEFAULT_PREFERENCES };
-  try {
-    const raw = localStorage.getItem(PREFERENCES_STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_PREFERENCES };
-    const parsed = JSON.parse(raw);
-    return {
-      showGreeting:
-        typeof parsed.showGreeting === 'boolean'
-          ? parsed.showGreeting
-          : DEFAULT_PREFERENCES.showGreeting,
-      autoExpandOverdue:
-        typeof parsed.autoExpandOverdue === 'boolean'
-          ? parsed.autoExpandOverdue
-          : DEFAULT_PREFERENCES.autoExpandOverdue,
-      enableAnimations:
-        typeof parsed.enableAnimations === 'boolean'
-          ? parsed.enableAnimations
-          : DEFAULT_PREFERENCES.enableAnimations,
-      showCompletedTasks:
-        typeof parsed.showCompletedTasks === 'boolean'
-          ? parsed.showCompletedTasks
-          : DEFAULT_PREFERENCES.showCompletedTasks,
-    };
-  } catch {
-    return { ...DEFAULT_PREFERENCES };
-  }
-}
-
-function savePreferencesToStorage(prefs: WorkbenchPreferences) {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(prefs));
-  } catch {
-    // 容错处理（如浏览器隐身模式或配额超限）
-  }
-}
-
-export function PreferencesProvider({
-  children,
-  initialPreferences,
-}: {
-  children: ReactNode;
-  initialPreferences?: Partial<WorkbenchPreferences>;
-}) {
-  const [preferences, setPreferencesState] = useState<WorkbenchPreferences>(() => {
-    const loaded = loadSavedPreferences();
-    return initialPreferences ? { ...loaded, ...initialPreferences } : loaded;
-  });
+export function PreferencesProvider({ children }: { children: ReactNode }) {
+  const { settings, update } = useSettings();
+  const preferences = useMemo(() => toPreferences(settings), [settings]);
 
   // 同步动效属性到 document.documentElement
   useEffect(() => {
@@ -103,65 +69,43 @@ export function PreferencesProvider({
     root.setAttribute('data-reduced-motion', preferences.enableAnimations ? 'false' : 'true');
   }, [preferences.enableAnimations]);
 
-  const setPreference = useCallback(
-    <K extends keyof WorkbenchPreferences>(
-      key: K,
-      valueOrUpdater:
-        WorkbenchPreferences[K] | ((prev: WorkbenchPreferences[K]) => WorkbenchPreferences[K]),
-    ) => {
-      setPreferencesState((prev) => {
-        const nextVal =
-          typeof valueOrUpdater === 'function'
-            ? (valueOrUpdater as (prev: WorkbenchPreferences[K]) => WorkbenchPreferences[K])(
-                prev[key],
-              )
-            : valueOrUpdater;
-        const next = { ...prev, [key]: nextVal };
-        savePreferencesToStorage(next);
-        return next;
-      });
+  const setPreference = useCallback<PreferencesContextValue['setPreference']>(
+    (key, valueOrUpdater) => {
+      const next =
+        typeof valueOrUpdater === 'function'
+          ? (
+              valueOrUpdater as (
+                prev: WorkbenchPreferences[typeof key],
+              ) => WorkbenchPreferences[typeof key]
+            )(preferences[key])
+          : valueOrUpdater;
+      update(toPatch({ [key]: next } as Partial<WorkbenchPreferences>));
     },
-    [],
+    [preferences, update],
   );
 
-  const togglePreference = useCallback((key: keyof WorkbenchPreferences) => {
-    setPreferencesState((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      savePreferencesToStorage(next);
-      return next;
-    });
-  }, []);
-
-  const updatePreferences = useCallback(
-    (
-      patchOrUpdater:
-        | Partial<WorkbenchPreferences>
-        | ((prev: WorkbenchPreferences) => Partial<WorkbenchPreferences>),
-    ) => {
-      setPreferencesState((prev) => {
-        const patch = typeof patchOrUpdater === 'function' ? patchOrUpdater(prev) : patchOrUpdater;
-        const next = { ...prev, ...patch };
-        savePreferencesToStorage(next);
-        return next;
-      });
+  const togglePreference = useCallback(
+    (key: keyof WorkbenchPreferences) => {
+      update(toPatch({ [key]: !preferences[key] } as Partial<WorkbenchPreferences>));
     },
-    [],
+    [preferences, update],
+  );
+
+  const updatePreferences = useCallback<PreferencesContextValue['updatePreferences']>(
+    (patchOrUpdater) => {
+      const patch =
+        typeof patchOrUpdater === 'function' ? patchOrUpdater(preferences) : patchOrUpdater;
+      update(toPatch(patch));
+    },
+    [preferences, update],
   );
 
   const resetPreferences = useCallback(() => {
-    const next = { ...DEFAULT_PREFERENCES };
-    setPreferencesState(next);
-    savePreferencesToStorage(next);
-  }, []);
+    update(toPatch(DEFAULT_PREFERENCES));
+  }, [update]);
 
   const value = useMemo<PreferencesContextValue>(
-    () => ({
-      preferences,
-      setPreference,
-      togglePreference,
-      updatePreferences,
-      resetPreferences,
-    }),
+    () => ({ preferences, setPreference, togglePreference, updatePreferences, resetPreferences }),
     [preferences, setPreference, togglePreference, updatePreferences, resetPreferences],
   );
 
