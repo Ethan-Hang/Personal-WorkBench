@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import {
   Button,
   Switch,
@@ -23,14 +22,13 @@ import {
   IconUser,
 } from '@workbench/ui';
 import { AccountsPanel } from '../accounts/AccountsPanel.js';
+import { BackupPanel } from '../sync/BackupPanel.js';
 
 type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'accounts' | 'storage' | 'modules';
 
 export function SettingsPage() {
-  const queryClient = useQueryClient();
   const { mode, palette, setMode, setPalette } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>('accounts');
-  const [cacheCleared, setCacheCleared] = useState(false);
   const [resetToast, setResetToast] = useState(false);
 
   // 全局持久化工作台偏好
@@ -67,12 +65,6 @@ export function SettingsPage() {
       icon: IconMonitor,
     },
   ];
-
-  function handleClearCache() {
-    void queryClient.invalidateQueries();
-    setCacheCleared(true);
-    setTimeout(() => setCacheCleared(false), 3000);
-  }
 
   const subNavItems: Array<{
     id: SettingsTab;
@@ -413,56 +405,7 @@ export function SettingsPage() {
             <AccountsPanel onNavigateToStorage={() => setActiveTab('storage')} />
           )}
 
-          {activeTab === 'storage' && (
-            <div key="storage" className="space-y-6 animate-slide-right-in">
-              <div>
-                <h2 className="text-base font-bold text-ink">本地数据与存储</h2>
-                <p className="text-xs text-secondary">
-                  采用本地优先架构，所有数据持久化于本地 SQLite
-                </p>
-              </div>
-
-              <Panel>
-                <div className="space-y-4 text-xs">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-line pb-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-9 items-center justify-center rounded-xl bg-good-soft text-good">
-                        <IconDatabase size={18} />
-                      </div>
-                      <div>
-                        <div className="font-bold text-ink">SQLite 数据库状态</div>
-                        <div className="text-muted mt-0.5">
-                          本地数据文件路径：data/local/workbench.db
-                        </div>
-                      </div>
-                    </div>
-                    <Chip tone="good">正常运行 · 零延迟</Chip>
-                  </div>
-
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-line pb-3.5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
-                        <IconClock size={18} />
-                      </div>
-                      <div>
-                        <div className="font-bold text-ink">查询与前端缓存</div>
-                        <div className="text-muted mt-0.5">TanStack Query 自动同步与内存缓存</div>
-                      </div>
-                    </div>
-                    <Button type="button" variant="ghost" size="sm" onClick={handleClearCache}>
-                      {cacheCleared ? '✓ 已刷新缓存' : '强制刷新缓存'}
-                    </Button>
-                  </div>
-
-                  <div className="pt-1 text-muted leading-relaxed">
-                    <strong>本地存储保障</strong>
-                    ：所有待办事项、日历排程与秋招投递数据均存储在本地 SQLite 数据库中。
-                    即使断网亦能顺畅操作，数据持久安全。
-                  </div>
-                </div>
-              </Panel>
-            </div>
-          )}
+          {activeTab === 'storage' && <BackupPanel />}
 
           {activeTab === 'modules' && (
             <div key="modules" className="space-y-6 animate-slide-right-in">

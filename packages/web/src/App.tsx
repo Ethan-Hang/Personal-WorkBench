@@ -13,6 +13,7 @@ import { uiModules } from './modules.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { createHttpSettingsStore } from './settingsStore.js';
+import { RestoreOverlay } from './sync/RestoreOverlay.js';
 
 // 模块作用域建一次即可：store 无状态，重建会白白丢掉内部引用。
 const settingsStore = createHttpSettingsStore();
@@ -71,6 +72,7 @@ export function App() {
                     )),
                   )}
                 </Routes>
+                <RestoreOverlay />
               </AppShell>
             </ModuleLabelProvider>
           </PreferencesProvider>

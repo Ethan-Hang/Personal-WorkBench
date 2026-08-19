@@ -183,3 +183,75 @@ export type CreateAccountBody = z.infer<typeof createAccountBodySchema>;
 export type SwitchAccountBody = z.infer<typeof switchAccountBodySchema>;
 export type BindDirection = (typeof BIND_DIRECTIONS)[number];
 export type BindGithubBody = z.infer<typeof bindGithubBodySchema>;
+
+/**
+ * 恢复流程与状态机契约（设计 §6 与 §9）。
+ */
+export const RESTORE_API = {
+  preflight: () => '/api/restore/preflight',
+  confirm: () => '/api/restore/confirm',
+  rollback: () => '/api/restore/rollback',
+  state: () => '/api/restore/state',
+} as const;
+
+export const restoreDiffItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+});
+
+export const restoreModifiedItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  localTitle: z.string().optional(),
+});
+
+export const restoreModuleTableDiffSchema = z.object({
+  table: z.string().min(1),
+  moduleId: z.string().min(1),
+  moduleName: z.string().optional(),
+  localCount: z.number().int().nonnegative(),
+  remoteCount: z.number().int().nonnegative(),
+});
+
+export const restoreDiffSchema = z.object({
+  core: z.object({
+    added: z.array(restoreDiffItemSchema),
+    removed: z.array(restoreDiffItemSchema),
+    modified: z.array(restoreModifiedItemSchema),
+  }),
+  modules: z.array(restoreModuleTableDiffSchema),
+});
+
+export const restorePreflightBodySchema = z.object({
+  name: z.string().min(1),
+});
+
+export const restorePreflightResponseSchema = z.object({
+  name: z.string().min(1),
+  compatible: z.boolean(),
+  reason: z.string().optional(),
+  meta: backupMetaSchema,
+  diff: restoreDiffSchema,
+});
+
+export const restoreConfirmBodySchema = z.object({
+  name: z.string().min(1),
+});
+
+export const restoreStateSchema = z.object({
+  state: z.enum(['idle', 'restoring', 'switching', 'error']),
+  step: z.string().optional(),
+  message: z.string().optional(),
+  error: z.string().optional(),
+  canRollback: z.boolean().optional(),
+  generation: z.number().int().nonnegative().optional(),
+});
+
+export type RestoreDiffItem = z.infer<typeof restoreDiffItemSchema>;
+export type RestoreModifiedItem = z.infer<typeof restoreModifiedItemSchema>;
+export type RestoreModuleTableDiff = z.infer<typeof restoreModuleTableDiffSchema>;
+export type RestoreDiff = z.infer<typeof restoreDiffSchema>;
+export type RestorePreflightBody = z.infer<typeof restorePreflightBodySchema>;
+export type RestorePreflightResponse = z.infer<typeof restorePreflightResponseSchema>;
+export type RestoreConfirmBody = z.infer<typeof restoreConfirmBodySchema>;
+export type RestoreState = z.infer<typeof restoreStateSchema>;
