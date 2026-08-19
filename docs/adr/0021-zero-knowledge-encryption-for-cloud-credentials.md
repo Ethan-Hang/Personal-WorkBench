@@ -57,9 +57,11 @@ scryptSync(口令, salt, 32)  →  AES-256-GCM(iv 12B)  →  header 明文 + dat
 本地文件泄露意味着攻击者已经在这台机器上有文件读取能力，那么本地的 SQLite 数据库
 本身也已经全部泄露——给本地凭据文件再加一层口令加密，在这个威胁模型下收益有限。
 
-但**本地这一档的优先级在本 ADR 落地前被提高了**（见下方修订）：改用 GitHub App 的
-短期 user access token 后，本地要保存的不再是一个只能读写 gist 的长期 token，而是一个
-**有效期六个月、且能持续再生新 token 的 refresh token**。它值得系统保管库的保护。
+但**本地这一档的优先级在本 ADR 落地前被提高了**（见下方修订），理由与「token 是否
+过期」无关——恰恰相反：本设计**不启用**短期 token，所以本地保存的是一个**永久有效**的
+GitHub token。一个不会过期的凭据躺在明文文件里，比一个八小时后自动失效的更值得系统
+保管库的保护。
+
 因此 OS 凭据管理器是**优先方案**；不可用时才退化到 `data/local/credentials.json`，
 并且必须在设置页明确提示「本机凭据未受系统保管库保护」——**这是降级，不是等价选项，
 不得静默发生**。
@@ -93,11 +95,19 @@ scryptSync(口令, salt, 32)  →  AES-256-GCM(iv 12B)  →  header 明文 + dat
 ## 修订
 
 **2026-08-19（与本 ADR 同日，实施之前）：** GitHub 侧的认证方案由 OAuth App + `gist`
-scope 改为 **GitHub App + 细粒度 `Gists: write` 权限 + 短期 user access token
-（8 小时）+ refresh token 轮换（6 个月）**，且**永不生成 client secret**
-（Device Flow 签发的 token 刷新时豁免 client_secret，这是三者能同时成立的原因）。
+scope 改为 **GitHub App + 细粒度 `Gists: write` 权限**，且**永不生成 client secret**
+（Device Flow 本就不需要它）。
 
-对本 ADR 的影响只有一处：**本地凭据存储从「OS 保管库是增强项」提高到「OS 保管库优先」**，
-因为要保管的东西从一个长期 gist token 变成了一个能持续再生 token 的六个月 refresh token。
-Gist 侧的零知识加密决策本身不受影响——它保护的仍然是 WebDAV 凭据与设置，
-而 **GitHub 的 token 对（access + refresh）永远只在本地，绝不进 Gist**。
+同日经过一轮权衡后**否决了短期 user access token（8 小时）与 refresh token 轮换**：
+该 token 的全部能力是读写用户自己的 gist，要用上它攻击者得先能读本机文件，
+而那时 SQLite 库与 WebDAV 配置早已一并暴露——把暴露窗口从「永久」缩到「八小时」
+关不掉他真正在乎的那扇门。代价却是实的：刷新串行互斥、「先落盘再使用」的顺序约束，
+以及一个凭空多出的故障模式（六个月不用设备即被登出）。该决定可逆——它是 App 设置里
+的一个复选框，Device Flow 的代码路径完全一样。
+
+对本 ADR 的实质影响只有一处：**本地凭据存储从「OS 保管库是增强项」提高到
+「OS 保管库优先」**。注意这条与上一段不矛盾而是由它加强——正因为 token 不过期，
+把它交给系统保管库才更要紧。
+
+Gist 侧的零知识加密决策不受任何影响：它保护的仍然是 WebDAV 凭据与设置，
+而 **GitHub token 永远只在本地，绝不进 Gist**。

@@ -398,8 +398,8 @@ POST github.com/login/device/code       { client_id }          ← 无 scope 参
 
 POST github.com/login/oauth/access_token
      { client_id, device_code, grant_type=urn:ietf:params:oauth:grant-type:device_code }
-  → { access_token: 'ghu_…', expires_in: 28800,
-      refresh_token: 'ghr_…', refresh_token_expires_in: 15897600, scope: '' }
+  → { access_token: 'ghu_…', token_type: 'bearer', scope: '' }
+     ↑ 未启用短期 token，故无 expires_in / refresh_token（见 §7.3.2）
 
 GET  api.github.com/user                → login + id
 ```
@@ -413,7 +413,8 @@ GET  api.github.com/user                → login + id
    账号显示名照样拿得到，不必为了显示用户名多要一份权限。
 3. **Device Flow 签发的 token，刷新时豁免 `client_secret`**。文档原文：
    `client_secret` — Required _(unless the token was generated using the device flow)_。
-   这是「短期 token + 自动轮换 + 无 client_secret」三者能同时成立的唯一原因。
+   本设计当前不启用短期 token（§7.3.2），这条事实的意义在于**将来启用也不会被迫
+   引入 client_secret**——「永不生成 client_secret」不会变成日后的绊脚石。
 
 **必须处理的轮询响应**：`authorization_pending`（继续等）、`slow_down`（**按响应加大
 间隔**，否则会被限流）、`expired_token`（重新发起）、`access_denied`（用户拒绝）。
@@ -430,28 +431,35 @@ GET  api.github.com/user                → login + id
   解法：在点击处理器里**同步先开一个空白窗口**，拿到响应后再设置它的 `location`。
   失败时必须降级成一个可见的手动链接，不能静默什么都不发生。
 
-#### 7.3.2 token 生命周期：8 小时过期，6 个月轮换
+#### 7.3.2 刻意不启用短期 token
 
-启用短期 user access token 后：
+GitHub App 提供「Expire user authorization tokens」选项，勾上之后 token 8 小时过期、
+配一个 6 个月的 refresh token 做轮换。**本设计刻意不勾它。**
 
-| 值                        | 时长                     |
-| ------------------------- | ------------------------ |
-| `access_token`（`ghu_`）  | 28800 秒 = **8 小时**    |
-| `refresh_token`（`ghr_`） | 15897600 秒 = **6 个月** |
+理由是这条威胁模型里它买不到什么：这个 token 的全部能力是**读写你自己的 gist**。
+要用上它，攻击者得先能读你的本机文件——而那时你的 SQLite 库、秋招记录、
+WebDAV 配置早已一并落入他手。把暴露窗口从「永久」缩到「8 小时」，
+**并没有关掉他真正在乎的那扇门**。
 
-**每次刷新都会返回一个新的 `refresh_token`，旧的当场作废。** 这是轮换而非复用，
-由此带来两条硬性要求：
+换来的代价却是实的：过期判定、刷新串行互斥、以及「先落盘再使用」这个顺序约束
+（写盘失败会让旧 refresh 已作废而新的没存住，账号直接掉线且只能重走 Device Flow）。
+后两条都是难复现的 bug 面。还会凭空多出一个今天不存在的故障模式：
+**六个月不碰这台设备，refresh token 也过期，你会被登出**——对一个用得散的个人工具，
+这不是小概率事件。
 
-- **先落盘，再使用。** 拿到新 token 对后必须先原子写入凭据存储，再拿新 access token
-  去发请求。顺序反了而写盘失败，旧 refresh 已作废、新的没存住，**账号直接掉线，
-  只能重走 Device Flow**。
-- **刷新必须串行。** 两个并发请求同时发现 token 过期、各自去刷，后到的那个会拿着
-  已作废的 refresh token 失败，并把刚存好的新 token 覆盖成垃圾。用一个 promise 级
-  互斥把刷新收敛成单飞——**与 `SettingsSync` 的「合并串行」是同一个模式**，照它写。
+**这个决定是可逆的，且逆的成本很低。** 它是 App 设置里的一个复选框；Device Flow 的
+代码路径完全一样，只是响应里多出 `expires_in` 与 `refresh_token`。真需要时再补刷新
+逻辑即可——那时会有真实使用经验来判断它值不值。这正是 YAGNI 的方向：不做，而不是
+先做好等着用。
 
-刷新在**用之前**做，不靠 401 重试：判据是 `expiresAt - now < 5 分钟` 则先刷。
-6 个月不用这台设备会让 refresh token 也过期，此时唯一出路是重走 Device Flow，
-UI 必须把这条路说清楚，而不是报一个通用的 401。
+**代码上要留的唯一余地**：解析 token 响应时，若出现 `refresh_token` 字段就一并存下、
+不要丢弃。这样将来勾上复选框时，凭据存储的形状不用改。
+
+一条与之相关、值得记下的官方事实：**Device Flow 签发的 token 刷新时豁免
+`client_secret`**（文档原文：`client_secret` — Required _(unless the token was
+generated using the device flow)_）。也就是说将来即便启用短期 token，
+**也不会因此被迫引入 client_secret**——「不生成 client_secret」这条约束不会成为
+将来的绊脚石。
 
 ### 7.4 凭据的本地存储：优先 OS 保管库
 
@@ -459,8 +467,9 @@ UI 必须把这条路说清楚，而不是报一个通用的 401。
 Secret Service），拿不到才退到 `data/local/credentials.json`，并在设置页明示
 「本机凭据未受系统保管库保护」。
 
-这一档提高了，理由是存的东西变了：现在要存一个**有效期 6 个月的 refresh token**。
-它比原先那个不过期但只能读写 gist 的 token 更值得保护，因为它能持续再生新 token。
+这一档提高了，而且理由与「token 是否过期」无关——**恰恰相反**：本设计不启用短期
+token（§7.3.2），所以本地保存的是一个**永久有效**的 GitHub token。一个不会过期的
+凭据躺在明文文件里，比一个八小时后自动失效的更值得系统保管库的保护。
 
 威胁模型仍是两档：
 
@@ -469,6 +478,8 @@ Secret Service），拿不到才退到 `data/local/credentials.json`，并在设
 
 **GitHub 的 token 对（access + refresh）永远只在本地，绝不进 Gist。**
 Gist 里只有 WebDAV 凭据与设置。
+
+**GitHub token 永远只在本地，绝不进 Gist。** Gist 里只有 WebDAV 凭据与设置。
 
 实施上有一条要先验证：OS 保管库的 Node 绑定（如 `@napi-rs/keyring`）必须是
 **N-API 预编译**，否则 `npm run setup` 的 `--ignore-scripts` 会让它装不上
@@ -672,7 +683,7 @@ ADR-0001 说「若将来要做多用户，账号与数据隔离需要一次真�
 ### 13.2 前置人工步骤（不能等到实施时才发现）
 
 1. **注册一个 GitHub App**（不是 OAuth App），拿到 `client_id`，勾选 Enable Device Flow，
-   勾选 "Expire user authorization tokens"（短期 token + refresh），
+   **不要**勾选 "Expire user authorization tokens"（刻意不启用短期 token，理由见 §7.3.2），
    用户权限只勾 **Gists: write**。**绝不生成 client secret**——生成了就意味着它存在于
    某处，而本设计的前提是它从不存在。
 2. **准备一个 WebDAV 账号**（坚果云 / Nextcloud 等），确认免费额度的请求与流量配额。
