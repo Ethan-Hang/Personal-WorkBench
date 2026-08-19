@@ -14,11 +14,18 @@ import { registerModules } from './registry.js';
 import { GitHubDeviceFlowClient, type GitHubDeviceFlow } from './auth/github-device-flow.js';
 import { registerGitHubAuthRoutes } from './auth/routes.js';
 import { registerSettingsRoutes } from './settings/routes.js';
+import { registerServiceStateGate, ServiceState } from './service-state.js';
+import { registerAccountsRoutes } from './accounts/routes.js';
+import type { AccountsService } from './accounts/service.js';
 
 export interface BuildAppOptions {
   getSqlite: () => Database.Database;
   modules: ServerModuleDefinition[];
   githubDeviceFlow?: GitHubDeviceFlow;
+  /** 切换账号与恢复共用的全服务状态；不传则恒为 idle。 */
+  serviceState?: ServiceState;
+  /** 账号服务。不传则不注册账号路由（WORKBENCH_DB 逃生舱下就是这样）。 */
+  accounts?: AccountsService;
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
   logger?: FastifyServerOptions['logger'];
 }
@@ -50,12 +57,17 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(statusCode).send({ error: error.message, requestId: request.id });
   });
 
-  app.get('/api/health', async () => ({ ok: true }));
+  const serviceState = opts.serviceState ?? new ServiceState();
+  registerServiceStateGate(app, serviceState);
+
+  app.get('/api/health', async () => ({ ok: true, ...serviceState.current() }));
 
   registerGitHubAuthRoutes(app, opts.githubDeviceFlow ?? new GitHubDeviceFlowClient());
 
   // 设置走模块注册表之外的第二条通道：它不属于任何模块，且外壳启动即需要（ADR-0018）。
   registerSettingsRoutes(app, new SqliteSettingsRepository(opts.getSqlite));
+
+  if (opts.accounts !== undefined) registerAccountsRoutes(app, opts.accounts);
 
   const items = new SqliteItemRepository(opts.getSqlite);
   await registerModules(app, db, items, opts.modules);

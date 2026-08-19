@@ -1,6 +1,8 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import type Database from 'better-sqlite3';
 import {
+  AccountsStore,
   ConnectionHolder,
   createDatabaseClient,
   resolveActiveDatabase,
@@ -12,6 +14,9 @@ import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
 import { buildApp } from './app.js';
+import { AccountsService } from './accounts/service.js';
+import { runModuleMigrations } from './registry.js';
+import { ServiceState } from './service-state.js';
 
 async function main() {
   try {
@@ -28,20 +33,41 @@ async function main() {
     const holder = new ConnectionHolder();
     const sqlite = holder.open(active.dbPath);
     const getSqlite = () => holder.current();
-    const db = createDatabaseClient(sqlite);
-    runCoreMigrations(db);
 
     const todoServerModule = createTodoServerModule(new SqliteTodoRepository(getSqlite));
     const campusRecruitServerModule = createCampusRecruitServerModule(
       new SqliteCampusRecruitRepository(getSqlite),
     );
+    const modules = [todoServerModule, workbenchServerModule, campusRecruitServerModule];
+
+    // 切换账号要在新库上跑同一套迁移。「哪些模块有迁移」只有组合根知道，
+    // 所以这个函数在这里成型、注入给 AccountsService（铁律 2）。
+    const migrate = (connection: Database.Database) => {
+      const db = createDatabaseClient(connection);
+      runCoreMigrations(db);
+      runModuleMigrations(db, modules);
+    };
+    runCoreMigrations(createDatabaseClient(sqlite));
+
+    const serviceState = new ServiceState();
+    const accounts =
+      active.mode === 'accounts'
+        ? new AccountsService({
+            store: new AccountsStore(DATA_DIR),
+            holder,
+            state: serviceState,
+            migrate,
+          })
+        : undefined;
 
     // 日志落盘而非只进 stdout：终端一关就没了的日志，事后追不了任何东西。
     mkdirSync(dirname(resolve(LOG_PATH)), { recursive: true });
 
     const app = await buildApp({
       getSqlite,
-      modules: [todoServerModule, workbenchServerModule, campusRecruitServerModule],
+      modules,
+      serviceState,
+      accounts,
       logger: { level: 'info', file: LOG_PATH },
     });
 
