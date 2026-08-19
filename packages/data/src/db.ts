@@ -11,7 +11,11 @@ export type Db = BetterSQLite3Database<typeof schema>;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CORE_MIGRATIONS = resolve(HERE, '../migrations');
 
-export function openDatabase(path: string): { db: Db; sqlite: Database.Database } {
+export function createDatabaseClient(sqlite: Database.Database): Db {
+  return drizzle(sqlite, { schema });
+}
+
+export function openSqliteConnection(path: string): Database.Database {
   if (path !== ':memory:') {
     mkdirSync(dirname(resolve(path)), { recursive: true });
   }
@@ -22,8 +26,12 @@ export function openDatabase(path: string): { db: Db; sqlite: Database.Database 
   const sqlite = new SqliteConstructor(path);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
-  const db = drizzle(sqlite, { schema });
-  return { db, sqlite };
+  return sqlite;
+}
+
+export function openDatabase(path: string): { db: Db; sqlite: Database.Database } {
+  const sqlite = openSqliteConnection(path);
+  return { db: createDatabaseClient(sqlite), sqlite };
 }
 
 /** 跑 core 自己的迁移。 */

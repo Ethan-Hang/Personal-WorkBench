@@ -8,7 +8,11 @@ import { createTodoServerModule } from './index.js';
 async function makeApp(): Promise<FastifyInstance> {
   const { db, sqlite } = openTestDatabase();
   runMigrationsFrom(db, 'modules/todo/migrations');
-  return buildApp({ db, modules: [createTodoServerModule(new SqliteTodoRepository(sqlite))] });
+  const getSqlite = () => sqlite;
+  return buildApp({
+    getSqlite,
+    modules: [createTodoServerModule(new SqliteTodoRepository(getSqlite))],
+  });
 }
 
 describe('todo HTTP 接口', () => {
@@ -159,15 +163,16 @@ describe('todo HTTP 接口', () => {
   it('完成其他模块的 Item 返回 404', async () => {
     const { db, sqlite } = openTestDatabase();
     runMigrationsFrom(db, 'modules/todo/migrations');
-    const items = new SqliteItemRepository(db);
+    const getSqlite = () => sqlite;
+    const items = new SqliteItemRepository(getSqlite);
     const campusItem = await items.create('campus-recruit', {
       kind: 'task',
       title: '投递 星云科技 固件工程师',
       scheduled: { kind: 'all-day', date: '2026-09-20' },
     });
     const todoApp = await buildApp({
-      db,
-      modules: [createTodoServerModule(new SqliteTodoRepository(sqlite))],
+      getSqlite,
+      modules: [createTodoServerModule(new SqliteTodoRepository(getSqlite))],
     });
 
     const res = await todoApp.inject({

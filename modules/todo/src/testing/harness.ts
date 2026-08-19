@@ -12,8 +12,9 @@ import { SqliteTodoRepository } from '../storage/sqlite-repository.js';
 export function makeTodoHarness() {
   const { db, sqlite } = openTestDatabase();
   runMigrationsFrom(db, 'modules/todo/migrations');
-  const repo = new SqliteTodoRepository(sqlite);
-  const items = new SqliteItemRepository(db);
+  const getSqlite = () => sqlite;
+  const repo = new SqliteTodoRepository(getSqlite);
+  const items = new SqliteItemRepository(getSqlite);
   const ctx: ModuleContext = { moduleId: TODO_MODULE_ID, items };
   return { db, sqlite, repo, items, ctx };
 }

@@ -10,9 +10,10 @@ let app: FastifyInstance;
 let items: SqliteItemRepository;
 
 beforeEach(async () => {
-  const { db } = openTestDatabase();
-  items = new SqliteItemRepository(db);
-  app = await buildApp({ db, modules: [workbenchServerModule] });
+  const { sqlite } = openTestDatabase();
+  const getSqlite = () => sqlite;
+  items = new SqliteItemRepository(getSqlite);
+  app = await buildApp({ getSqlite, modules: [workbenchServerModule] });
 });
 
 describe('workbench HTTP 接口', () => {

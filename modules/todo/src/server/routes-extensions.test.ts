@@ -19,8 +19,12 @@ let items: SqliteItemRepository;
 beforeEach(async () => {
   const { db, sqlite } = openTestDatabase();
   runMigrationsFrom(db, 'modules/todo/migrations');
-  items = new SqliteItemRepository(db);
-  app = await buildApp({ db, modules: [createTodoServerModule(new SqliteTodoRepository(sqlite))] });
+  const getSqlite = () => sqlite;
+  items = new SqliteItemRepository(getSqlite);
+  app = await buildApp({
+    getSqlite,
+    modules: [createTodoServerModule(new SqliteTodoRepository(getSqlite))],
+  });
 });
 
 async function makeTask(title = '搬家'): Promise<string> {

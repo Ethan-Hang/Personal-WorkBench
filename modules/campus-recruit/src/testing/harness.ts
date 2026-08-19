@@ -6,8 +6,9 @@ import { SqliteCampusRecruitRepository } from '../storage/sqlite-repository.js';
 export function makeCampusHarness() {
   const { db, sqlite } = openTestDatabase();
   runMigrationsFrom(db, 'modules/campus-recruit/migrations');
-  const repo = new SqliteCampusRecruitRepository(sqlite);
-  const items = new SqliteItemRepository(db);
+  const getSqlite = () => sqlite;
+  const repo = new SqliteCampusRecruitRepository(getSqlite);
+  const items = new SqliteItemRepository(getSqlite);
   const ctx: ModuleContext = { moduleId: CAMPUS_RECRUIT_MODULE_ID, items };
   return { db, sqlite, repo, items, ctx };
 }

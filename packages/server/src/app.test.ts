@@ -86,8 +86,8 @@ function fakeModule(id: string, calls: string[]): ServerModuleDefinition {
 
 describe('buildApp', () => {
   it('暴露健康检查', async () => {
-    const { db } = openTestDatabase();
-    const app = await buildApp({ db, modules: [] });
+    const { sqlite } = openTestDatabase();
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [] });
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true });
@@ -95,10 +95,10 @@ describe('buildApp', () => {
   });
 
   it('为每个模块调用 registerRoutes，并传入以自身 id 构造的 ModuleContext', async () => {
-    const { db } = openTestDatabase();
+    const { sqlite } = openTestDatabase();
     const calls: string[] = [];
     const app = await buildApp({
-      db,
+      getSqlite: () => sqlite,
       modules: [fakeModule('alpha', calls), fakeModule('beta', calls)],
     });
 
@@ -110,7 +110,7 @@ describe('buildApp', () => {
   });
 
   it('模块经 ModuleContext 创建的 Item 自动带上自己的 sourceModule', async () => {
-    const { db } = openTestDatabase();
+    const { sqlite } = openTestDatabase();
     let createdSource = '';
     const probe: ServerModuleDefinition = {
       id: 'probe',
@@ -120,7 +120,7 @@ describe('buildApp', () => {
         createdSource = item.sourceModule;
       },
     };
-    const app = await buildApp({ db, modules: [probe] });
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [probe] });
     expect(createdSource).toBe('probe');
     await app.close();
   });
@@ -128,9 +128,9 @@ describe('buildApp', () => {
   it('注册 todo 与 campus 模块后，今日工作台可见秋招截止事项', async () => {
     const { db, sqlite } = openTestDatabase();
     runMigrationsFrom(db, 'modules/todo/migrations');
-    const campus = createCampusRecruitServerModule(new SqliteCampusRecruitRepository(sqlite));
-    const todo = createTodoServerModule(new SqliteTodoRepository(sqlite));
-    const app = await buildApp({ db, modules: [todo, campus] });
+    const campus = createCampusRecruitServerModule(new SqliteCampusRecruitRepository(() => sqlite));
+    const todo = createTodoServerModule(new SqliteTodoRepository(() => sqlite));
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [todo, campus] });
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const todayDate = localDayOf(nowIso(), zone);
 
@@ -224,8 +224,11 @@ describe('统一错误出口', () => {
   }
 
   it('意料外的错误返回真实消息与请求编号', async () => {
-    const { db } = openTestDatabase();
-    const app = await buildApp({ db, modules: [throwingModule('数据库连接断了')] });
+    const { sqlite } = openTestDatabase();
+    const app = await buildApp({
+      getSqlite: () => sqlite,
+      modules: [throwingModule('数据库连接断了')],
+    });
 
     const res = await app.inject({ method: 'GET', url: '/api/probe/boom' });
 
@@ -248,8 +251,8 @@ describe('统一错误出口', () => {
     const { db, sqlite } = openTestDatabase();
     runMigrationsFrom(db, 'modules/todo/migrations');
     const app = await buildApp({
-      db,
-      modules: [createTodoServerModule(new SqliteTodoRepository(sqlite))],
+      getSqlite: () => sqlite,
+      modules: [createTodoServerModule(new SqliteTodoRepository(() => sqlite))],
     });
 
     const res = await app.inject({

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { openDatabase, runCoreMigrations } from '@workbench/data';
+import { ConnectionHolder, createDatabaseClient, runCoreMigrations } from '@workbench/data';
 import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
 import { createTodoServerModule } from '@workbench/module-todo';
@@ -14,19 +14,22 @@ async function main() {
     const LOG_PATH = process.env.WORKBENCH_LOG ?? './data/local/server.log';
     const PORT = Number(process.env.PORT ?? 3000);
 
-    const { db, sqlite } = openDatabase(DB_PATH);
+    const holder = new ConnectionHolder();
+    const sqlite = holder.open(DB_PATH);
+    const getSqlite = () => holder.current();
+    const db = createDatabaseClient(sqlite);
     runCoreMigrations(db);
 
-    const todoServerModule = createTodoServerModule(new SqliteTodoRepository(sqlite));
+    const todoServerModule = createTodoServerModule(new SqliteTodoRepository(getSqlite));
     const campusRecruitServerModule = createCampusRecruitServerModule(
-      new SqliteCampusRecruitRepository(sqlite),
+      new SqliteCampusRecruitRepository(getSqlite),
     );
 
     // 日志落盘而非只进 stdout：终端一关就没了的日志，事后追不了任何东西。
     mkdirSync(dirname(resolve(LOG_PATH)), { recursive: true });
 
     const app = await buildApp({
-      db,
+      getSqlite,
       modules: [todoServerModule, workbenchServerModule, campusRecruitServerModule],
       logger: { level: 'info', file: LOG_PATH },
     });

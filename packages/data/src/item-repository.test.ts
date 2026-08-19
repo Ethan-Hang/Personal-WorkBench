@@ -5,14 +5,14 @@ import { openTestDatabase } from './db.js';
 import { SqliteItemRepository } from './item-repository.js';
 
 runItemRepositoryContract('SqliteItemRepository', () => {
-  const { db } = openTestDatabase();
-  return new SqliteItemRepository(db);
+  const { sqlite } = openTestDatabase();
+  return new SqliteItemRepository(() => sqlite);
 });
 
 describe('SqliteItemRepository 的存储细节', () => {
   it('全天排程在 SQL 层就是裸的 YYYY-MM-DD，没有被转成 UTC（spec §6.2）', async () => {
-    const { db } = openTestDatabase();
-    const repo = new SqliteItemRepository(db);
+    const { db, sqlite } = openTestDatabase();
+    const repo = new SqliteItemRepository(() => sqlite);
     await repo.create('todo', {
       kind: 'event',
       title: '全天',
