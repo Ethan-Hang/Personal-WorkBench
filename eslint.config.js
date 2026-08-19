@@ -20,9 +20,12 @@ export default tseslint.config(
       'packages/data/migrations/**',
       'prototype-workbench/**',
       // 嵌套的 git worktree 是独立检出，有自己的 lint 运行，父仓库不该伸进去。
-      // 必须显式写：ESLint 9 的 flat config 不读 .gitignore（Prettier 读，
-      // tsc/vitest 的 glob 也够不着），所以这是唯一会被 worktree 绊倒的一环。
       '.worktrees/**',
+      // Python 虚拟环境（uv / venv 建的）。它靠自带的 .venv/.gitignore 对 git 隐身，
+      // 但 git 之外没人认这个：ESLint 9 的 flat config 与 Prettier 都不读 .gitignore，
+      // 于是 site-packages 里的 vendored .js 会同时喂给 lint 和 format:check。
+      // 每个只看 glob 的工具都要各自排除一次 —— .prettierignore 里也有对应的一行。
+      '.venv/**',
     ],
   },
   js.configs.recommended,

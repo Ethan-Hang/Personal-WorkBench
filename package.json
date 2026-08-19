@@ -7,9 +7,10 @@
     "modules/*"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.22.1"
   },
   "scripts": {
+    "setup": "npm install --ignore-scripts && npx husky",
     "dev": "concurrently -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "tsx watch packages/server/src/index.ts",
     "dev:web": "vite --config packages/web/vite.config.ts",
