@@ -20,9 +20,11 @@ import {
   IconClock,
   IconSparkles,
   IconBriefcase,
+  IconUser,
 } from '@workbench/ui';
+import { AccountsPanel } from '../accounts/AccountsPanel.js';
 
-type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'storage' | 'modules';
+type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'accounts' | 'storage' | 'modules';
 
 export function SettingsPage() {
   const queryClient = useQueryClient();
@@ -81,6 +83,7 @@ export function SettingsPage() {
     { id: 'appearance', label: '主题与外观', icon: IconPalette },
     { id: 'timezone', label: '时区与时间', icon: IconClock },
     { id: 'preferences', label: '工作台偏好', icon: IconSparkles },
+    { id: 'accounts', label: '账号管理', icon: IconUser },
     { id: 'storage', label: '数据与存储', icon: IconDatabase },
     { id: 'modules', label: '已安装模块', icon: IconBriefcase, badge: '2' },
   ];
@@ -404,6 +407,10 @@ export function SettingsPage() {
                 </div>
               </Panel>
             </div>
+          )}
+
+          {activeTab === 'accounts' && (
+            <AccountsPanel onNavigateToStorage={() => setActiveTab('storage')} />
           )}
 
           {activeTab === 'storage' && (

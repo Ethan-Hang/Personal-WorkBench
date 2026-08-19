@@ -9,6 +9,7 @@
     "@workbench/module-campus-recruit": "*",
     "@workbench/module-todo": "*",
     "@workbench/module-workbench": "*",
+    "@workbench/sync": "*",
     "@workbench/ui": "*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
