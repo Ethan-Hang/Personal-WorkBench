@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import type Database from 'better-sqlite3';
 import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import {
   nowIso,
   type CreateItemInput,
@@ -10,6 +12,7 @@ import {
   type UpdateItemPatch,
 } from '@workbench/core';
 import type { Db } from './db.js';
+import * as schema from './schema.js';
 import { items } from './schema.js';
 
 type Row = typeof items.$inferSelect;
@@ -58,7 +61,17 @@ function toItem(row: Row): Item {
 }
 
 export class SqliteItemRepository implements ItemRepository {
-  constructor(private readonly db: Db) {}
+  private cached?: { connection: Database.Database; db: Db };
+
+  constructor(private readonly getSqlite: () => Database.Database) {}
+
+  private get db(): Db {
+    const connection = this.getSqlite();
+    if (this.cached?.connection !== connection) {
+      this.cached = { connection, db: drizzle(connection, { schema }) };
+    }
+    return this.cached.db;
+  }
 
   async create(moduleId: string, input: CreateItemInput): Promise<Item> {
     const now = nowIso();

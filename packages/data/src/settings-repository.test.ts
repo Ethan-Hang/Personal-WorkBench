@@ -4,14 +4,14 @@ import { openTestDatabase } from './db.js';
 import { SqliteSettingsRepository } from './settings-repository.js';
 
 runSettingsRepositoryContract('SqliteSettingsRepository', () => {
-  const { db } = openTestDatabase();
-  return new SqliteSettingsRepository(db);
+  const { sqlite } = openTestDatabase();
+  return new SqliteSettingsRepository(() => sqlite);
 });
 
 describe('SqliteSettingsRepository 的存储细节', () => {
   it('值以 JSON 文本落库，读出时还原为原类型', async () => {
-    const { db, sqlite } = openTestDatabase();
-    const repo = new SqliteSettingsRepository(db);
+    const { sqlite } = openTestDatabase();
+    const repo = new SqliteSettingsRepository(() => sqlite);
     await repo.setMany({ 'theme.mode': 'dark', 'workbench.showGreeting': false });
 
     const rows = sqlite
@@ -24,8 +24,8 @@ describe('SqliteSettingsRepository 的存储细节', () => {
   });
 
   it('库里存了坏 JSON 时跳过该行，其余照常返回', async () => {
-    const { db, sqlite } = openTestDatabase();
-    const repo = new SqliteSettingsRepository(db);
+    const { sqlite } = openTestDatabase();
+    const repo = new SqliteSettingsRepository(() => sqlite);
     await repo.setMany({ 'theme.mode': 'dark' });
     sqlite
       .prepare('INSERT INTO app_settings (key, value_json, updated_at) VALUES (?, ?, ?)')
@@ -35,8 +35,8 @@ describe('SqliteSettingsRepository 的存储细节', () => {
   });
 
   it('updated_at 是带 Z 与三位毫秒的 UTC ISO8601', async () => {
-    const { db, sqlite } = openTestDatabase();
-    await new SqliteSettingsRepository(db).setMany({ 'theme.mode': 'dark' });
+    const { sqlite } = openTestDatabase();
+    await new SqliteSettingsRepository(() => sqlite).setMany({ 'theme.mode': 'dark' });
     const row = sqlite.prepare('SELECT updated_at FROM app_settings').get() as {
       updated_at: string;
     };

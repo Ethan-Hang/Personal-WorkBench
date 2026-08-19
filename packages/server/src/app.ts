@@ -3,13 +3,18 @@ import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
 } from 'fastify';
+import type Database from 'better-sqlite3';
 import type { ServerModuleDefinition } from '@workbench/core';
-import { SqliteItemRepository, SqliteSettingsRepository, type Db } from '@workbench/data';
+import {
+  createDatabaseClient,
+  SqliteItemRepository,
+  SqliteSettingsRepository,
+} from '@workbench/data';
 import { registerModules } from './registry.js';
 import { registerSettingsRoutes } from './settings/routes.js';
 
 export interface BuildAppOptions {
-  db: Db;
+  getSqlite: () => Database.Database;
   modules: ServerModuleDefinition[];
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
   logger?: FastifyServerOptions['logger'];
@@ -17,6 +22,7 @@ export interface BuildAppOptions {
 
 export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false });
+  const db = createDatabaseClient(opts.getSqlite());
 
   /**
    * 统一错误出口。做两件事：
@@ -44,10 +50,10 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   app.get('/api/health', async () => ({ ok: true }));
 
   // 设置走模块注册表之外的第二条通道：它不属于任何模块，且外壳启动即需要（ADR-0018）。
-  registerSettingsRoutes(app, new SqliteSettingsRepository(opts.db));
+  registerSettingsRoutes(app, new SqliteSettingsRepository(opts.getSqlite));
 
-  const items = new SqliteItemRepository(opts.db);
-  await registerModules(app, opts.db, items, opts.modules);
+  const items = new SqliteItemRepository(opts.getSqlite);
+  await registerModules(app, db, items, opts.modules);
 
   await app.ready();
   return app;

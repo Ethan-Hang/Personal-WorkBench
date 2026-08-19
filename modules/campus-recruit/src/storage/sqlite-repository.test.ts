@@ -10,8 +10,8 @@ function makeRepository() {
   const { db, sqlite } = openTestDatabase();
   runMigrationsFrom(db, 'modules/campus-recruit/migrations');
   return {
-    repo: new SqliteCampusRecruitRepository(sqlite),
-    items: new SqliteItemRepository(db),
+    repo: new SqliteCampusRecruitRepository(() => sqlite),
+    items: new SqliteItemRepository(() => sqlite),
     sqlite,
   };
 }
@@ -143,6 +143,27 @@ describe('campus recruit migrations', () => {
 });
 
 describe('SqliteCampusRecruitRepository', () => {
+  it('rebuilds its drizzle client when the supplied connection identity changes', async () => {
+    const first = openTestDatabase();
+    const second = openTestDatabase();
+    runMigrationsFrom(first.db, 'modules/campus-recruit/migrations');
+    runMigrationsFrom(second.db, 'modules/campus-recruit/migrations');
+    let current = first.sqlite;
+    const repository = new SqliteCampusRecruitRepository(() => current);
+
+    await repository.insertApplication(applicationFixture({ id: 'first-app' }));
+    current = second.sqlite;
+    expect(await repository.listApplications()).toEqual([]);
+    await repository.insertApplication(applicationFixture({ id: 'second-app' }));
+
+    current = first.sqlite;
+    expect((await repository.listApplications()).map((application) => application.id)).toEqual([
+      'first-app',
+    ]);
+    first.sqlite.close();
+    second.sqlite.close();
+  });
+
   it('orders applications by createdAt then id for a stable result', async () => {
     const { repo, sqlite } = makeRepository();
     const createdAt = '2026-08-17T00:00:00.000Z';

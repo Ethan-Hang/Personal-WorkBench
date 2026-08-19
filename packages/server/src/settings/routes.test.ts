@@ -4,8 +4,8 @@ import { openTestDatabase } from '@workbench/data';
 import { buildApp } from '../app.js';
 
 async function makeApp() {
-  const { db } = openTestDatabase();
-  return buildApp({ db, modules: [] });
+  const { sqlite } = openTestDatabase();
+  return buildApp({ getSqlite: () => sqlite, modules: [] });
 }
 
 describe('GET /api/settings', () => {

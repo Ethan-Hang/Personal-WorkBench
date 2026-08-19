@@ -13,8 +13,8 @@ let ctx: ModuleContext;
 let items: SqliteItemRepository;
 
 beforeEach(() => {
-  const { db } = openTestDatabase();
-  items = new SqliteItemRepository(db);
+  const { sqlite } = openTestDatabase();
+  items = new SqliteItemRepository(() => sqlite);
   ctx = { moduleId: WORKBENCH_MODULE_ID, items };
 });
 

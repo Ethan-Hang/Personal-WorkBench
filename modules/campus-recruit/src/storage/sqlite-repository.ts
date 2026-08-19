@@ -12,10 +12,19 @@ import * as schema from './schema.js';
 import { campusRecruitApplications, campusRecruitRounds } from './schema.js';
 
 export class SqliteCampusRecruitRepository implements CampusRecruitRepository {
-  private readonly db: BetterSQLite3Database<typeof schema>;
+  private cached?: {
+    connection: Database.Database;
+    db: BetterSQLite3Database<typeof schema>;
+  };
 
-  constructor(sqlite: Database.Database) {
-    this.db = drizzle(sqlite, { schema });
+  constructor(private readonly getSqlite: () => Database.Database) {}
+
+  private get db(): BetterSQLite3Database<typeof schema> {
+    const connection = this.getSqlite();
+    if (this.cached?.connection !== connection) {
+      this.cached = { connection, db: drizzle(connection, { schema }) };
+    }
+    return this.cached.db;
   }
 
   async listApplications(): Promise<ApplicationRecord[]> {

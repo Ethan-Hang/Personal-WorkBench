@@ -1,9 +1,22 @@
+import type Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { nowIso, type AppSettings, type SettingsRepository } from '@workbench/core';
 import type { Db } from './db.js';
+import * as schema from './schema.js';
 import { appSettings } from './schema.js';
 
 export class SqliteSettingsRepository implements SettingsRepository {
-  constructor(private readonly db: Db) {}
+  private cached?: { connection: Database.Database; db: Db };
+
+  constructor(private readonly getSqlite: () => Database.Database) {}
+
+  private get db(): Db {
+    const connection = this.getSqlite();
+    if (this.cached?.connection !== connection) {
+      this.cached = { connection, db: drizzle(connection, { schema }) };
+    }
+    return this.cached.db;
+  }
 
   async getAll(): Promise<Record<string, unknown>> {
     const rows = await this.db.select().from(appSettings);
