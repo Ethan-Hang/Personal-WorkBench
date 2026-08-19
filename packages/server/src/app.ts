@@ -4,8 +4,9 @@ import Fastify, {
   type FastifyServerOptions,
 } from 'fastify';
 import type { ServerModuleDefinition } from '@workbench/core';
-import { SqliteItemRepository, type Db } from '@workbench/data';
+import { SqliteItemRepository, SqliteSettingsRepository, type Db } from '@workbench/data';
 import { registerModules } from './registry.js';
+import { registerSettingsRoutes } from './settings/routes.js';
 
 export interface BuildAppOptions {
   db: Db;
@@ -41,6 +42,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
 
   app.get('/api/health', async () => ({ ok: true }));
+
+  // 设置走模块注册表之外的第二条通道：它不属于任何模块，且外壳启动即需要（ADR-0018）。
+  registerSettingsRoutes(app, new SqliteSettingsRepository(opts.db));
 
   const items = new SqliteItemRepository(opts.db);
   await registerModules(app, opts.db, items, opts.modules);
