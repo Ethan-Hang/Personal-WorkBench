@@ -83,7 +83,7 @@ API，见 `node_modules/better-sqlite3/lib/methods/backup.js`）：产出**单�
 | D5  | **凭据口令派生加密后存 Gist**                                        | secret gist 任人可读；零知识意味着 GitHub 被盗也拿不到 WebDAV 密码                            |
 | D6  | **自动备份默认关闭**，手动备份与恢复不受开关约束                     | 默认配置下零出站网络请求，本地优先不被稀释                                                    |
 | D7  | **自动清理旧备份跟随同一开关**                                       | 自动删除不可逆；关着自动备份却在背后删你手动传的备份是自相矛盾的                              |
-| D8  | **注入 `() => Database.Database` 函数，不新增 `DbHolder` 接口**      | core 一行不改，不新增跨包 import 边                                                           |
+| D8  | **注入 `() => Database.Database` 函数，不新增 `DbHolder` 接口**      | 不新增跨包 import 边，core 不参与注入（其唯一改动见 §4.0）                                    |
 | D9  | **账号注册表用 `accounts.json` 原子写，不用 SQLite**                 | 引导文件坏了要能用记事本救；损坏的 SQLite 直接开不了机                                        |
 | D10 | **绑定 / 解绑不改账号 id、不改目录名**                               | 纯元数据操作，零文件动作，绑定失败不会留下找不到库的账号                                      |
 
@@ -94,7 +94,7 @@ API，见 `node_modules/better-sqlite3/lib/methods/backup.js`）：产出**单�
 依赖箭头仍恒指向内层。新增一个包与若干目录：
 
 ```
-packages/core      不变（本设计不改 core 一行）
+packages/core      + settings.ts 增加 2 个设置项与 1 个 count() codec（仅此）
 packages/data      + connection-holder.ts     连接持有层实现
                    + accounts-store.ts        accounts.json 原子读写
 packages/sync      【新包】唯一有出站网络依赖的地方
@@ -106,6 +106,24 @@ packages/ui        + 备份 / 账号 / 恢复三个面板的展示组件
 packages/web       + 设置页新增三个面板、全屏恢复界面
 modules/*          仅 storage 适配器的构造签名改变
 ```
+
+### 4.0 core 的唯一改动，以及为什么它不算破例
+
+`backup.autoEnabled` 与 `backup.retentionCount` 落在 `app_settings`，而设置项的类型、
+默认值与校验全在 `packages/core/src/settings.ts` 的 `SETTINGS_CODECS`。**因此 core 必须改。**
+
+这不是破例，是用它自带的扩展点：该文件的注释写着「加一个设置项 = 加一行，不改数据库表、
+不写迁移」。铁律 2 说的是 **core 永不感知模块**，而备份不是模块——core 本来就拥有应用级设置。
+
+改动被严格限定为两处：
+
+1. `SETTINGS_CODECS` 增加 `'backup.autoEnabled': bool(false)` 与
+   `'backup.retentionCount': count(10, 1, 100)`
+2. 新增 `count(fallback, min, max)` codec（现有只有 `oneOf` / `bool` / `timezone`）
+
+**WebDAV 的 endpoint、用户名与密码不进 `app_settings`**，全部留在本地凭据存储（§7.4）。
+否则还要再加两个字符串 codec，且凭据散成两处更难管；它们本就是一个凭据束，
+在 §8 里也是作为一个整体加密后进 Gist 的。
 
 ### 4.1 为什么 `packages/sync` 必须做子路径导出
 
@@ -157,7 +175,7 @@ constructor(private readonly getSqlite: () => Database.Database) {}
 ```
 
 `() => Database.Database` 只用到 better-sqlite3 的类型，而模块本来就依赖它。
-**不新增任何跨包接口，不新增一条 import 边，core 一行不改。**
+**不新增任何跨包接口，不新增一条 import 边，core 不参与。**
 
 若在 core 里新增 `DbHolder` 接口，要么让 core 沾上 better-sqlite3 类型（违反「core 零 IO
 依赖」），要么再来一次 `registerRoutes(app: unknown)` 式的类型擦除。都不值得。
@@ -576,7 +594,7 @@ ADR-0018 给第二通道定了三条判据：**无 core Item、无模块归属�
 ADR-0001 说「若将来要做多用户，账号与数据隔离需要一次真正的重构，而非增量」。
 **这句话在它设想的路径上是对的**——共享一个库、所有表加 `user_id`，确实要动 core。
 
-但还有第三条路：**每账号一个库文件**。选它之后 core 一行不改，三条铁律一条不破。
+但还有第三条路：**每账号一个库文件**。选它之后 core 的 schema 一行不改（settings codec 的两行属 §4.0 那笔独立账），三条铁律一条不破。
 
 - **仍然成立**：不做多用户、不做权限模型、不做服务端账号体系
 - **被推翻**：单一数据库文件、系统内无身份概念
