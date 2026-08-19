@@ -45,12 +45,18 @@ describe('模块边界规则（架构守卫的回归测试）', () => {
     expect(messages.join('\n')).toContain('违反 spec §4.2 铁律 1');
   });
 
-  it('packages/ui 不得依赖领域层', async () => {
-    const messages = await messagesFor(
+  it('packages/ui 允许依赖 core，但不得依赖数据或服务层', async () => {
+    const coreMessages = await messagesFor(
       'packages/ui/src/__boundary_probe__.tsx',
       "import '@workbench/core';\n",
     );
-    expect(messages.join('\n')).toContain('违反 packages/ui 的边界');
+    expect(coreMessages.join('\n')).not.toContain('违反 packages/ui 的边界');
+
+    const dataMessages = await messagesFor(
+      'packages/ui/src/__boundary_probe__.tsx',
+      "import '@workbench/data';\n",
+    );
+    expect(dataMessages.join('\n')).toContain('违反 packages/ui 的边界');
   });
 
   it('模块 UI 不得出现裸的 /api/ 字符串字面量', async () => {

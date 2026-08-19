@@ -9,9 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 因此本项目的首要目标不是实现某组功能，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。** 所有架构选择都服务于这一条；遇到取舍时，以它为准。
 
 当前状态：Walking Skeleton 完成，秋招模块与工作台模块已全量接入（UI 已全部迁移至
-`modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化。
+`modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化落库（`app_settings` 表）。
 现有三个模块（todo、workbench、campus-recruit）、一层共享设计基座
-（`packages/ui`：18+ 个组件 + 主题/时区/偏好三套上下文 + Apple-Style 胶囊开关 + 图标集）、以及带请求编号的错误追踪。
+（`packages/ui`：18+ 个组件 + SettingsProvider 与主题/时区/偏好三套上下文 + Apple-Style 胶囊开关 + 图标集）、以及带请求编号的错误追踪。
 
 两次架构考试都过了，且考的是不同的东西：
 
@@ -82,13 +82,14 @@ pre-commit hook 只跑 Prettier（lint-staged），**不跑测试**——测试�
 packages/core     纯领域逻辑，零 IO 依赖，不知道任何模块存在
 packages/data     SQLite + Drizzle + 迁移 + 仓储实现
 packages/server   Fastify，装配 core + data + 已注册模块
-packages/web      React 外壳、导航、主题
+packages/ui       共享设计基座与壳层 Context，依赖 @workbench/core
+packages/web      React 外壳、导航、页面、SettingsStore HTTP 实现
 modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
 ```
 
-项目内依赖箭头**恒指向内层**：`data → core`，`server → core/data`，`modules → core`。
+项目内依赖箭头**恒指向内层**：`data → core`，`server → core/data`，`ui → core`，`modules → core`，`web → core/ui`。
 模块可依赖 React、Zod、Drizzle 等外部库，但不得依赖其他模块或 `@workbench/data`。
-core 定义 `ItemRepository` 接口，data 提供实现（DIP）。
+core 定义 `ItemRepository` 与 `SettingsRepository` 接口，data 提供实现（DIP）。
 
 ### 三条铁律
 
@@ -274,6 +275,19 @@ todo 的回收站是软删除，落地方式是把 `status` 置为 core 的 `can
 Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss'`，**没有 `tailwind.config.js`，也没有 PostCSS 配置**（跟 v3 完全不同，别按记忆造配置文件）。
 
 `packages/web/src/index.css` 里的 `@source "../../../modules";` 是必需的——Tailwind 的自动扫描以 Vite root 为界，删掉它每个模块的 UI 都会没有样式，而且**没有任何报错**。
+
+### 设置走的是第二条注册通道
+
+主题 / 时区 / 工作台偏好落在 `app_settings` 这张 KV 表里，路由 `/api/settings` 在
+`buildApp` 里与 `/api/health` 并排注册，**不经模块注册表**。设置不属于任何模块，
+也没有 core `Item`，硬做成模块只会把模块机制拧变形。
+
+**这条通道不是「懒得写模块」的后门。** 判据在 ADR-0018：只有同时满足
+「无 core Item、无模块归属、外壳启动即需要」三条的东西才能走，目前只有设置一个。
+与铁律 3 一样，这条 lint 管不住，只能靠人守。
+
+localStorage 没有消失，但降级成了**首屏快照**（单键 `workbench_settings`）——
+DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库里没改」的假成功。
 
 ## 测试策略
 

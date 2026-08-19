@@ -97,7 +97,8 @@ export default tseslint.config(
     },
   },
 
-  // packages/ui 是纯展示层：只依赖 react，不碰领域、数据、服务或任何模块。
+  // packages/ui 是共享基座与上下文：依赖 @workbench/core 与 react，
+  // 不碰数据、服务或任何业务模块。
   // 它之所以独立成包而不放进 packages/web，是为了避免包级循环依赖——
   // web 要 import 模块的 UI，模块的 UI 又要用共享原语。
   {
@@ -109,8 +110,6 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                '@workbench/core',
-                '@workbench/core/*',
                 '@workbench/data',
                 '@workbench/data/*',
                 '@workbench/server',
@@ -120,7 +119,7 @@ export default tseslint.config(
                 '@workbench/module-*',
               ],
               message:
-                '违反 packages/ui 的边界：它是纯展示原语，只能依赖 react。领域概念不得渗入。',
+                '违反 packages/ui 的边界：ui 只能依赖 react 与 @workbench/core。数据、服务与模块不得渗入。',
             },
           ],
         },
