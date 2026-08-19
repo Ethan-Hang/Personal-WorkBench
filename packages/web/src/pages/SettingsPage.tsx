@@ -29,7 +29,7 @@ type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'accounts' | 'sto
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { mode, palette, setMode, setPalette } = useTheme();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('accounts');
   const [cacheCleared, setCacheCleared] = useState(false);
   const [resetToast, setResetToast] = useState(false);
 
@@ -77,13 +77,13 @@ export function SettingsPage() {
   const subNavItems: Array<{
     id: SettingsTab;
     label: string;
-    icon: typeof IconPalette;
+    icon: typeof IconUser;
     badge?: string;
   }> = [
+    { id: 'accounts', label: '账号管理', icon: IconUser },
     { id: 'appearance', label: '主题与外观', icon: IconPalette },
     { id: 'timezone', label: '时区与时间', icon: IconClock },
     { id: 'preferences', label: '工作台偏好', icon: IconSparkles },
-    { id: 'accounts', label: '账号管理', icon: IconUser },
     { id: 'storage', label: '数据与存储', icon: IconDatabase },
     { id: 'modules', label: '已安装模块', icon: IconBriefcase, badge: '2' },
   ];
