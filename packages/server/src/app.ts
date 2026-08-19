@@ -11,11 +11,14 @@ import {
   SqliteSettingsRepository,
 } from '@workbench/data';
 import { registerModules } from './registry.js';
+import { GitHubDeviceFlowClient, type GitHubDeviceFlow } from './auth/github-device-flow.js';
+import { registerGitHubAuthRoutes } from './auth/routes.js';
 import { registerSettingsRoutes } from './settings/routes.js';
 
 export interface BuildAppOptions {
   getSqlite: () => Database.Database;
   modules: ServerModuleDefinition[];
+  githubDeviceFlow?: GitHubDeviceFlow;
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
   logger?: FastifyServerOptions['logger'];
 }
@@ -48,6 +51,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   });
 
   app.get('/api/health', async () => ({ ok: true }));
+
+  registerGitHubAuthRoutes(app, opts.githubDeviceFlow ?? new GitHubDeviceFlowClient());
 
   // 设置走模块注册表之外的第二条通道：它不属于任何模块，且外壳启动即需要（ADR-0018）。
   registerSettingsRoutes(app, new SqliteSettingsRepository(opts.getSqlite));

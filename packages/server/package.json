@@ -11,6 +11,7 @@
   "dependencies": {
     "@workbench/core": "*",
     "@workbench/data": "*",
+    "@workbench/sync": "*",
     "@workbench/module-campus-recruit": "*",
     "@workbench/module-todo": "*",
     "@workbench/module-workbench": "*",
