@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { readJsonFile, writeJsonAtomically } from './atomic-json.js';
 
 /** 引导文件名。它不进 SQLite：读账号才能知道开哪个库，鸡生蛋。 */
 export const ACCOUNTS_FILE = 'accounts.json';
@@ -50,14 +51,7 @@ export class AccountsStore {
   }
 
   read(): AccountsRegistry {
-    const raw = readFileSync(this.filePath, 'utf8');
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (cause) {
-      throw new Error(`${this.filePath} 不是合法 JSON，请手工修复后重启`, { cause });
-    }
-    const registry = parsed as AccountsRegistry;
+    const registry = readJsonFile(this.filePath) as AccountsRegistry;
     try {
       assertValidRegistry(registry);
     } catch (cause) {
@@ -68,15 +62,7 @@ export class AccountsStore {
 
   write(registry: AccountsRegistry): void {
     assertValidRegistry(registry);
-    mkdirSync(this.dataDir, { recursive: true });
-    const temporaryPath = `${this.filePath}.${process.pid}.tmp`;
-    try {
-      writeFileSync(temporaryPath, `${JSON.stringify(registry, null, 2)}\n`, 'utf8');
-      renameSync(temporaryPath, this.filePath);
-    } catch (error) {
-      rmSync(temporaryPath, { force: true });
-      throw error;
-    }
+    writeJsonAtomically(this.filePath, registry);
   }
 
   dbPathOf(account: Account): string {

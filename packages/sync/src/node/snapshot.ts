@@ -17,7 +17,7 @@ function quoteIdentifier(name: string): string {
   return `"${name.replaceAll('"', '""')}"`;
 }
 
-function userTables(sqlite: Database.Database): string[] {
+export function userTables(sqlite: Database.Database): string[] {
   const rows = sqlite
     .prepare(
       `SELECT name FROM sqlite_master
@@ -28,7 +28,11 @@ function userTables(sqlite: Database.Database): string[] {
   return rows.map((row) => row.name);
 }
 
-function migrationWatermarks(sqlite: Database.Database): Record<string, number> {
+/**
+ * 每条迁移谱系各一个水位。恢复前的水位比对与备份 meta 用的是同一份读法——
+ * 两处各写一遍，早晚会各改一半。
+ */
+export function migrationWatermarks(sqlite: Database.Database): Record<string, number> {
   const rows = sqlite
     .prepare(
       `SELECT name FROM sqlite_master
@@ -45,7 +49,7 @@ function migrationWatermarks(sqlite: Database.Database): Record<string, number> 
   return out;
 }
 
-function rowCounts(sqlite: Database.Database): Record<string, number> {
+export function rowCounts(sqlite: Database.Database): Record<string, number> {
   const out: Record<string, number> = {};
   for (const name of userTables(sqlite)) {
     const row = sqlite.prepare(`SELECT count(*) AS c FROM ${quoteIdentifier(name)}`).get() as {

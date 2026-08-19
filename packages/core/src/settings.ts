@@ -36,6 +36,20 @@ function bool(fallback: boolean): SettingCodec<boolean> {
 }
 
 /**
+ * 有界整数。**只接受整数**：份数没有 2.5 这种东西，`10.5` 是调用方的 bug 而不是
+ * 一个需要被四舍五入照顾的输入。
+ */
+function count(fallback: number, min: number, max: number): SettingCodec<number> {
+  return {
+    default: fallback,
+    parse: (raw) =>
+      typeof raw === 'number' && Number.isInteger(raw) && raw >= min && raw <= max
+        ? raw
+        : undefined,
+  };
+}
+
+/**
  * 时区的合法值域是**真实 IANA id**，而不是 UI 那份 WORLD_TIMEZONES 展示列表——
  * 后者是选择器的取材范围，把它当值域会让手动设置的冷门时区被判为脏值。
  */
@@ -63,6 +77,13 @@ export const SETTINGS_CODECS = {
   'workbench.autoExpandOverdue': bool(false),
   'workbench.enableAnimations': bool(true),
   'workbench.showCompletedTasks': bool(true),
+  /**
+   * 自动备份默认**关**。默认配置下因此零出站网络请求，本地优先不被稀释；
+   * 手动备份与恢复都不受这个开关约束（设计 §6.6）。
+   */
+  'backup.autoEnabled': bool(false),
+  /** 自动清理保留几份。跟随 autoEnabled——自动删除不可逆，不能在关着开关时背后删。 */
+  'backup.retentionCount': count(10, 1, 100),
 } satisfies Record<string, SettingCodec<unknown>>;
 
 export type SettingKey = keyof typeof SETTINGS_CODECS;

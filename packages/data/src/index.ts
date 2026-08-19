@@ -1,6 +1,9 @@
 export { items, appSettings } from './schema.js';
 export type { Db } from './db.js';
 export { ConnectionHolder } from './connection-holder.js';
+export { readJsonFile, writeJsonAtomically } from './atomic-json.js';
+export { CREDENTIALS_FILE, CredentialsStore } from './credentials-store.js';
+export type { Credentials, WebdavCredentials } from './credentials-store.js';
 export { resolveActiveDatabase } from './accounts-bootstrap.js';
 export type { ActiveDatabase, ResolveActiveDatabaseOptions } from './accounts-bootstrap.js';
 export {

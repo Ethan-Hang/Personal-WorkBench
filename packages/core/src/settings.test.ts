@@ -8,8 +8,8 @@ import {
 } from './settings.js';
 
 describe('DEFAULT_SETTINGS', () => {
-  it('八个键齐全，且与现有 localStorage 时代的默认值一致', () => {
-    expect(SETTING_KEYS).toHaveLength(8);
+  it('十个键齐全，且与现有 localStorage 时代的默认值一致', () => {
+    expect(SETTING_KEYS).toHaveLength(10);
     expect(DEFAULT_SETTINGS).toEqual({
       'theme.mode': 'system',
       'theme.palette': 'warm',
@@ -19,7 +19,30 @@ describe('DEFAULT_SETTINGS', () => {
       'workbench.autoExpandOverdue': false,
       'workbench.enableAnimations': true,
       'workbench.showCompletedTasks': true,
+      'backup.autoEnabled': false,
+      'backup.retentionCount': 10,
     });
+  });
+
+  it('自动备份默认关：默认配置下零出站网络请求', () => {
+    expect(DEFAULT_SETTINGS['backup.autoEnabled']).toBe(false);
+  });
+});
+
+describe('count codec', () => {
+  it('接受范围内的整数', () => {
+    expect(resolveSettings({ 'backup.retentionCount': 3 })['backup.retentionCount']).toBe(3);
+  });
+
+  it('越界、小数与非数字一律回落默认', () => {
+    for (const dirty of [0, 101, 2.5, '10', null, Number.NaN]) {
+      expect(resolveSettings({ 'backup.retentionCount': dirty })['backup.retentionCount']).toBe(10);
+    }
+  });
+
+  it('写入路径上越界值直接报错，不静默吞掉', () => {
+    const result = parseSettingsPatch({ 'backup.retentionCount': 0 });
+    expect(result.ok).toBe(false);
   });
 });
 

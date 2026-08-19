@@ -16,6 +16,9 @@ import { registerGitHubAuthRoutes } from './auth/routes.js';
 import { registerSettingsRoutes } from './settings/routes.js';
 import { registerServiceStateGate, ServiceState } from './service-state.js';
 import { registerAccountsRoutes } from './accounts/routes.js';
+import { registerBackupRoutes } from './backup/routes.js';
+import type { BackupService } from './backup/service.js';
+import type { RestoreService } from './restore/service.js';
 import type { AccountsService } from './accounts/service.js';
 
 export interface BuildAppOptions {
@@ -26,6 +29,8 @@ export interface BuildAppOptions {
   serviceState?: ServiceState;
   /** 账号服务。不传则不注册账号路由（WORKBENCH_DB 逃生舱下就是这样）。 */
   accounts?: AccountsService;
+  /** 备份与恢复。两者成对出现——恢复的数据源就是备份的那个网盘。 */
+  backup?: { backup: BackupService; restore: RestoreService };
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
   logger?: FastifyServerOptions['logger'];
 }
@@ -57,6 +62,17 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     return reply.code(statusCode).send({ error: error.message, requestId: request.id });
   });
 
+  /**
+   * 没有 body 的 POST（立即备份、回退）在浏览器里是 `fetch(url, { method: 'POST' })`，
+   * 它不带 `content-type`，Fastify 默认对这种请求回 **415**。
+   *
+   * `app.inject()` 复现不了这个形状——它连 content-length 都不发，所以服务端测试
+   * 一路绿灯而浏览器里必挂。这正是 CLAUDE.md 记着的那个教训的第二次发生。
+   */
+  app.addContentTypeParser('*', { parseAs: 'buffer' }, (_request, body: Buffer, done) => {
+    done(null, body.length === 0 ? undefined : body);
+  });
+
   const serviceState = opts.serviceState ?? new ServiceState();
   registerServiceStateGate(app, serviceState);
 
@@ -68,6 +84,9 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   registerSettingsRoutes(app, new SqliteSettingsRepository(opts.getSqlite));
 
   if (opts.accounts !== undefined) registerAccountsRoutes(app, opts.accounts);
+  if (opts.backup !== undefined) {
+    registerBackupRoutes(app, opts.backup.backup, opts.backup.restore);
+  }
 
   const items = new SqliteItemRepository(opts.getSqlite);
   await registerModules(app, db, items, opts.modules);

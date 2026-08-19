@@ -298,6 +298,40 @@ Tailwind 是 **v4**：`@tailwindcss/vite` 插件 + CSS 里 `@import 'tailwindcss
 localStorage 没有消失，但降级成了**首屏快照**（单键 `workbench_settings`）——
 DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库里没改」的假成功。
 
+### 备份与恢复：靠上传顺序换原子性，靠回退点兜底
+
+备份链路是 `db.backup(tmp) → gzip → PUT <ts>.db.gz → PUT <ts>.meta.json`。
+**先传数据再传元数据**：WebDAV 给不了原子性，那就用顺序编码它——meta 存在 = 这份备份
+完整，中间断网只会留下一个显示为「不完整」的孤儿。
+
+**禁止用 `fs.copyFile` 复制在用的数据库。** 磁盘上的主库可能只有 4096 字节而数据全在
+未 checkpoint 的 WAL 里，拷出来的库能打开、结构完整、**但没数据且不报错**。一致性快照
+一律走 `sqlite.backup()`。（恢复时复制 `rollback.db` 是另一回事——那是 `backup()` 产出的
+独立文件，没有连接也没有 WAL。）
+
+恢复是五态机，四个承重细节各有一条测试：
+
+1. **没有回退点就不动手**——`backup(rollback.db)` 失败则整个恢复拒绝开始。
+2. **换库必须显式删 `-wal` 与 `-shm`。** 只换主库而留下旧 WAL，旧数据会在下次打开时
+   复活并覆盖刚恢复的内容，**而且不报错**。
+3. **备份比代码新 → 拒绝**（409）。向下迁移不存在，硬恢复的症状是运行时
+   `no such column`。判断用 meta 的**每条迁移谱系各一个水位**完成，不必下载库。
+4. **恢复中断电不能变砖**——`.restore/state.json` 记录当前步骤，启动时读到就直接进入
+   错误态，让人选择回退或重试。
+
+差异计算用 `ATTACH incoming AS cloud` 后 `EXCEPT`，不手写比对；**比完必须 DETACH**，
+否则同一连接上的下一次预检会失败。core `items` 列到行级，模块自有表只给计数。
+
+**预检刻意不进忙碌态**：它对本地库只读，随时可取消。503 从 `confirm` 才开始。
+
+### 无 body 的 POST 会撞上 415
+
+`fetch(url, { method: 'POST' })` 不带 `content-type`，Fastify 默认对它回 **415**，
+而 **`app.inject()` 复现不了这个形状**——服务端测试一路绿灯，浏览器里必挂。
+`buildApp` 因此注册了一个接受空 body 的 content type parser，守卫在
+`packages/server/src/app.test.ts` 里**跑真实 HTTP**（spawn 进程 + fetch），
+不是 inject。这是 CLAUDE.md 里那条「漏掉一个 400」教训的第二次发生。
+
 ### 账号：切换是全服务暂停，不是只挡写
 
 每账号一个独立库（`data/local/accounts/<id>/workbench.db`），隔离做在**文件边界**而非

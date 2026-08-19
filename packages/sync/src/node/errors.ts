@@ -3,8 +3,9 @@ export class SyncError extends Error {
   constructor(
     message: string,
     readonly statusCode: number,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = 'SyncError';
   }
 }

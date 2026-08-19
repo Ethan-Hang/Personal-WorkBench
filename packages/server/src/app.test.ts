@@ -160,6 +160,49 @@ describe('buildApp', () => {
   });
 
   it(
+    '浏览器发出的无 body POST 不会撞上 415',
+    async () => {
+      // `fetch(url, { method: 'POST' })` 不带 content-type，Fastify 默认对它回 415。
+      // **这个形状 app.inject() 复现不了**——所以这条守卫必须跑在真实 HTTP 上，
+      // 与 CLAUDE.md 记着的那次「漏掉一个 400」是同一类教训。
+      const tempDirectory = await mkdtemp(join(tmpdir(), 'workbench-bodyless-'));
+      let child: ChildProcessWithoutNullStreams | undefined;
+
+      try {
+        const port = await unusedPort();
+        const origin = `http://127.0.0.1:${port}`;
+        child = spawn(process.execPath, ['--import', 'tsx', 'packages/server/src/index.ts'], {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            PORT: String(port),
+            WORKBENCH_DB: join(tempDirectory, 'acceptance.db'),
+            WORKBENCH_DATA_DIR: tempDirectory,
+          },
+        });
+        const deadline = Date.now() + compositionDeadlineMs;
+        await waitUntilReady(origin, child, deadline);
+
+        const backup = await fetch(`${origin}/api/backup/run`, {
+          method: 'POST',
+          signal: signalBefore(deadline),
+        });
+        expect(backup.status).toBe(400);
+
+        const rollback = await fetch(`${origin}/api/restore/rollback`, {
+          method: 'POST',
+          signal: signalBefore(deadline),
+        });
+        expect(rollback.status).toBe(409);
+      } finally {
+        if (child !== undefined) await stopServer(child);
+        await rm(tempDirectory, { recursive: true, force: true });
+      }
+    },
+    compositionTestTimeoutMs,
+  );
+
+  it(
     '正式服务端入口注册 campus 模块并把今日截止事项聚合到 Today',
     async () => {
       const tempDirectory = await mkdtemp(join(tmpdir(), 'workbench-campus-'));

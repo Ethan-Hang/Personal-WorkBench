@@ -7,8 +7,7 @@ import type { FastifyInstance } from 'fastify';
  * 两套机制只会多出一个边界。切换账号（TASK-036）与恢复（TASK-031/032）
  * 共用这一个状态与这一道闸，不各造一套。
  */
-export type ServiceStateName =
-  'idle' | 'switching' | 'preflight' | 'awaiting-confirm' | 'restoring' | 'rolling-back' | 'failed';
+export type ServiceStateName = 'idle' | 'switching' | 'restoring' | 'error';
 
 export interface ServiceStateSnapshot {
   state: ServiceStateName;
@@ -30,7 +29,7 @@ export class ServiceState {
     return this.snapshot.state !== 'idle';
   }
 
-  enter(state: Exclude<ServiceStateName, 'idle'>, step?: string): void {
+  enter(state: 'switching' | 'restoring', step?: string): void {
     if (this.isBusy()) {
       throw new Error(`服务正忙（${this.snapshot.state}），无法进入 ${state}`);
     }
@@ -40,6 +39,14 @@ export class ServiceState {
   /** 忙碌态内部推进步骤，不改状态名。 */
   advance(step: string): void {
     this.snapshot = { ...this.snapshot, step };
+  }
+
+  /**
+   * 进入错误态。**不自动重试、不自动清除**——恢复失败且回退也失败时，
+   * 只有人能决定下一步，日志里给的是人工指令。
+   */
+  fail(step: string): void {
+    this.snapshot = { state: 'error', step };
   }
 
   reset(): void {
