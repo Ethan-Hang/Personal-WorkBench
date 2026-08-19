@@ -49,17 +49,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 命令
 
-| 命令                                                                 | 用途                                                                            |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `npm run dev`                                                        | 同时启动后端（:3000）与前端（:5173）。Vite 代理 `/api` 到后端，浏览器只见一个源 |
-| `npm run check`                                                      | 提交前跑这个：format:check → typecheck → lint → test，四步全绿才算过            |
-| `npm run test`                                                       | 只跑测试                                                                        |
-| `npx vitest run <路径>`                                              | 跑单个测试文件，例如 `npx vitest run packages/core/src/time.test.ts`            |
-| `npx vitest run -t "<用例名>"`                                       | 按用例名筛选                                                                    |
-| `npm run db:generate`                                                | 改完 `packages/data/src/schema.ts` 后生成 core 迁移                             |
-| `npx drizzle-kit generate --config modules/<模块>/drizzle.config.ts` | 生成某模块自有表的迁移                                                          |
+| 命令                           | 用途                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------- |
+| `npm run setup`                | **克隆后第一条命令**。装依赖时跳过多余的原生编译，再装回 git 钩子。别用 `npm install` |
+| `npm run dev`                  | 同时启动后端（:3000）与前端（:5173）。Vite 代理 `/api` 到后端，浏览器只见一个源       |
+| `npm run check`                | 提交前跑这个：format:check → typecheck → lint → test，四步全绿才算过                  |
+| `npm run test`                 | 只跑测试                                                                              |
+| `npx vitest run <路径>`        | 跑单个测试文件，例如 `npx vitest run packages/core/src/time.test.ts`                  |
+| `npx vitest run -t "<用例名>"` | 按用例名筛选                                                                          |
+| `npm run db:generate`          | 改完 `packages/data/src/schema.ts` 后生成迁移                                         |
 
 本地数据在 `data/local/workbench.db`（已 gitignore）。删掉它即可从空库重来。
+
+**装依赖只走 `npm run setup`，不要直接 `npm install`。** 后者在没有 MSVC 工具链的机器上必挂：
+`better-sqlite3` 带 `binding.gyp` 又没有 `install` 脚本，npm 于是默认触发 `node-gyp rebuild`。
+**这次编译从头到尾是白跑的**——该包自带 `prebuilds/`，是 N-API 二进制（`NAPI_VERSION=10`），
+跨 Node 版本与平台通用，运行时加载的一直是它，`build/Release` 目录压根不存在。
+`setup` 用 `--ignore-scripts` 跳过编译，再单独跑 `npx husky` 把被一并跳过的 hook 装回来。
+
+Node 要求 **≥ 22.22.1**，这不是随便一个 22：`react-router@8` 要 `>=22.22.0`，
+`lint-staged@17` 要 `>=22.22.1`。根 `engines` 已与之对齐，配合 `.npmrc` 的
+`engine-strict=true`，版本不够会在**根包**就报 EBADENGINE，而不是甩出一个指向第三方包的
+误导性错误。
 
 pre-commit hook 只跑 Prettier（lint-staged），**不跑测试**——测试是 CI 的职责，在 commit 时跑会抑制提交频率。
 

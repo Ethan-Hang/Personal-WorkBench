@@ -3,3 +3,4 @@ dist
 packages/data/migrations
 prototype-workbench
 .superpowers
+.venv

@@ -5,23 +5,34 @@
 ## 快速开始
 
 ```bash
-npm install
+npm run setup
 npm run dev
 ```
 
 打开 http://localhost:5173
 
+> **首次克隆后请跑 `npm run setup`，不要直接跑 `npm install`**——后者在没有 MSVC 工具链的
+> 机器上必定失败。原因：`better-sqlite3` 带 `binding.gyp` 且没有 `install` 脚本，npm 会
+> 默认触发 `node-gyp rebuild` 去源码编译。而这次编译本就是多余的——该包已自带
+> `prebuilds/`（覆盖 win32 / darwin / linux 各架构，N-API 跨 Node 版本通用），运行时直接
+> 加载对应平台的 `.node`，编译产物根本没人用。`setup` 用 `--ignore-scripts` 跳过它，
+> 再单独把 husky 钩子装回来。
+>
+> 本项目要求 **Node ≥ 22.22.1**（`react-router` 与 `lint-staged` 的真实下限）。
+> `.npmrc` 里的 `engine-strict=true` 会让版本不符在**安装期**就失败，而不是留到运行期。
+
 服务端在 3000 端口，前端 5173 通过 Vite 代理转发 `/api`，浏览器统一走单一同源。
 
 ## 常用命令
 
-| 命令                  | 作用                                                |
-| --------------------- | --------------------------------------------------- |
-| `npm run dev`         | 同时启动后端与前端                                  |
-| `npm run check`       | 格式 + 类型 + lint + 测试（提交前跑这个，必须全绿） |
-| `npm run test`        | 运行全部 Vitest 自动化测试 (310+ tests)             |
-| `npm run format`      | 使用 Prettier 自动格式化代码                        |
-| `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移       |
+| 命令                  | 作用                                                          |
+| --------------------- | ------------------------------------------------------------- |
+| `npm run setup`       | 安装依赖（跳过多余的原生编译）并装回 git 钩子；克隆后先跑这个 |
+| `npm run dev`         | 同时启动后端与前端                                            |
+| `npm run check`       | 格式 + 类型 + lint + 测试（提交前跑这个，必须全绿）           |
+| `npm run test`        | 运行全部 Vitest 自动化测试 (310+ tests)                       |
+| `npm run format`      | 使用 Prettier 自动格式化代码                                  |
+| `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移                 |
 
 ## 数据存储
 
