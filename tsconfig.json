@@ -17,7 +17,8 @@
     "baseUrl": ".",
     "paths": {
       "@workbench/core": ["packages/core/src/index.ts"],
-      "@workbench/core/testing": ["packages/core/src/testing/item-repository-contract.ts"],
+      "@workbench/core/testing": ["packages/core/src/testing/index.ts"],
+      "@workbench/core/testing/*": ["packages/core/src/testing/*"],
       "@workbench/data": ["packages/data/src/index.ts"],
       "@workbench/server": ["packages/server/src/app.ts"],
       "@workbench/ui": ["packages/ui/src/index.tsx"],

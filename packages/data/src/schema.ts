@@ -41,3 +41,21 @@ export const items = sqliteTable(
     index('idx_items_source_module').on(t.sourceModule),
   ],
 );
+
+/**
+ * 应用级设置（core 的第二张表）。
+ *
+ * KV 而非固定单行宽表：设置项是增长最快的东西，宽表意味着每加一项都要 db:generate。
+ * 代价是 SQL 层无类型——可接受，因为设置永远整表读取、由 core 的 codec 解析，
+ * 从不参与 SQL 层的筛选或排序。
+ *
+ * 这与已否决的 EAV 不冲突：那条针对的是**业务实体**的万能键值表。
+ */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  /** JSON.stringify 后的值。'"dark"' / 'false' / '"Asia/Shanghai"' */
+  valueJson: text('value_json').notNull(),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`),
+});
