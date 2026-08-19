@@ -257,7 +257,7 @@ export function ApplicationsPage() {
   return (
     <div className="space-y-4 w-full">
       {/* 顶部固定吸顶区：标题、工具栏、以及表格表头（向下滚动时吸顶可见，加载时平滑滑入） */}
-      <div className="sticky top-0 z-20 bg-page/95 pt-0.5 pb-2.5 backdrop-blur-md space-y-3 transition-colors border-b border-line/40 shadow-xs animate-slide-down-in">
+      <div className="sticky top-0 z-10 bg-page/95 pt-0.5 pb-2.5 backdrop-blur-md space-y-3 transition-colors border-b border-line/40 shadow-xs animate-slide-down-in">
         <div className="w-full space-y-2.5">
           <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
           <ApplicationsToolbar

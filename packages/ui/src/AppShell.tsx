@@ -59,7 +59,7 @@ export function AppShell({
     <div className="min-h-screen bg-page text-ink transition-colors duration-200 flex">
       {/* 侧边栏 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-screen sm:shrink-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-screen sm:shrink-0 ${
           isSidebarCollapsed ? 'w-16' : 'w-64'
         }`}
       >
@@ -231,7 +231,7 @@ export function AppShell({
       {/* 主工作区 */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* 顶栏 */}
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
           <div className="flex items-center gap-3">
             <div className="text-xs font-medium text-muted">
               <span>工作台</span>

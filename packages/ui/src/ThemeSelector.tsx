@@ -50,7 +50,7 @@ export function ThemeSelector({ className = '' }: { className?: string }) {
 
       {isOpen && (
         <div
-          className="animate-in fade-in zoom-in-95 absolute right-0 z-50 mt-2 w-72 origin-top-right rounded-panel border border-line bg-surface p-3.5 shadow-xl duration-150"
+          className="animate-in fade-in zoom-in-95 absolute right-0 top-full z-50 mt-2 w-72 origin-top-right rounded-panel border border-line bg-surface p-3.5 shadow-xl duration-150"
           role="dialog"
           aria-label="主题偏好设置"
         >
