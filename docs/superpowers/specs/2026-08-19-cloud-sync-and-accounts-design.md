@@ -387,36 +387,93 @@ SELECT id, title FROM cloud.items EXCEPT SELECT id, title FROM main.items;
 先 close 再搬的顺序是关键：这样只需搬一个文件，不必同时处理 `-wal`/`-shm`，
 也不会搬出一个半截状态。与 TASK-025 一次性迁移 localStorage 同形。
 
-### 7.3 GitHub 登录：Device Flow
+### 7.3 GitHub 登录：GitHub App + Device Flow
 
-无 client_secret，`client_id` 可直接编译进代码。
+用 **GitHub App**，不用 OAuth App。权限是**细粒度的 `Gists: write`**，不是 scope。
+**永不生成、不使用、不分发 `client_secret`**；`client_id` 不是机密，可直接编译进代码。
 
 ```
-POST github.com/login/device/code       { client_id, scope: 'read:user gist' }
+POST github.com/login/device/code       { client_id }          ← 无 scope 参数
   → { device_code, user_code, verification_uri, expires_in, interval }
-  → UI 显示 user_code，一键打开 verification_uri
 
 POST github.com/login/oauth/access_token
-     grant_type=urn:ietf:params:oauth:grant-type:device_code
-  → 按 interval 轮询
+     { client_id, device_code, grant_type=urn:ietf:params:oauth:grant-type:device_code }
+  → { access_token: 'ghu_…', expires_in: 28800,
+      refresh_token: 'ghr_…', refresh_token_expires_in: 15897600, scope: '' }
 
 GET  api.github.com/user                → login + id
 ```
 
+三条已核实的官方事实，它们支撑了上面的每一个选择：
+
+1. **`scope` 对 user access token 恒为空字符串。** GitHub App 用权限而非 scope，
+   所以请求里不带 `scope` 参数，也不该期待响应里有值。
+2. **`GET /user` 不需要任何权限**——「Fine-grained access tokens do not require
+   specific permissions for this endpoint」。因此砍掉 `read:user` 之后，
+   账号显示名照样拿得到，不必为了显示用户名多要一份权限。
+3. **Device Flow 签发的 token，刷新时豁免 `client_secret`**。文档原文：
+   `client_secret` — Required _(unless the token was generated using the device flow)_。
+   这是「短期 token + 自动轮换 + 无 client_secret」三者能同时成立的唯一原因。
+
 **必须处理的轮询响应**：`authorization_pending`（继续等）、`slow_down`（**按响应加大
 间隔**，否则会被限流）、`expired_token`（重新发起）、`access_denied`（用户拒绝）。
 
-### 7.4 token 与凭据的本地存储
+#### 7.3.1 登录页的两个自动动作，以及一个浏览器陷阱
 
-威胁模型分两档：
+拿到 `user_code` 后要**自动打开 GitHub 验证页**并**自动把授权码复制到剪贴板**。
+
+- **复制**：`navigator.clipboard.writeText` 要求安全上下文——`localhost` 算安全，
+  可用。但它同时要求用户手势，所以复制必须发生在「登录」按钮的点击处理链里。
+- **自动打开有个坑**：请求 device code 是异步的，`await` 之后再 `window.open` 已经
+  脱离了用户手势，**会被弹窗拦截器挡掉**。GitHub 的 device flow 响应里也**没有**
+  `verification_uri_complete`，没法靠一个直达链接绕开。
+  解法：在点击处理器里**同步先开一个空白窗口**，拿到响应后再设置它的 `location`。
+  失败时必须降级成一个可见的手动链接，不能静默什么都不发生。
+
+#### 7.3.2 token 生命周期：8 小时过期，6 个月轮换
+
+启用短期 user access token 后：
+
+| 值                        | 时长                     |
+| ------------------------- | ------------------------ |
+| `access_token`（`ghu_`）  | 28800 秒 = **8 小时**    |
+| `refresh_token`（`ghr_`） | 15897600 秒 = **6 个月** |
+
+**每次刷新都会返回一个新的 `refresh_token`，旧的当场作废。** 这是轮换而非复用，
+由此带来两条硬性要求：
+
+- **先落盘，再使用。** 拿到新 token 对后必须先原子写入凭据存储，再拿新 access token
+  去发请求。顺序反了而写盘失败，旧 refresh 已作废、新的没存住，**账号直接掉线，
+  只能重走 Device Flow**。
+- **刷新必须串行。** 两个并发请求同时发现 token 过期、各自去刷，后到的那个会拿着
+  已作废的 refresh token 失败，并把刚存好的新 token 覆盖成垃圾。用一个 promise 级
+  互斥把刷新收敛成单飞——**与 `SettingsSync` 的「合并串行」是同一个模式**，照它写。
+
+刷新在**用之前**做，不靠 401 重试：判据是 `expiresAt - now < 5 分钟` 则先刷。
+6 个月不用这台设备会让 refresh token 也过期，此时唯一出路是重走 Device Flow，
+UI 必须把这条路说清楚，而不是报一个通用的 401。
+
+### 7.4 凭据的本地存储：优先 OS 保管库
+
+**优先 OS Credential Manager**（Windows 凭据管理器 / macOS Keychain / Linux
+Secret Service），拿不到才退到 `data/local/credentials.json`，并在设置页明示
+「本机凭据未受系统保管库保护」。
+
+这一档提高了，理由是存的东西变了：现在要存一个**有效期 6 个月的 refresh token**。
+它比原先那个不过期但只能读写 gist 的 token 更值得保护，因为它能持续再生新 token。
+
+威胁模型仍是两档：
 
 - **云端（Gist）**：强制口令派生加密。secret gist 任人可读，这是唯一真正的攻击面。
-- **本地**：优先 OS 凭据管理器；不可用则退到 `data/local/credentials.json`，
-  并在设置页明示「本机凭据未受系统保管库保护」。
+- **本地**：优先系统保管库，退化路径必须存在且必须**告知用户**，不能静默降级。
 
-本地文件泄露意味着攻击者已在你机器上，那 SQLite 库本身也全泄了，加密它收益有限。
+**GitHub 的 token 对（access + refresh）永远只在本地，绝不进 Gist。**
+Gist 里只有 WebDAV 凭据与设置。
 
-**因此 OS 保管库是增强项而非阻塞项**，实施不卡在原生模块可用性上。
+实施上有一条要先验证：OS 保管库的 Node 绑定（如 `@napi-rs/keyring`）必须是
+**N-API 预编译**，否则 `npm run setup` 的 `--ignore-scripts` 会让它装不上
+（同 `better-sqlite3` 的情形）。验证不通过就只能走退化路径，但**那是降级不是等价**，
+要在 TASK-027 里明确记录结果。
 
 ### 7.5 切换账号：复用恢复态那套 503
 
@@ -614,10 +671,15 @@ ADR-0001 说「若将来要做多用户，账号与数据隔离需要一次真�
 
 ### 13.2 前置人工步骤（不能等到实施时才发现）
 
-1. **在 GitHub 注册一个 OAuth App**，拿到 `client_id`，开启 Device Flow。
+1. **注册一个 GitHub App**（不是 OAuth App），拿到 `client_id`，勾选 Enable Device Flow，
+   勾选 "Expire user authorization tokens"（短期 token + refresh），
+   用户权限只勾 **Gists: write**。**绝不生成 client secret**——生成了就意味着它存在于
+   某处，而本设计的前提是它从不存在。
 2. **准备一个 WebDAV 账号**（坚果云 / Nextcloud 等），确认免费额度的请求与流量配额。
-3. **确认 `@napi-rs/keyring` 在本机可用**（N-API 预编译，理论上与 `better-sqlite3` 同样
-   免编译）。不可用则走 §7.4 的退化路径，不阻塞。
+3. **确认 OS 凭据管理器的 Node 绑定在本机可用**（如 `@napi-rs/keyring`，须为 N-API
+   预编译，与 `better-sqlite3` 同样免编译）。这一条已从「增强项」升为**优先方案**——
+   要存的是有效期 6 个月的 refresh token。不可用则走 §7.4 的退化路径，但那是降级不是
+   等价，结果要明确记录。
 
 ### 13.3 顺序
 
