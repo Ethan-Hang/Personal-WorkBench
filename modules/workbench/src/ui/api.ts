@@ -86,12 +86,14 @@ export interface CreateTodoInput {
   title: string;
   importance: 'high' | 'normal' | 'low';
   dueDate?: string | null;
+  notes?: string | null;
 }
 
 export interface UpdateTodoInput {
   title?: string;
   importance?: 'high' | 'normal' | 'low';
   dueDate?: string | null;
+  notes?: string | null;
 }
 
 export interface TrashItemView {
@@ -192,4 +194,212 @@ export async function postTodoClearTrash(): Promise<{ count: number }> {
   return (await request('/api/todo/trash/clear', {
     method: 'POST',
   })) as { count: number };
+}
+
+/* ───────────────────────── 子任务 ───────────────────────── */
+
+export interface SubtaskView {
+  id: string;
+  itemId: string;
+  title: string;
+  done: boolean;
+  position: number;
+}
+
+export interface CreateSubtaskInput {
+  title: string;
+}
+
+export interface UpdateSubtaskInput {
+  title?: string;
+  done?: boolean;
+}
+
+export async function postTodoSubtask(
+  itemId: string,
+  input: CreateSubtaskInput,
+): Promise<SubtaskView> {
+  return (await request(`/api/todo/tasks/${encodeURIComponent(itemId)}/subtasks`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })) as SubtaskView;
+}
+
+export async function patchTodoSubtask(
+  id: string,
+  input: UpdateSubtaskInput,
+): Promise<SubtaskView> {
+  return (await request(`/api/todo/subtasks/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })) as SubtaskView;
+}
+
+export async function deleteTodoSubtask(id: string): Promise<void> {
+  await request(`/api/todo/subtasks/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function putTodoReorderSubtasks(
+  itemId: string,
+  ids: string[],
+): Promise<SubtaskView[]> {
+  return (await request(`/api/todo/tasks/${encodeURIComponent(itemId)}/subtasks/reorder`, {
+    method: 'PUT',
+    body: JSON.stringify({ ids }),
+  })) as SubtaskView[];
+}
+
+/* ───────────────────────── 标签 ───────────────────────── */
+
+export const TAG_COLORS = ['slate', 'red', 'amber', 'green', 'blue', 'violet', 'pink'] as const;
+export type TagColor = (typeof TAG_COLORS)[number];
+
+export interface TagView {
+  id: string;
+  name: string;
+  color: TagColor | null;
+}
+
+export interface CreateTagInput {
+  name: string;
+  color?: TagColor | null;
+}
+
+export interface UpdateTagInput {
+  name?: string;
+  color?: TagColor | null;
+}
+
+export async function fetchTodoTags(): Promise<{ tags: TagView[] }> {
+  return (await request('/api/todo/tags')) as { tags: TagView[] };
+}
+
+export async function postTodoTag(input: CreateTagInput): Promise<TagView> {
+  return (await request('/api/todo/tags', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })) as TagView;
+}
+
+export async function patchTodoTag(id: string, input: UpdateTagInput): Promise<TagView> {
+  return (await request(`/api/todo/tags/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })) as TagView;
+}
+
+export async function deleteTodoTag(id: string): Promise<void> {
+  await request(`/api/todo/tags/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function putTodoTaskTags(itemId: string, tagIds: string[]): Promise<unknown> {
+  return await request(`/api/todo/tasks/${encodeURIComponent(itemId)}/tags`, {
+    method: 'PUT',
+    body: JSON.stringify({ tagIds }),
+  });
+}
+
+/* ───────────────────────── 重复任务 ───────────────────────── */
+
+export const RECURRENCE_FREQS = ['daily', 'weekly', 'monthly'] as const;
+export type RecurrenceFreq = (typeof RECURRENCE_FREQS)[number];
+
+export interface RecurrenceView {
+  id: string;
+  title: string;
+  importance: 'high' | 'normal' | 'low';
+  notes: string | null;
+  freq: RecurrenceFreq;
+  interval: number;
+  byWeekday: number[] | null;
+  byMonthday: number | null;
+  startDate: string;
+  untilDate: string | null;
+}
+
+export interface CreateRecurrenceInput {
+  title: string;
+  importance?: 'high' | 'normal' | 'low';
+  notes?: string | null;
+  freq: RecurrenceFreq;
+  interval?: number;
+  byWeekday?: number[] | null;
+  byMonthday?: number | null;
+  startDate: string;
+  untilDate?: string | null;
+}
+
+export interface UpdateRecurrenceInput {
+  title?: string;
+  importance?: 'high' | 'normal' | 'low';
+  notes?: string | null;
+  untilDate?: string | null;
+}
+
+export async function fetchTodoRecurrences(): Promise<{ recurrences: RecurrenceView[] }> {
+  return (await request('/api/todo/recurrences')) as { recurrences: RecurrenceView[] };
+}
+
+export async function postTodoRecurrence(input: CreateRecurrenceInput): Promise<RecurrenceView> {
+  return (await request('/api/todo/recurrences', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })) as RecurrenceView;
+}
+
+export async function patchTodoRecurrence(
+  id: string,
+  input: UpdateRecurrenceInput,
+): Promise<RecurrenceView> {
+  return (await request(`/api/todo/recurrences/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })) as RecurrenceView;
+}
+
+export async function deleteTodoRecurrence(id: string): Promise<void> {
+  await request(`/api/todo/recurrences/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+/* ───────────────────────── 待办丰富视图 ───────────────────────── */
+
+export interface TodoRichTaskView {
+  id: string;
+  title: string;
+  sourceModule: string;
+  kind: 'task' | 'event';
+  status: 'inbox' | 'todo' | 'doing' | 'done' | 'cancelled';
+  importance: 'high' | 'normal' | 'low';
+  notes: string | null;
+  dueAt: string | null;
+  scheduled: unknown;
+  subtasks: SubtaskView[];
+  tags: TagView[];
+  recurrenceId: string | null;
+  urgency: 'none' | 'later' | 'soon' | 'imminent' | 'overdue';
+  priorityScore: number;
+  isImportantQuadrant: boolean;
+  isUrgentQuadrant: boolean;
+}
+
+export async function fetchTodoToday(): Promise<{
+  date: string;
+  zone: string;
+  tasks: TodoRichTaskView[];
+  overdue: TodoRichTaskView[];
+  completed: TodoRichTaskView[];
+}> {
+  return (await request('/api/todo/today')) as {
+    date: string;
+    zone: string;
+    tasks: TodoRichTaskView[];
+    overdue: TodoRichTaskView[];
+    completed: TodoRichTaskView[];
+  };
 }

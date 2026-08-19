@@ -1,8 +1,5 @@
 import {
-  deriveUrgency,
   resolveDueDateUtc,
-  isImportantQuadrant,
-  isUrgentQuadrant,
   localDayOf,
   localDayRange,
   nowIso,

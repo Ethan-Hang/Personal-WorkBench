@@ -6,7 +6,6 @@ import {
   createTaskInputSchema,
   taskViewSchema,
   updateTaskInputSchema,
-  taskViewSchema,
 } from './contract.js';
 
 describe('createTaskInputSchema', () => {
@@ -64,26 +63,6 @@ describe('batchIdsInputSchema', () => {
     expect(batchIdsInputSchema.parse({ ids: ['id-1', 'id-2'] })).toEqual({
       ids: ['id-1', 'id-2'],
     });
-  });
-});
-
-describe('taskViewSchema', () => {
-  it('支持包含 kind 字段，并默认回退为 task', () => {
-    const raw = {
-      id: 't-1',
-      title: '测试任务',
-      sourceModule: 'todo',
-      status: 'todo',
-      importance: 'normal',
-      dueAt: null,
-      scheduled: null,
-      urgency: 'none',
-      priorityScore: 0,
-      isImportantQuadrant: false,
-      isUrgentQuadrant: false,
-    };
-    const parsed = taskViewSchema.parse(raw);
-    expect(parsed.kind).toBe('task');
   });
 });
 

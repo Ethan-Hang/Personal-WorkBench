@@ -3,7 +3,7 @@ import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import * as schema from './schema.js';
 
 export type Db = BetterSQLite3Database<typeof schema>;
@@ -15,7 +15,11 @@ export function openDatabase(path: string): { db: Db; sqlite: Database.Database 
   if (path !== ':memory:') {
     mkdirSync(dirname(resolve(path)), { recursive: true });
   }
-  const sqlite = new Database(path);
+  const SqliteConstructor =
+    typeof Database === 'function'
+      ? Database
+      : (Database as unknown as { default: typeof Database }).default;
+  const sqlite = new SqliteConstructor(path);
   sqlite.pragma('journal_mode = WAL');
   sqlite.pragma('foreign_keys = ON');
   const db = drizzle(sqlite, { schema });
@@ -45,9 +49,51 @@ function migrationsTableFor(folder: string): string {
 
 /** 跑某个模块携带的迁移（spec §8.1 migrations 字段）。 */
 export function runMigrationsFrom(db: Db, folder: string): void {
+  const table = migrationsTableFor(folder);
+  const sqlite = (db as unknown as { $client?: Database.Database }).$client;
+
+  if (sqlite && typeof sqlite.prepare === 'function') {
+    sqlite.exec(
+      `CREATE TABLE IF NOT EXISTS "${table}" (id INTEGER PRIMARY KEY AUTOINCREMENT, hash text NOT NULL, created_at numeric)`,
+    );
+    const row = sqlite.prepare(`SELECT count(*) as c FROM "${table}"`).get() as
+      { c: number } | undefined;
+    if (row && row.c === 0) {
+      const legacyTableExists = sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'`,
+        )
+        .get();
+      if (legacyTableExists) {
+        try {
+          const journalPath = resolve(process.cwd(), folder, 'meta/_journal.json');
+          const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
+            entries?: Array<{ when: number }>;
+          };
+          const timestamps = (journal.entries ?? []).map((e) => e.when);
+          if (timestamps.length > 0) {
+            const placeholders = timestamps.map(() => '?').join(',');
+            const legacyEntries = sqlite
+              .prepare(
+                `SELECT hash, created_at FROM __drizzle_migrations WHERE created_at IN (${placeholders})`,
+              )
+              .all(...timestamps) as Array<{ hash: string; created_at: number }>;
+            for (const entry of legacyEntries) {
+              sqlite
+                .prepare(`INSERT INTO "${table}" (hash, created_at) VALUES (?, ?)`)
+                .run(entry.hash, entry.created_at);
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
   migrate(db, {
     migrationsFolder: resolve(process.cwd(), folder),
-    migrationsTable: migrationsTableFor(folder),
+    migrationsTable: table,
   });
 }
 

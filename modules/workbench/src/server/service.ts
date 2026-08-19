@@ -59,6 +59,7 @@ function toView(item: Item, now: IsoInstant): WorkbenchItem {
     kind: item.kind,
     status: item.status,
     importance: item.importance,
+    notes: item.notes ?? null,
     dueAt: item.dueAt,
     scheduled: toScheduledView(item.scheduled),
     urgency,

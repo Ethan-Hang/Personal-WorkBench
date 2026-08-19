@@ -36,6 +36,7 @@ export const workbenchItemSchema = z.object({
   kind: z.enum(['task', 'event']),
   status: z.enum(['inbox', 'todo', 'doing', 'done', 'cancelled']),
   importance: z.enum(['high', 'normal', 'low']),
+  notes: z.string().nullable().default(null),
   dueAt: z.string().nullable(),
   scheduled: scheduledTimeSchema.nullable(),
   urgency: z.enum(['none', 'later', 'soon', 'imminent', 'overdue']),

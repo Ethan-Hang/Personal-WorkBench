@@ -259,20 +259,20 @@ export const taskViewSchema = z.object({
    * core Item 的种类。跨模块视图（工作台今日页、日历）靠它区分任务与事件，
    * 因此它是接缝的必填字段而非可选装饰。
    */
-  kind: z.enum(ITEM_KINDS).default('task'),
+  kind: z.enum(ITEM_KINDS),
   status: z.enum(ITEM_STATUSES),
   importance: importanceSchema,
   /** 一两行补充说明。无备注时为 null，绝不为空串。 */
-  notes: z.string().nullable(),
+  notes: z.string().nullable().default(null),
   dueAt: z.string().nullable(),
   /** 排程。日历靠它把任务放到正确的格子与时刻上。 */
   scheduled: scheduledTimeSchema.nullable(),
   /** 子任务，按 position 升序。无子任务时为空数组，不是 null。 */
-  subtasks: z.array(subtaskViewSchema),
+  subtasks: z.array(subtaskViewSchema).default([]),
   /** 标签，按名称升序。todo 内部概念，工作台看不到（ADR-0014）。 */
-  tags: z.array(tagViewSchema),
+  tags: z.array(tagViewSchema).default([]),
   /** 由哪条重复规则物化而来；手工建的任务为 null。 */
-  recurrenceId: z.string().nullable(),
+  recurrenceId: z.string().nullable().default(null),
   urgency: urgencySchema,
   priorityScore: z.number(),
   isImportantQuadrant: z.boolean(),

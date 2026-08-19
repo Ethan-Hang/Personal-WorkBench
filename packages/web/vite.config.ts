@@ -11,6 +11,7 @@ export default defineConfig({
   root: HERE,
   plugins: [react(), tailwindcss(), tsconfigPaths({ root: '../..' })],
   server: {
+    host: '0.0.0.0',
     port: 5173,
     // 代理让浏览器只看到一个源，彻底绕开 CORS
     proxy: { '/api': 'http://127.0.0.1:3000' },
