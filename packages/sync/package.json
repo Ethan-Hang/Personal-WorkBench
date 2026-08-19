@@ -3,10 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "./src/contract.ts",
+  "types": "./src/contract.ts",
   "exports": {
-    "./contract": "./src/contract.ts"
+    ".": "./src/contract.ts",
+    "./contract": "./src/contract.ts",
+    "./node": "./src/node/index.ts"
   },
   "dependencies": {
+    "@workbench/core": "*",
+    "webdav": "^5.8.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@workbench/data": "*",
+    "better-sqlite3": "^13.0.3"
   }
 }
