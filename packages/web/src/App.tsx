@@ -1,5 +1,6 @@
 import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router';
 import { useMemo, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   ModuleLabelProvider,
   SettingsProvider,
@@ -19,6 +20,7 @@ import {
   IconCalendar,
   IconBriefcase,
   IconBarChart,
+  IconCheckSquare,
   type ShellNavGroup,
   type CommandItemDescriptor,
 } from '@workbench/ui';
@@ -27,6 +29,10 @@ import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { createHttpSettingsStore } from './settingsStore.js';
 import { RestoreOverlay } from './sync/RestoreOverlay.js';
+import { fetchToday, fetchUnscheduled } from '@workbench/module-workbench/ui';
+import { fetchApplications } from '@workbench/module-campus-recruit/ui';
+import type { WorkbenchItem } from '@workbench/module-workbench/contract';
+import type { ApplicationView } from '@workbench/module-campus-recruit/contract';
 
 // 模块作用域建一次即可：store 无状态，重建会白白丢掉内部引用。
 const settingsStore = createHttpSettingsStore();
@@ -45,6 +51,23 @@ function AppContent() {
 
   const navEntries = uiModules.flatMap((m) => m.nav);
   const firstPath = navEntries[0]?.path;
+
+  // 查询工作台今日与待排程事项
+  const todayQuery = useQuery({
+    queryKey: ['workbench', 'today'],
+    queryFn: fetchToday,
+  });
+
+  const unscheduledQuery = useQuery({
+    queryKey: ['workbench', 'unscheduled'],
+    queryFn: fetchUnscheduled,
+  });
+
+  // 查询秋招投递与轮次详情
+  const campusQuery = useQuery({
+    queryKey: ['campus', 'applications'],
+    queryFn: fetchApplications,
+  });
 
   // 将注册的 UI 模块组织为侧边栏导航分组
   const navGroups: ShellNavGroup[] = [
@@ -145,8 +168,162 @@ function AppContent() {
       }
     }
 
+    // 3. 待办与日程事项 (Workbench / Core Items)
+    const rawWorkbenchItems: WorkbenchItem[] = [
+      ...(todayQuery.data?.scheduled ?? []),
+      ...(todayQuery.data?.overdue ?? []),
+      ...(todayQuery.data?.completed ?? []),
+      ...(unscheduledQuery.data?.items ?? []),
+    ];
+
+    const seenItemIds = new Set<string>();
+    for (const item of rawWorkbenchItems) {
+      if (seenItemIds.has(item.id)) continue;
+      seenItemIds.add(item.id);
+
+      const badges: string[] = [];
+      badges.push(
+        item.sourceModule === 'todo'
+          ? '待办'
+          : item.sourceModule === 'campus-recruit'
+            ? '秋招事项'
+            : item.sourceModule,
+      );
+
+      if (item.importance === 'high') badges.push('高优');
+      if (item.status === 'done') badges.push('已完成');
+      else if (item.urgency === 'overdue') badges.push('逾期');
+
+      // 提取副标题时间与说明信息
+      let timeDesc = '';
+      if (item.scheduled?.kind === 'all-day') {
+        timeDesc = `排程: ${item.scheduled.date}`;
+      } else if (item.scheduled?.kind === 'timed') {
+        timeDesc = `排程: ${item.scheduled.start.slice(11, 16)}`;
+      } else if (item.dueAt) {
+        timeDesc = `截止: ${item.dueAt.slice(0, 10)}`;
+      }
+
+      const subtitleParts = [
+        item.status === 'done' ? '[已完成]' : item.urgency === 'overdue' ? '[逾期]' : '[待办]',
+        timeDesc,
+        item.notes,
+      ].filter(Boolean);
+
+      items.push({
+        id: `item-${item.id}`,
+        category: 'item',
+        title: item.title,
+        subtitle: subtitleParts.join(' · '),
+        keywords: [
+          item.title,
+          item.notes ?? '',
+          item.sourceModule,
+          item.status,
+          item.importance,
+          'daiban',
+          'task',
+          'todo',
+          'richeng',
+          'shixiang',
+        ],
+        badges,
+        icon: <IconCheckSquare size={15} />,
+        onSelect: () => {
+          if (item.sourceModule === 'campus-recruit') {
+            navigate('/campus');
+          } else {
+            navigate('/today');
+          }
+        },
+      });
+    }
+
+    // 4. 秋招投递与各轮次详情 (Campus Recruit Applications & Rounds)
+    const applications: ApplicationView[] = campusQuery.data?.applications ?? [];
+    for (const app of applications) {
+      // 4.1 投递主条目 (公司 + 岗位)
+      const appBadges = ['秋招', `${app.priority}级`, app.status.label];
+      const appSubtitleParts = [
+        app.status.label,
+        app.salary ? `薪资: ${app.salary}` : null,
+        app.city ? `城市: ${app.city}` : null,
+        app.channel ? `渠道: ${app.channel}` : null,
+        app.notes ? `备注: ${app.notes}` : null,
+      ].filter(Boolean);
+
+      items.push({
+        id: `campus-app-${app.id}`,
+        category: 'domain',
+        title: `${app.company} · ${app.position}`,
+        subtitle: appSubtitleParts.join(' · '),
+        keywords: [
+          app.company,
+          app.position,
+          app.city ?? '',
+          app.industry ?? '',
+          app.channel ?? '',
+          app.referral ?? '',
+          app.notes ?? '',
+          app.salary ?? '',
+          app.companyType ?? '',
+          'qiuzhao',
+          'gangwei',
+          'toudi',
+          'campus',
+          'gongsi',
+        ],
+        badges: appBadges,
+        icon: <IconBriefcase size={15} />,
+        onSelect: () => navigate(`/campus?id=${encodeURIComponent(app.id)}`),
+      });
+
+      // 4.2 投递下的各轮次详情 (技术面、HR面、笔试、测评等)
+      for (const round of app.rounds) {
+        const outcomeBadge =
+          round.outcome === 'passed' ? '已通过' : round.outcome === 'failed' ? '未通过' : '待进行';
+
+        const roundSubtitleParts = [
+          `${app.company} · 轮次 #${round.sequence}`,
+          round.format ? `形式: ${round.format}` : null,
+          round.scheduledAt ? `时间: ${round.scheduledAt.replace('T', ' ').slice(0, 16)}` : null,
+          round.notes ? `备注: ${round.notes}` : null,
+        ].filter(Boolean);
+
+        items.push({
+          id: `campus-round-${round.id}`,
+          category: 'domain',
+          title: `${app.company} - ${round.name}`,
+          subtitle: roundSubtitleParts.join(' · '),
+          keywords: [
+            app.company,
+            app.position,
+            round.name,
+            round.kind,
+            round.format ?? '',
+            round.notes ?? '',
+            'mianshi',
+            'bishi',
+            'lunci',
+            'ceping',
+          ],
+          badges: ['面试轮次', outcomeBadge],
+          icon: <IconBriefcase size={15} />,
+          onSelect: () => navigate(`/campus?id=${encodeURIComponent(app.id)}`),
+        });
+      }
+    }
+
     return items;
-  }, [mode, setMode, setPalette, navigate]);
+  }, [
+    mode,
+    setMode,
+    setPalette,
+    navigate,
+    todayQuery.data,
+    unscheduledQuery.data,
+    campusQuery.data,
+  ]);
 
   return (
     <AppShell
