@@ -1,5 +1,5 @@
-import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router';
-import type { ReactNode } from 'react';
+import { NavLink, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router';
+import { useMemo, type ReactNode } from 'react';
 import {
   ModuleLabelProvider,
   SettingsProvider,
@@ -7,7 +7,20 @@ import {
   TimezoneProvider,
   PreferencesProvider,
   AppShell,
+  useTheme,
+  PALETTES,
+  IconSun,
+  IconMoon,
+  IconMonitor,
+  IconPalette,
+  IconSettings,
+  IconInfo,
+  IconHome,
+  IconCalendar,
+  IconBriefcase,
+  IconBarChart,
   type ShellNavGroup,
+  type CommandItemDescriptor,
 } from '@workbench/ui';
 import { uiModules } from './modules.js';
 import { SettingsPage } from './pages/SettingsPage.js';
@@ -25,8 +38,11 @@ const MODULE_LABELS: Readonly<Record<string, string>> = Object.fromEntries(
   uiModules.map((m) => [m.id, m.title]),
 );
 
-export function App() {
+function AppContent() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { mode, setMode, setPalette } = useTheme();
+
   const navEntries = uiModules.flatMap((m) => m.nav);
   const firstPath = navEntries[0]?.path;
 
@@ -48,32 +64,123 @@ export function App() {
     },
   ].filter((g) => g.items.length > 0);
 
+  // 聚合生成全局搜索与命令项 (Command Palette)
+  const commandItems = useMemo<CommandItemDescriptor[]>(() => {
+    const items: CommandItemDescriptor[] = [];
+
+    // 1. 快捷命令：外观与主题
+    items.push({
+      id: 'cmd-theme-toggle',
+      category: 'command',
+      title: mode === 'dark' ? '切换为浅色模式' : '切换为深色模式',
+      subtitle: '外观设置',
+      keywords: ['theme', 'dark', 'light', 'mode', 'shese', 'moshi', 'anhei'],
+      icon: mode === 'dark' ? <IconSun size={15} /> : <IconMoon size={15} />,
+      shortcut: '⌘D',
+      onSelect: () => setMode(mode === 'dark' ? 'light' : 'dark'),
+    });
+
+    items.push({
+      id: 'cmd-theme-system',
+      category: 'command',
+      title: '外观模式：跟随系统',
+      subtitle: '外观设置',
+      keywords: ['system', 'auto', 'gensui'],
+      icon: <IconMonitor size={15} />,
+      onSelect: () => setMode('system'),
+    });
+
+    // 各色板切换命令
+    for (const p of PALETTES) {
+      items.push({
+        id: `cmd-palette-${p.id}`,
+        category: 'command',
+        title: `切换主题配色：${p.name}`,
+        subtitle: p.description,
+        keywords: ['palette', 'color', 'zhuti', 'peise', p.name],
+        icon: <IconPalette size={15} />,
+        onSelect: () => setPalette(p.id),
+      });
+    }
+
+    // 2. 页面快速导航
+    items.push({
+      id: 'nav-settings',
+      category: 'navigation',
+      title: '偏好设置',
+      subtitle: '时区、主题、数据同步与多账号',
+      keywords: ['settings', 'preferences', 'shezhi', 'zhanghao'],
+      icon: <IconSettings size={15} />,
+      shortcut: '⌘,',
+      onSelect: () => navigate('/settings'),
+    });
+
+    items.push({
+      id: 'nav-about',
+      category: 'navigation',
+      title: '关于工作台',
+      subtitle: '本地优先架构与版本信息',
+      keywords: ['about', 'version', 'guanyu'],
+      icon: <IconInfo size={15} />,
+      onSelect: () => navigate('/about'),
+    });
+
+    // 动态挂载各模块的导航
+    for (const mod of uiModules) {
+      for (const nav of mod.nav) {
+        let icon: ReactNode = <IconBriefcase size={15} />;
+        if (nav.path === '/today' || nav.path === '/') icon = <IconHome size={15} />;
+        else if (nav.path === '/calendar') icon = <IconCalendar size={15} />;
+        else if (nav.path === '/campus/stats') icon = <IconBarChart size={15} />;
+
+        items.push({
+          id: `nav-mod-${mod.id}-${nav.path}`,
+          category: 'navigation',
+          title: nav.label,
+          subtitle: `${mod.title} · 页面直达`,
+          keywords: [nav.label, mod.title, mod.id, nav.path],
+          icon,
+          onSelect: () => navigate(nav.path),
+        });
+      }
+    }
+
+    return items;
+  }, [mode, setMode, setPalette, navigate]);
+
+  return (
+    <AppShell
+      navGroups={navGroups}
+      activePath={location.pathname}
+      LinkComponent={NavLink}
+      commandItems={commandItems}
+      dbStatus="本地 SQLite 已就绪 · 零延迟"
+    >
+      <Routes>
+        {firstPath !== undefined && (
+          <Route path="/" element={<Navigate to={firstPath} replace />} />
+        )}
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/about" element={<AboutPage />} />
+        {uiModules.flatMap((m) =>
+          m.routes.map((r) => (
+            <Route key={r.path} path={r.path} element={r.element as ReactNode} />
+          )),
+        )}
+      </Routes>
+      <RestoreOverlay />
+    </AppShell>
+  );
+}
+
+export function App() {
   return (
     <SettingsProvider store={settingsStore}>
       <ThemeProvider>
         <TimezoneProvider>
           <PreferencesProvider>
             <ModuleLabelProvider labels={MODULE_LABELS}>
-              <AppShell
-                navGroups={navGroups}
-                activePath={location.pathname}
-                LinkComponent={NavLink}
-                dbStatus="本地 SQLite 已就绪 · 零延迟"
-              >
-                <Routes>
-                  {firstPath !== undefined && (
-                    <Route path="/" element={<Navigate to={firstPath} replace />} />
-                  )}
-                  <Route path="/settings" element={<SettingsPage />} />
-                  <Route path="/about" element={<AboutPage />} />
-                  {uiModules.flatMap((m) =>
-                    m.routes.map((r) => (
-                      <Route key={r.path} path={r.path} element={r.element as ReactNode} />
-                    )),
-                  )}
-                </Routes>
-                <RestoreOverlay />
-              </AppShell>
+              <AppContent />
             </ModuleLabelProvider>
           </PreferencesProvider>
         </TimezoneProvider>
