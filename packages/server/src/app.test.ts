@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { localDayOf, nowIso, type ServerModuleDefinition } from '@workbench/core';
-import { openTestDatabase } from '@workbench/data';
+import { openTestDatabase, runMigrationsFrom } from '@workbench/data';
 import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
-import { todoServerModule } from '@workbench/module-todo';
+import { createTodoServerModule } from '@workbench/module-todo';
+import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './app.js';
 
@@ -85,8 +86,8 @@ function fakeModule(id: string, calls: string[]): ServerModuleDefinition {
 
 describe('buildApp', () => {
   it('暴露健康检查', async () => {
-    const { db } = openTestDatabase();
-    const app = await buildApp({ db, modules: [] });
+    const { sqlite } = openTestDatabase();
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [] });
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true });
@@ -94,10 +95,10 @@ describe('buildApp', () => {
   });
 
   it('为每个模块调用 registerRoutes，并传入以自身 id 构造的 ModuleContext', async () => {
-    const { db } = openTestDatabase();
+    const { sqlite } = openTestDatabase();
     const calls: string[] = [];
     const app = await buildApp({
-      db,
+      getSqlite: () => sqlite,
       modules: [fakeModule('alpha', calls), fakeModule('beta', calls)],
     });
 
@@ -109,7 +110,7 @@ describe('buildApp', () => {
   });
 
   it('模块经 ModuleContext 创建的 Item 自动带上自己的 sourceModule', async () => {
-    const { db } = openTestDatabase();
+    const { sqlite } = openTestDatabase();
     let createdSource = '';
     const probe: ServerModuleDefinition = {
       id: 'probe',
@@ -119,15 +120,17 @@ describe('buildApp', () => {
         createdSource = item.sourceModule;
       },
     };
-    const app = await buildApp({ db, modules: [probe] });
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [probe] });
     expect(createdSource).toBe('probe');
     await app.close();
   });
 
   it('注册 todo 与 campus 模块后，今日工作台可见秋招截止事项', async () => {
     const { db, sqlite } = openTestDatabase();
-    const campus = createCampusRecruitServerModule(new SqliteCampusRecruitRepository(sqlite));
-    const app = await buildApp({ db, modules: [todoServerModule, campus] });
+    runMigrationsFrom(db, 'modules/todo/migrations');
+    const campus = createCampusRecruitServerModule(new SqliteCampusRecruitRepository(() => sqlite));
+    const todo = createTodoServerModule(new SqliteTodoRepository(() => sqlite));
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [todo, campus] });
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const todayDate = localDayOf(nowIso(), zone);
 
@@ -155,6 +158,49 @@ describe('buildApp', () => {
     await app.close();
     sqlite.close();
   });
+
+  it(
+    '浏览器发出的无 body POST 不会撞上 415',
+    async () => {
+      // `fetch(url, { method: 'POST' })` 不带 content-type，Fastify 默认对它回 415。
+      // **这个形状 app.inject() 复现不了**——所以这条守卫必须跑在真实 HTTP 上，
+      // 与 CLAUDE.md 记着的那次「漏掉一个 400」是同一类教训。
+      const tempDirectory = await mkdtemp(join(tmpdir(), 'workbench-bodyless-'));
+      let child: ChildProcessWithoutNullStreams | undefined;
+
+      try {
+        const port = await unusedPort();
+        const origin = `http://127.0.0.1:${port}`;
+        child = spawn(process.execPath, ['--import', 'tsx', 'packages/server/src/index.ts'], {
+          cwd: process.cwd(),
+          env: {
+            ...process.env,
+            PORT: String(port),
+            WORKBENCH_DB: join(tempDirectory, 'acceptance.db'),
+            WORKBENCH_DATA_DIR: tempDirectory,
+          },
+        });
+        const deadline = Date.now() + compositionDeadlineMs;
+        await waitUntilReady(origin, child, deadline);
+
+        const backup = await fetch(`${origin}/api/backup/run`, {
+          method: 'POST',
+          signal: signalBefore(deadline),
+        });
+        expect(backup.status).toBe(400);
+
+        const rollback = await fetch(`${origin}/api/restore/rollback`, {
+          method: 'POST',
+          signal: signalBefore(deadline),
+        });
+        expect(rollback.status).toBe(409);
+      } finally {
+        if (child !== undefined) await stopServer(child);
+        await rm(tempDirectory, { recursive: true, force: true });
+      }
+    },
+    compositionTestTimeoutMs,
+  );
 
   it(
     '正式服务端入口注册 campus 模块并把今日截止事项聚合到 Today',
@@ -221,8 +267,11 @@ describe('统一错误出口', () => {
   }
 
   it('意料外的错误返回真实消息与请求编号', async () => {
-    const { db } = openTestDatabase();
-    const app = await buildApp({ db, modules: [throwingModule('数据库连接断了')] });
+    const { sqlite } = openTestDatabase();
+    const app = await buildApp({
+      getSqlite: () => sqlite,
+      modules: [throwingModule('数据库连接断了')],
+    });
 
     const res = await app.inject({ method: 'GET', url: '/api/probe/boom' });
 
@@ -242,8 +291,12 @@ describe('统一错误出口', () => {
    * 在没有日志行可对的地方给出编号，只会让人去 grep 一个不存在的东西。
    */
   it('预期内的 4xx 保留自己的消息，且不带编号', async () => {
-    const { db } = openTestDatabase();
-    const app = await buildApp({ db, modules: [todoServerModule] });
+    const { db, sqlite } = openTestDatabase();
+    runMigrationsFrom(db, 'modules/todo/migrations');
+    const app = await buildApp({
+      getSqlite: () => sqlite,
+      modules: [createTodoServerModule(new SqliteTodoRepository(() => sqlite))],
+    });
 
     const res = await app.inject({
       method: 'POST',

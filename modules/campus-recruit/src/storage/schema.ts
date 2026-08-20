@@ -76,7 +76,7 @@ export const campusRecruitRounds = sqliteTable(
     check('ck_campus_recruit_rounds_sequence', sql`${table.sequence} > 0`),
     check(
       'ck_campus_recruit_rounds_kind',
-      sql`${table.kind} IN ('assessment', 'written', 'technical', 'hr', 'other')`,
+      sql`${table.kind} IN ('screening', 'assessment', 'written', 'technical', 'hr', 'other')`,
     ),
     check(
       'ck_campus_recruit_rounds_outcome',

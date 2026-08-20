@@ -463,31 +463,100 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-down-in {
-  animation: slideDownIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideDownIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-right-in {
-  animation: slideRightIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideRightIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-left-in {
-  animation: slideLeftIn 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideLeftIn 0.85s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-slide-up-in {
-  animation: slideUpIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: slideUpIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-scale-in {
-  animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: scaleIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .animate-spin-ring {
   animation: spinRing 0.85s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* 下拉卡片与浮层平滑进入与退出动效 (Popover Enter & Exit Animations) */
+@keyframes popoverEnter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes popoverExit {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95) translateY(-6px);
+  }
+}
+
+.animate-popover-enter {
+  animation: popoverEnter 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.animate-popover-exit {
+  animation: popoverExit 150ms cubic-bezier(0.4, 0, 1, 1) forwards !important;
+  pointer-events: none !important;
+  will-change: transform, opacity;
+}
+
+/* 时钟数字平滑翻滚进入动效 (Digit Roll Animation) */
+@keyframes digitRollIn {
+  0% {
+    transform: translateY(35%);
+    opacity: 0.15;
+    filter: blur(1px);
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+.animate-digit-roll {
+  animation: digitRollIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 时钟冒号平滑呼吸动效 (Blinking Colon) */
+@keyframes colonBlink {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+}
+
+.animate-colon-blink {
+  animation: colonBlink 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* 阶梯进入动效 (Staggered Children) */
@@ -557,7 +626,30 @@
 }
 
 .animate-item-enter {
-  animation: itemSlideDownIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: itemSlideDownIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ==========================================================================
+   原地折叠展开平滑动效 (In-place Accordion Expand/Collapse)
+   ========================================================================== */
+.accordion-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 250ms ease-out;
+  opacity: 0;
+  will-change: grid-template-rows, opacity;
+}
+
+.accordion-wrapper.is-expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.accordion-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* 卡片悬浮动效 */
@@ -748,4 +840,37 @@ body {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-muted);
+}
+
+/* ==========================================================================
+   无障碍与动效开关支持 (Reduced Motion & Animation Preference)
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 开关等基础交互控件始终保留轻量平滑的位移反馈 */
+:root[data-reduced-motion='true'] [role='switch'],
+:root[data-reduced-motion='true'] [role='switch'] * {
+  transition-duration: 250ms !important;
+}
+
+:root[data-reduced-motion='true'] .hover-lift:hover {
+  transform: none !important;
 }

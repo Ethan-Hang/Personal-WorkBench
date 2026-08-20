@@ -5,19 +5,45 @@ import { IconSun, IconMoon, IconMonitor, IconPalette, IconCheck } from './icons.
 export function ThemeSelector({ className = '' }: { className?: string }) {
   const { mode, palette, resolvedMode, setMode, setPalette } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // 点击外部关闭
+  // 处理出现与消失的平滑动效生命周期
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      setIsClosing(false);
+    } else if (shouldRender) {
+      setIsClosing(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsClosing(false);
+      }, 160);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen, shouldRender]);
+
+  // 点击外部关闭与 ESC 按键监听
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setIsOpen(false);
       }
     }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && isOpen) {
+        setIsOpen(false);
+      }
+    }
     if (isOpen) {
       document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('keydown', handleKeyDown);
     }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
 
   const currentPalette =
@@ -35,8 +61,13 @@ export function ThemeSelector({ className = '' }: { className?: string }) {
         type="button"
         onClick={() => setIsOpen(!isOpen)}
         aria-label="切换主题与模式"
+        aria-expanded={isOpen}
         title="个性化与主题外观"
-        className="flex items-center gap-2 rounded-control border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-ink shadow-xs transition hover:bg-surface-2 focus:outline-none"
+        className={`flex items-center gap-2 rounded-control border px-2.5 py-1.5 text-xs font-medium transition-all duration-150 focus:outline-none ${
+          isOpen
+            ? 'border-accent/40 bg-surface-2 text-ink shadow-xs ring-2 ring-accent/20'
+            : 'border-line bg-surface text-ink shadow-2xs hover:bg-surface-2'
+        }`}
       >
         <span
           className="size-3 rounded-full border border-black/10 transition-colors dark:border-white/20"
@@ -48,9 +79,11 @@ export function ThemeSelector({ className = '' }: { className?: string }) {
         </span>
       </button>
 
-      {isOpen && (
+      {shouldRender && (
         <div
-          className="animate-in fade-in zoom-in-95 absolute right-0 z-50 mt-2 w-72 origin-top-right rounded-panel border border-line bg-surface p-3.5 shadow-xl duration-150"
+          className={`absolute right-0 top-full z-50 mt-2 w-72 origin-top-right rounded-panel border border-line/80 bg-surface/85 p-3.5 shadow-2xl backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10 ${
+            isClosing ? 'animate-popover-exit' : 'animate-popover-enter'
+          }`}
           role="dialog"
           aria-label="主题偏好设置"
         >
@@ -60,7 +93,7 @@ export function ThemeSelector({ className = '' }: { className?: string }) {
               <span>显示模式</span>
               <span className="text-[10px] lowercase text-muted/80">Mode</span>
             </div>
-            <div className="grid grid-cols-3 gap-1 rounded-control bg-surface-2 p-1">
+            <div className="grid grid-cols-3 gap-1 rounded-control bg-surface-2/70 p-1 backdrop-blur-xs">
               {modeOptions.map((opt) => {
                 const Icon = opt.icon;
                 const active = mode === opt.id;
@@ -69,8 +102,10 @@ export function ThemeSelector({ className = '' }: { className?: string }) {
                     key={opt.id}
                     type="button"
                     onClick={() => setMode(opt.id)}
-                    className={`flex items-center justify-center gap-1.5 rounded-[7px] py-1.5 text-xs font-semibold transition ${
-                      active ? 'bg-surface text-ink shadow-xs' : 'text-secondary hover:text-ink'
+                    className={`flex items-center justify-center gap-1.5 rounded-[7px] py-1.5 text-xs font-semibold transition-all duration-150 ${
+                      active
+                        ? 'bg-surface text-ink shadow-xs'
+                        : 'text-secondary hover:text-ink hover:bg-surface/50'
                     }`}
                   >
                     <Icon size={14} />
@@ -95,10 +130,10 @@ export function ThemeSelector({ className = '' }: { className?: string }) {
                     key={p.id}
                     type="button"
                     onClick={() => setPalette(p.id)}
-                    className={`flex w-full items-center justify-between rounded-control p-2 text-left transition ${
+                    className={`flex w-full items-center justify-between rounded-control p-2 text-left transition-all duration-150 ${
                       isSelected
-                        ? 'border border-accent/30 bg-accent-soft text-ink'
-                        : 'border border-transparent hover:bg-surface-2 text-ink'
+                        ? 'border border-accent/40 bg-accent-soft/70 text-ink shadow-2xs'
+                        : 'border border-transparent hover:bg-surface-2/70 text-ink'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">

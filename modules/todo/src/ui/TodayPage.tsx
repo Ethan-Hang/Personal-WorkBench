@@ -11,6 +11,7 @@ import {
   ProgressBar,
   MetricRing,
   QuickAddBar,
+  TodayClockCard,
   controlClass,
   useModuleLabel,
   IconCheck,
@@ -913,6 +914,9 @@ export function TodayPage() {
 
       {/* 右侧 1 栏：统一定义一次自右向左划入动效 */}
       <div className="space-y-5 animate-slide-right-in">
+        {/* 今日实时时分秒与日期卡片 */}
+        <TodayClockCard />
+
         {/* 今日执行度仪表盘卡片（内部隔离 60fps 缓动动画，保障列表极致丝滑） */}
         <TodayExecutionCard doneCount={doneTasks.length} totalCount={totalTasksCount} />
 
@@ -1153,11 +1157,12 @@ export function TodayPage() {
               </div>
             </Field>
 
-            <Field label="截止日期">
+            <Field label="截止日期 / 时间">
               <DatePicker
                 value={editDueDate}
                 onChange={setEditDueDate}
-                placeholder="年 / 月 / 日"
+                placeholder="年 / 月 / 日  时 : 分"
+                showTime={true}
                 className="w-full"
               />
             </Field>

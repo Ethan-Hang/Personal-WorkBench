@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, gte, inArray, isNotNull, lt, lte, or, type SQL } from 'drizzle-orm';
+import type Database from 'better-sqlite3';
+import { and, eq, gte, inArray, isNotNull, isNull, lt, lte, or, type SQL } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
 import {
   nowIso,
   type CreateItemInput,
@@ -10,6 +12,7 @@ import {
   type UpdateItemPatch,
 } from '@workbench/core';
 import type { Db } from './db.js';
+import * as schema from './schema.js';
 import { items } from './schema.js';
 
 type Row = typeof items.$inferSelect;
@@ -58,7 +61,17 @@ function toItem(row: Row): Item {
 }
 
 export class SqliteItemRepository implements ItemRepository {
-  constructor(private readonly db: Db) {}
+  private cached?: { connection: Database.Database; db: Db };
+
+  constructor(private readonly getSqlite: () => Database.Database) {}
+
+  private get db(): Db {
+    const connection = this.getSqlite();
+    if (this.cached?.connection !== connection) {
+      this.cached = { connection, db: drizzle(connection, { schema }) };
+    }
+    return this.cached.db;
+  }
 
   async create(moduleId: string, input: CreateItemInput): Promise<Item> {
     const now = nowIso();
@@ -140,8 +153,23 @@ export class SqliteItemRepository implements ItemRepository {
         and(eq(items.isAllDay, true), lte(items.scheduledStart, query.scheduledOnOrBeforeDate))!,
       );
     }
+    if (query.scheduledDateBetween !== undefined) {
+      // 'YYYY-MM-DD' 的字典序等于日期序，含两端即 >= from AND <= to
+      scheduleAlternatives.push(
+        and(
+          eq(items.isAllDay, true),
+          gte(items.scheduledStart, query.scheduledDateBetween.from),
+          lte(items.scheduledStart, query.scheduledDateBetween.to),
+        )!,
+      );
+    }
     if (scheduleAlternatives.length === 1) conditions.push(scheduleAlternatives[0]!);
     if (scheduleAlternatives.length > 1) conditions.push(or(...scheduleAlternatives)!);
+
+    // 未排程是一个独立的交集条件，不并入上面的排程并集
+    if (query.unscheduled === true) {
+      conditions.push(isNull(items.scheduledStart));
+    }
 
     if (query.dueBefore !== undefined) {
       // isNotNull 是冗余的（SQL 中 NULL < x 结果为 NULL，本就不会命中），

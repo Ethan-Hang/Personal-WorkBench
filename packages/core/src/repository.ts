@@ -32,6 +32,19 @@ export interface ListItemsQuery {
   scheduledOnDate?: string;
   /** 全天排程早于或等于此浮动日期。用于把未完成的旧任务带到今天。 */
   scheduledOnOrBeforeDate?: string;
+  /**
+   * 全天排程落在此浮动日期区间内（**含两端**）。与上面三个排程条件取并集。
+   * 日历的周 / 月视图靠它 + `scheduledWithin` 一次拿全全天与定时两类事项。
+   * 浮动日期不转 UTC（spec §6.2），所以这里是纯字符串比较，与 `scheduledWithin` 的时刻区间不同。
+   */
+  scheduledDateBetween?: { from: string; to: string };
+  /**
+   * 只取尚未排程的 Item（`scheduled === null`）。
+   * 与其他条件取**交集**，不参与上面三个排程条件的并集——
+   * 「未排程」与「排在某时段」互斥，同时给出必然空结果。
+   * `false` 与缺省同义：不施加任何过滤。
+   */
+  unscheduled?: boolean;
   /** DDL 早于此刻（用于逾期摘要） */
   dueBefore?: IsoInstant;
   statuses?: ItemStatus[];

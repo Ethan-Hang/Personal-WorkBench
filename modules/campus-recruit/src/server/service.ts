@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { nowIso, type IsoInstant, type ModuleContext } from '@workbench/core';
+import { nowIso, truncateToMinute, type IsoInstant, type ModuleContext } from '@workbench/core';
 import type {
   ApplicationView,
   CreateApplicationData,
@@ -85,6 +85,7 @@ async function applicationView(
       notes: round.notes,
       itemId: round.itemId,
     })),
+    deadlineItemId: application.deadlineItemId,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt,
   };
@@ -230,7 +231,9 @@ export async function createRound(
     sequence: await repo.nextRoundSequence(applicationId),
     kind: input.kind,
     name: input.name,
-    scheduledAt: input.scheduledAt,
+    // 排程颗粒度全局为分钟（ADR-0012），写入前就截零，
+    // 而不是只在投影时截——否则库里存的与日历上显示的不是同一个时刻
+    scheduledAt: input.scheduledAt === null ? null : truncateToMinute(input.scheduledAt),
     format: input.format,
     durationMin: input.durationMin,
     outcome: input.outcome,
@@ -260,7 +263,9 @@ export async function updateRound(
   const changes: RoundChanges = { updatedAt: now };
   if (input.kind !== undefined) changes.kind = input.kind;
   if (input.name !== undefined) changes.name = input.name;
-  if (input.scheduledAt !== undefined) changes.scheduledAt = input.scheduledAt;
+  if (input.scheduledAt !== undefined) {
+    changes.scheduledAt = input.scheduledAt === null ? null : truncateToMinute(input.scheduledAt);
+  }
   if (input.format !== undefined) changes.format = input.format;
   if (input.durationMin !== undefined) changes.durationMin = input.durationMin;
   if (input.notes !== undefined) changes.notes = input.notes;

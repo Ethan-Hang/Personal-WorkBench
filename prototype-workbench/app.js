@@ -45,17 +45,27 @@ function renderA() {
     '<div class="event goal-event" style="top:288px;height:80px">撰写周总结<br>14:00</div>', '', ''
   ];
   return `<div class="app-shell variant-a">${nav('calendar')}<main class="main">
-    ${topbar('2026 年 8 月', '本周计划')}
+    ${topbar('2026 年 8 月', '本周计划 · 周历指挥台')}
     <div class="a-layout"><section class="panel week-grid">
-      <div class="panel-header"><div class="week-toolbar"><button class="icon-button">‹</button><strong>8 月 3 日—9 日</strong><button class="icon-button">›</button><button class="ghost-button">今天</button></div><div><span class="chip">7 个计划</span></div></div>
+      <div class="panel-header">
+        <div class="week-toolbar">
+          <button class="icon-button" title="上一周">‹</button>
+          <strong>2026 年 第 32 周 (8 月 3 日—9 日)</strong>
+          <button class="icon-button" title="下一周">›</button>
+          <button class="ghost-button">今天</button>
+          <button class="ghost-button" title="快速切换年份和周次">2026年 第32周 ▾</button>
+          <button class="ghost-button" title="选择具体日期锁定周">🎯 定位日期</button>
+        </div>
+        <div><span class="chip">7 个计划 · 2 已完成</span></div>
+      </div>
       <div class="days"><div></div>${heads}</div>
       <div class="all-day"><div class="time-label">全天</div>${allDay}</div>
       <div class="calendar-body"><div>${['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'].map(x=>`<div class="time-label" style="height:54px">${x}</div>`).join('')}</div>${columns.map(x=>`<div class="day-cell">${x}</div>`).join('')}</div>
     </section>
     <aside class="side-stack">
-      <section class="panel"><div class="panel-header"><div><h2>收集箱</h2><small>4 项待安排</small></div><button class="text-button">整理</button></div><div class="side-content">
+      <section class="panel"><div class="panel-header"><div><h2>待排程抽屉</h2><small>4 项待安排</small></div><button class="text-button">整理</button></div><div class="side-content">
         ${task('预约年度体检','录入于今天', '未安排')}${task('更新读书清单','个人事务')}${task('购买显示器支架','生活')}
-        <button class="inbox-add">＋ 快速记录一件事</button>
+        <button class="inbox-add">＋ 快速记录一件事 (待排程)</button>
       </div></section>
       <section class="panel"><div class="panel-header"><div><h2>今日习惯</h2><small>2 / 3 已完成</small></div><span class="chip good">67%</span></div><div class="side-content">
         <div class="habit-row"><span class="habit-icon">✓</span><span>阅读 30 分钟</span><span class="chip good">完成</span></div>

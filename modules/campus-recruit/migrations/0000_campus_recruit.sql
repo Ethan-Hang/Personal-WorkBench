@@ -25,7 +25,7 @@ CREATE TABLE `campus_recruit_rounds` (
   `id` text PRIMARY KEY NOT NULL,
   `application_id` text NOT NULL,
   `sequence` integer NOT NULL CONSTRAINT `ck_campus_recruit_rounds_sequence` CHECK (`sequence` > 0),
-  `kind` text NOT NULL CONSTRAINT `ck_campus_recruit_rounds_kind` CHECK (`kind` IN ('assessment', 'written', 'technical', 'hr', 'other')),
+  `kind` text NOT NULL CONSTRAINT `ck_campus_recruit_rounds_kind` CHECK (`kind` IN ('screening', 'assessment', 'written', 'technical', 'hr', 'other')),
   `name` text NOT NULL,
   `scheduled_at` text,
   `format` text,

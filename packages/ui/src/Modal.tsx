@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { IconX } from './icons.js';
 
 export function Modal({
@@ -57,20 +58,20 @@ export function Modal({
 
   if (!shouldRender) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* 背景遮罩：平滑淡入淡出过渡 */}
+  const modalElement = (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+      {/* 全屏毛玻璃背景遮罩：突破任何父容器 transform 限制，全屏弥散模糊 */}
       <div
-        className={`fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity duration-200 ease-out ${
+        className={`fixed inset-0 bg-black/25 dark:bg-black/45 backdrop-blur-xl backdrop-saturate-150 transition-opacity duration-200 ease-out ${
           isClosing ? 'opacity-0' : 'opacity-100'
         }`}
         onClick={onClose}
         aria-hidden="true"
       />
 
-      {/* 弹窗实体：平滑缩放与透明度过渡（允许内部 DatePicker 等浮层正常溢出置顶） */}
+      {/* 弹窗实体：高质感亚克力毛玻璃 (Acrylic/Mica) 表面 */}
       <div
-        className={`relative z-10 w-full ${maxWidth} rounded-panel border border-line bg-surface p-6 shadow-2xl transition-all duration-200 ease-out ${
+        className={`relative z-10 w-full ${maxWidth} rounded-panel border border-line/90 bg-surface/90 dark:bg-surface/90 backdrop-blur-2xl p-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.35)] ring-1 ring-black/5 dark:ring-white/10 transition-all duration-200 ease-out ${
           isClosing
             ? 'scale-95 opacity-0 translate-y-2'
             : 'scale-100 opacity-100 translate-y-0 animate-scale-in'
@@ -97,4 +98,10 @@ export function Modal({
       </div>
     </div>
   );
+
+  if (typeof document !== 'undefined') {
+    return createPortal(modalElement, document.body);
+  }
+
+  return modalElement;
 }

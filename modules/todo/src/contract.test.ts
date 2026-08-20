@@ -4,6 +4,7 @@ import {
   TODO_API,
   batchIdsInputSchema,
   createTaskInputSchema,
+  taskViewSchema,
   updateTaskInputSchema,
 } from './contract.js';
 
@@ -28,9 +29,15 @@ describe('createTaskInputSchema', () => {
     expect(() => createTaskInputSchema.parse({ title: 'x', dueDate: '2026/09/20' })).toThrow();
   });
 
-  it('接受合法日期', () => {
+  it('接受合法日期 YYYY-MM-DD', () => {
     expect(createTaskInputSchema.parse({ title: 'x', dueDate: '2026-09-20' }).dueDate).toBe(
       '2026-09-20',
+    );
+  });
+
+  it('接受带时分的截止时间 YYYY-MM-DD HH:mm', () => {
+    expect(createTaskInputSchema.parse({ title: 'x', dueDate: '2026-09-20 15:30' }).dueDate).toBe(
+      '2026-09-20 15:30',
     );
   });
 });
@@ -77,5 +84,95 @@ describe('TODO_API 端点定义', () => {
   it('占位符不得被转义', () => {
     expect(TODO_API.completeTask(ID_PARAM)).toContain(':id');
     expect(TODO_API.completeTask(ID_PARAM)).not.toContain('%3A');
+  });
+});
+
+describe('taskViewSchema 的 kind 字段', () => {
+  it('接受带 kind 的形状', () => {
+    const parsed = taskViewSchema.parse({
+      id: 'a',
+      title: '写周报',
+      sourceModule: 'todo',
+      kind: 'task',
+      status: 'todo',
+      importance: 'normal',
+      notes: null,
+      dueAt: null,
+      scheduled: { kind: 'all-day', date: '2026-08-18' },
+      subtasks: [],
+      tags: [],
+      recurrenceId: null,
+      urgency: 'none',
+      priorityScore: 1,
+      isImportantQuadrant: false,
+      isUrgentQuadrant: false,
+    });
+    expect(parsed.kind).toBe('task');
+  });
+
+  it('缺少 kind 时拒绝——这正是六个写操作曾经必抛的那道缝', () => {
+    const withoutKind = {
+      id: 'a',
+      title: '写周报',
+      sourceModule: 'todo',
+      status: 'todo',
+      importance: 'normal',
+      dueAt: null,
+      scheduled: null,
+      urgency: 'none',
+      priorityScore: 1,
+      isImportantQuadrant: false,
+      isUrgentQuadrant: false,
+    };
+    expect(taskViewSchema.safeParse(withoutKind).success).toBe(false);
+  });
+});
+
+describe('备注（notes）', () => {
+  it('createTaskInputSchema 不传 notes 时为 undefined，服务端会归一成 null', () => {
+    expect(createTaskInputSchema.parse({ title: '写周报' }).notes).toBeUndefined();
+  });
+
+  it('备注会被 trim', () => {
+    expect(createTaskInputSchema.parse({ title: '写周报', notes: '  带身份证  ' }).notes).toBe(
+      '带身份证',
+    );
+  });
+
+  it('超过 2000 字被拒', () => {
+    const tooLong = 'x'.repeat(2001);
+    expect(createTaskInputSchema.safeParse({ title: '写周报', notes: tooLong }).success).toBe(
+      false,
+    );
+  });
+
+  it('updateTaskInputSchema 缺省时 notes 为 undefined，表示不动它', () => {
+    expect(updateTaskInputSchema.parse({ title: '改标题' }).notes).toBeUndefined();
+  });
+
+  it('updateTaskInputSchema 允许显式传 null 以清空', () => {
+    expect(updateTaskInputSchema.parse({ notes: null }).notes).toBeNull();
+  });
+
+  it('taskViewSchema 透出 notes', () => {
+    const parsed = taskViewSchema.parse({
+      id: 'a',
+      title: '写周报',
+      sourceModule: 'todo',
+      kind: 'task',
+      status: 'todo',
+      importance: 'normal',
+      dueAt: null,
+      notes: '带身份证',
+      scheduled: null,
+      subtasks: [],
+      tags: [],
+      recurrenceId: null,
+      urgency: 'none',
+      priorityScore: 1,
+      isImportantQuadrant: false,
+      isUrgentQuadrant: false,
+    });
+    expect(parsed.notes).toBe('带身份证');
   });
 });

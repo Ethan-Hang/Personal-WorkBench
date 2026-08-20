@@ -11,6 +11,7 @@ import {
   IconChevronRight,
   IconSettings,
   IconInfo,
+  IconCalendar,
 } from './icons.js';
 
 export interface ShellNavItem {
@@ -46,6 +47,7 @@ export function AppShell({
 
   const defaultIconForPath = (path: string) => {
     if (path === '/today' || path === '/') return <IconHome size={16} />;
+    if (path === '/calendar') return <IconCalendar size={16} />;
     if (path === '/campus') return <IconBriefcase size={16} />;
     if (path === '/campus/stats') return <IconBarChart size={16} />;
     if (path === '/settings') return <IconSettings size={16} />;
@@ -57,9 +59,9 @@ export function AppShell({
     <div className="min-h-screen bg-page text-ink transition-colors duration-200 flex">
       {/* 侧边栏 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out ${
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-screen sm:shrink-0 ${
           isSidebarCollapsed ? 'w-16' : 'w-64'
-        } sm:static`}
+        }`}
       >
         {/* 顶部品牌与折叠按钮区 */}
         <div className="flex h-16 items-center px-3 border-b border-sidebar-line/40 shrink-0">
@@ -229,7 +231,7 @@ export function AppShell({
       {/* 主工作区 */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* 顶栏 */}
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
           <div className="flex items-center gap-3">
             <div className="text-xs font-medium text-muted">
               <span>工作台</span>
@@ -267,8 +269,10 @@ export function AppShell({
         </header>
 
         {/* 页面主内容 */}
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
-          <div className="mx-auto max-w-6xl">{children}</div>
+        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 flex flex-col min-h-0 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1680px] flex-1 flex flex-col min-h-0">
+            {children}
+          </div>
         </main>
       </div>
     </div>

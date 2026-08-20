@@ -1,9 +1,22 @@
 import { NavLink, Route, Routes, Navigate, useLocation } from 'react-router';
 import type { ReactNode } from 'react';
-import { ModuleLabelProvider, ThemeProvider, AppShell, type ShellNavGroup } from '@workbench/ui';
+import {
+  ModuleLabelProvider,
+  SettingsProvider,
+  ThemeProvider,
+  TimezoneProvider,
+  PreferencesProvider,
+  AppShell,
+  type ShellNavGroup,
+} from '@workbench/ui';
 import { uiModules } from './modules.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
+import { createHttpSettingsStore } from './settingsStore.js';
+import { RestoreOverlay } from './sync/RestoreOverlay.js';
+
+// 模块作用域建一次即可：store 无状态，重建会白白丢掉内部引用。
+const settingsStore = createHttpSettingsStore();
 
 /**
  * 模块 id → 展示名，由注册表直接得出。
@@ -22,42 +35,49 @@ export function App() {
     {
       label: '核心工作',
       items: uiModules
-        .filter((m) => m.id === 'todo')
+        .filter((m) => m.id === 'workbench' || m.id === 'todo')
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
     },
     {
       label: '专业模块',
       items: uiModules
-        .filter((m) => m.id !== 'todo')
+        .filter((m) => m.id !== 'workbench' && m.id !== 'todo')
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
     },
   ].filter((g) => g.items.length > 0);
 
   return (
-    <ThemeProvider defaultMode="system" defaultPalette="warm">
-      <ModuleLabelProvider labels={MODULE_LABELS}>
-        <AppShell
-          navGroups={navGroups}
-          activePath={location.pathname}
-          LinkComponent={NavLink}
-          dbStatus="本地 SQLite 已就绪 · 零延迟"
-        >
-          <Routes>
-            {firstPath !== undefined && (
-              <Route path="/" element={<Navigate to={firstPath} replace />} />
-            )}
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            {uiModules.flatMap((m) =>
-              m.routes.map((r) => (
-                <Route key={r.path} path={r.path} element={r.element as ReactNode} />
-              )),
-            )}
-          </Routes>
-        </AppShell>
-      </ModuleLabelProvider>
-    </ThemeProvider>
+    <SettingsProvider store={settingsStore}>
+      <ThemeProvider>
+        <TimezoneProvider>
+          <PreferencesProvider>
+            <ModuleLabelProvider labels={MODULE_LABELS}>
+              <AppShell
+                navGroups={navGroups}
+                activePath={location.pathname}
+                LinkComponent={NavLink}
+                dbStatus="本地 SQLite 已就绪 · 零延迟"
+              >
+                <Routes>
+                  {firstPath !== undefined && (
+                    <Route path="/" element={<Navigate to={firstPath} replace />} />
+                  )}
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/about" element={<AboutPage />} />
+                  {uiModules.flatMap((m) =>
+                    m.routes.map((r) => (
+                      <Route key={r.path} path={r.path} element={r.element as ReactNode} />
+                    )),
+                  )}
+                </Routes>
+                <RestoreOverlay />
+              </AppShell>
+            </ModuleLabelProvider>
+          </PreferencesProvider>
+        </TimezoneProvider>
+      </ThemeProvider>
+    </SettingsProvider>
   );
 }

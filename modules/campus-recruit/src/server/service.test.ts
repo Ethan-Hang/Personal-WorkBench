@@ -396,3 +396,60 @@ describe('campus recruit service', () => {
     expect(pending.status.code).toBe('pending');
   });
 });
+
+describe('面试时刻的颗粒度为分钟（ADR-0012）', () => {
+  it('建轮次时把秒与毫秒截零', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const after = await createRound(
+      h.ctx,
+      h.repo,
+      app.id,
+      roundInput({ name: '笔试', scheduledAt: '2026-09-20T11:07:48.512Z' }),
+      OPTS,
+    );
+
+    expect(after.rounds.at(-1)?.scheduledAt).toBe('2026-09-20T11:07:00.000Z');
+  });
+
+  it('改轮次时同样截零', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    const created = await createRound(h.ctx, h.repo, app.id, roundInput(), OPTS);
+    const roundId = created.rounds.at(-1)!.id;
+
+    const after = await updateRound(
+      h.ctx,
+      h.repo,
+      roundId,
+      { scheduledAt: '2026-09-21T02:30:59.999Z' },
+      OPTS,
+    );
+
+    expect(after.rounds.at(-1)?.scheduledAt).toBe('2026-09-21T02:30:00.000Z');
+  });
+
+  it('截零后的时刻直接体现在 core Item 的排程上', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await createRound(
+      h.ctx,
+      h.repo,
+      app.id,
+      roundInput({ scheduledAt: '2026-09-20T11:07:48.512Z', durationMin: 60 }),
+      OPTS,
+    );
+
+    const items = await h.items.list({ sourceModules: [CAMPUS_RECRUIT_MODULE_ID] });
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        scheduled: {
+          kind: 'timed',
+          start: '2026-09-20T11:07:00.000Z',
+          end: '2026-09-20T12:07:00.000Z',
+        },
+      }),
+    );
+  });
+});

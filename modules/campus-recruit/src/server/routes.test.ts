@@ -17,11 +17,12 @@ interface AppHarness {
 const apps: FastifyInstance[] = [];
 
 async function makeApp(): Promise<AppHarness> {
-  const { db, sqlite } = openTestDatabase();
-  const repo = new SqliteCampusRecruitRepository(sqlite);
-  const app = await buildApp({ db, modules: [createCampusRecruitServerModule(repo)] });
+  const { sqlite } = openTestDatabase();
+  const getSqlite = () => sqlite;
+  const repo = new SqliteCampusRecruitRepository(getSqlite);
+  const app = await buildApp({ getSqlite, modules: [createCampusRecruitServerModule(repo)] });
   apps.push(app);
-  return { app, repo, items: new SqliteItemRepository(db) };
+  return { app, repo, items: new SqliteItemRepository(getSqlite) };
 }
 
 afterEach(async () => {
@@ -127,7 +128,8 @@ describe('campus recruit HTTP API', () => {
   it('runs full projection reconciliation after migrations with the system zone', async () => {
     const { db, sqlite } = openTestDatabase();
     runMigrationsFrom(db, 'modules/campus-recruit/migrations');
-    const repo = new SqliteCampusRecruitRepository(sqlite);
+    const getSqlite = () => sqlite;
+    const repo = new SqliteCampusRecruitRepository(getSqlite);
     await repo.insertApplication(
       applicationFixture({
         id: 'startup-app',
@@ -136,10 +138,10 @@ describe('campus recruit HTTP API', () => {
       }),
     );
 
-    const app = await buildApp({ db, modules: [createCampusRecruitServerModule(repo)] });
+    const app = await buildApp({ getSqlite, modules: [createCampusRecruitServerModule(repo)] });
     apps.push(app);
     const stored = (await repo.getApplication('startup-app'))!;
-    const item = await new SqliteItemRepository(db).getById(stored.deadlineItemId!);
+    const item = await new SqliteItemRepository(getSqlite).getById(stored.deadlineItemId!);
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     expect(item).toMatchObject({

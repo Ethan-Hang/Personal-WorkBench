@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { openTestDatabase, SqliteItemRepository } from '@workbench/data';
+import { openTestDatabase, runMigrationsFrom, SqliteItemRepository } from '@workbench/data';
 import { buildApp } from '@workbench/server';
-import { todoServerModule } from './index.js';
+import { SqliteTodoRepository } from '../storage/sqlite-repository.js';
+import { createTodoServerModule } from './index.js';
 
 async function makeApp(): Promise<FastifyInstance> {
-  const { db } = openTestDatabase();
-  return buildApp({ db, modules: [todoServerModule] });
+  const { db, sqlite } = openTestDatabase();
+  runMigrationsFrom(db, 'modules/todo/migrations');
+  const getSqlite = () => sqlite;
+  return buildApp({
+    getSqlite,
+    modules: [createTodoServerModule(new SqliteTodoRepository(getSqlite))],
+  });
 }
 
 describe('todo HTTP 接口', () => {
@@ -155,14 +161,19 @@ describe('todo HTTP 接口', () => {
   });
 
   it('完成其他模块的 Item 返回 404', async () => {
-    const { db } = openTestDatabase();
-    const items = new SqliteItemRepository(db);
+    const { db, sqlite } = openTestDatabase();
+    runMigrationsFrom(db, 'modules/todo/migrations');
+    const getSqlite = () => sqlite;
+    const items = new SqliteItemRepository(getSqlite);
     const campusItem = await items.create('campus-recruit', {
       kind: 'task',
       title: '投递 星云科技 固件工程师',
       scheduled: { kind: 'all-day', date: '2026-09-20' },
     });
-    const todoApp = await buildApp({ db, modules: [todoServerModule] });
+    const todoApp = await buildApp({
+      getSqlite,
+      modules: [createTodoServerModule(new SqliteTodoRepository(getSqlite))],
+    });
 
     const res = await todoApp.inject({
       method: 'POST',

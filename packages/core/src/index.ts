@@ -1,5 +1,13 @@
 export type { IsoInstant, PlainDate } from './time.js';
-export { nowIso, toIsoInstant, localDayOf, localDayRange, endOfLocalDayUtc } from './time.js';
+export {
+  nowIso,
+  toIsoInstant,
+  localDayOf,
+  localDayRange,
+  endOfLocalDayUtc,
+  truncateToMinute,
+  resolveDueDateUtc,
+} from './time.js';
 
 export type { ItemKind, ItemStatus, Importance, ScheduledTime, Item } from './item.js';
 export {
@@ -36,3 +44,20 @@ export type {
   UiRoute,
   UiModuleDefinition,
 } from './module.js';
+
+export type {
+  SettingCodec,
+  SettingKey,
+  AppSettings,
+  SettingsPatchResult,
+  SettingsRepository,
+} from './settings.js';
+export {
+  SETTINGS_CODECS,
+  SETTING_KEYS,
+  DEFAULT_SETTINGS,
+  SETTINGS_API,
+  isSettingKey,
+  resolveSettings,
+  parseSettingsPatch,
+} from './settings.js';

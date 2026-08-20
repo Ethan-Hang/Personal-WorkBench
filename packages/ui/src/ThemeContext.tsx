@@ -7,10 +7,12 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import type { AppSettings } from '@workbench/core';
+import { useSettings } from './SettingsContext.js';
 
-export type ThemeMode = 'light' | 'dark' | 'system';
+export type ThemeMode = AppSettings['theme.mode'];
 
-export type ThemePalette = 'warm' | 'forest' | 'ocean' | 'amber' | 'mono';
+export type ThemePalette = AppSettings['theme.palette'];
 
 export interface ThemeConfig {
   mode: ThemeMode;
@@ -81,34 +83,15 @@ interface ThemeContextValue {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
-const STORAGE_KEY_MODE = 'workbench_theme_mode';
-const STORAGE_KEY_PALETTE = 'workbench_theme_palette';
-
 function getSystemMode(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light';
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-export function ThemeProvider({
-  children,
-  defaultMode = 'system',
-  defaultPalette = 'warm',
-}: {
-  children: ReactNode;
-  defaultMode?: ThemeMode;
-  defaultPalette?: ThemePalette;
-}) {
-  const [mode, setModeState] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') return defaultMode;
-    const saved = localStorage.getItem(STORAGE_KEY_MODE) as ThemeMode | null;
-    return saved && ['light', 'dark', 'system'].includes(saved) ? saved : defaultMode;
-  });
-
-  const [palette, setPaletteState] = useState<ThemePalette>(() => {
-    if (typeof window === 'undefined') return defaultPalette;
-    const saved = localStorage.getItem(STORAGE_KEY_PALETTE) as ThemePalette | null;
-    return saved && PALETTES.some((p) => p.id === saved) ? saved : defaultPalette;
-  });
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const { settings, update } = useSettings();
+  const mode = settings['theme.mode'];
+  const palette = settings['theme.palette'];
 
   const [systemMode, setSystemMode] = useState<'light' | 'dark'>(getSystemMode);
 
@@ -142,35 +125,15 @@ export function ThemeProvider({
     root.style.colorScheme = resolvedMode;
   }, [resolvedMode, palette]);
 
-  const setMode = useCallback((newMode: ThemeMode) => {
-    setModeState(newMode);
-    try {
-      localStorage.setItem(STORAGE_KEY_MODE, newMode);
-    } catch {
-      // 容错（隐身模式等）
-    }
-  }, []);
-
-  const setPalette = useCallback((newPalette: ThemePalette) => {
-    setPaletteState(newPalette);
-    try {
-      localStorage.setItem(STORAGE_KEY_PALETTE, newPalette);
-    } catch {
-      // 容错
-    }
-  }, []);
-
+  const setMode = useCallback((newMode: ThemeMode) => update({ 'theme.mode': newMode }), [update]);
+  const setPalette = useCallback(
+    (newPalette: ThemePalette) => update({ 'theme.palette': newPalette }),
+    [update],
+  );
   const toggleMode = useCallback(() => {
-    setModeState((prev) => {
-      const next: ThemeMode = prev === 'light' ? 'dark' : prev === 'dark' ? 'system' : 'light';
-      try {
-        localStorage.setItem(STORAGE_KEY_MODE, next);
-      } catch {
-        // 容错
-      }
-      return next;
-    });
-  }, []);
+    const next: ThemeMode = mode === 'light' ? 'dark' : mode === 'dark' ? 'system' : 'light';
+    update({ 'theme.mode': next });
+  }, [mode, update]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({

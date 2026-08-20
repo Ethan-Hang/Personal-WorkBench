@@ -3,7 +3,14 @@ import { z } from 'zod';
 export const CAMPUS_RECRUIT_MODULE_ID = 'campus-recruit';
 export const APPLICATION_PRIORITIES = ['S', 'A', 'B', 'C'] as const;
 export const APPLICATION_OUTCOMES = ['offer', 'oc', 'rejected', 'declined'] as const;
-export const ROUND_KINDS = ['assessment', 'written', 'technical', 'hr', 'other'] as const;
+export const ROUND_KINDS = [
+  'screening',
+  'assessment',
+  'written',
+  'technical',
+  'hr',
+  'other',
+] as const;
 export const ROUND_OUTCOMES = ['pending', 'passed', 'failed'] as const;
 export const APPLICATION_STATUS_CODES = [
   'offer',
@@ -24,10 +31,20 @@ export type ApplicationStatusCode = (typeof APPLICATION_STATUS_CODES)[number];
 
 const dateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式须为 YYYY-MM-DD')
+  .regex(
+    /^\d{4}-\d{2}-\d{2}(([ T]\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z?)?)$/,
+    '日期格式须为 YYYY-MM-DD 或 YYYY-MM-DD HH:mm',
+  )
   .refine((value) => {
-    const timestamp = Date.parse(`${value}T00:00:00.000Z`);
-    return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value;
+    const datePart = value.slice(0, 10);
+    const [y, m, d] = datePart.split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const dateObj = new Date(Date.UTC(y, m - 1, d));
+    return (
+      dateObj.getUTCFullYear() === y &&
+      dateObj.getUTCMonth() === m - 1 &&
+      dateObj.getUTCDate() === d
+    );
   }, '日期必须是有效日历日期');
 const instantSchema = z.string().datetime({ precision: 3 });
 const nullableText = (max: number) => z.string().trim().max(max).nullable();
@@ -135,6 +152,7 @@ export const applicationViewSchema = z.object({
     failedRoundName: z.string().nullable(),
   }),
   rounds: z.array(roundViewSchema),
+  deadlineItemId: z.string().nullable().optional(),
   createdAt: instantSchema,
   updatedAt: instantSchema,
 });
