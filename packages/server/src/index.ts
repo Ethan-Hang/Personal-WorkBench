@@ -131,6 +131,7 @@ async function main() {
       source: backupService,
       migrate,
       moduleIds: modules.map((mod) => mod.id),
+      snapshotBefore: (reason) => localBackupService.snapshotBefore(reason),
     });
     // 恢复中断电不能变砖：进程启动时若 .restore/state.json 还在就直接进入错误态。
     restoreService.resumeIfInterrupted();
@@ -159,6 +160,12 @@ async function main() {
     // 挂在 listToday」同源。默认关闭，所以默认配置下这里一个出站请求都不发。
     void backupService.maybeAutoBackup().catch((err: unknown) => {
       app.log.error({ err }, '启动时的自动备份失败');
+    });
+
+    // 本地快照同样挂在启动（距上次 >24h），默认关闭。与上面一样是 catch-and-log：
+    // 启动被一份备份写失败拖挂，是比没有备份更糟的故障。
+    void localBackupService.maybeAutoSnapshot().catch((err: unknown) => {
+      app.log.error({ err }, '启动时的自动本地快照失败');
     });
   } catch (err) {
     console.error('Server failed to start:', err);

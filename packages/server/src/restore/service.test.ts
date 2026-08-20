@@ -42,6 +42,9 @@ interface Harness {
   service: RestoreService;
   /** 让接下来的 N 次迁移失败。1 = 只炸正向 verify，回退那次照常成功。 */
   failMigrations: { remaining: number };
+  /** 恢复前那次强制安全快照的调用记录。 */
+  safetySnapshots: string[];
+  failSafetySnapshot: { yes: boolean };
 }
 
 function migrate(sqlite: Database.Database): void {
@@ -62,6 +65,8 @@ function createHarness(): Harness {
   const state = new ServiceState();
   const source = new FakeSource();
   const failMigrations = { remaining: 0 };
+  const safetySnapshots: string[] = [];
+  const failSafetySnapshot = { yes: false };
   const service = new RestoreService({
     holder,
     state,
@@ -69,6 +74,10 @@ function createHarness(): Harness {
     dbPath: () => dbPath,
     source,
     moduleIds: [],
+    snapshotBefore: async (reason) => {
+      if (failSafetySnapshot.yes) throw new Error('磁盘满了');
+      safetySnapshots.push(reason);
+    },
     migrate: (sqlite) => {
       if (failMigrations.remaining > 0) {
         failMigrations.remaining -= 1;
@@ -77,7 +86,17 @@ function createHarness(): Harness {
       migrate(sqlite);
     },
   });
-  return { dataDir, dbPath, holder, state, source, service, failMigrations };
+  return {
+    dataDir,
+    dbPath,
+    holder,
+    state,
+    source,
+    service,
+    failMigrations,
+    safetySnapshots,
+    failSafetySnapshot,
+  };
 }
 
 /** 造一份「云端备份」：内容由 seed 决定，迁移水位与本地相同。 */
@@ -301,5 +320,45 @@ describe('RestoreService.rollback', () => {
 
   it('没有回退点时拒绝回退，而不是留下一个空库', async () => {
     await expect(harness.service.rollback()).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe('恢复前的强制安全快照', () => {
+  it('confirm 会先打一份本地快照，回退点之外再多一层网', async () => {
+    await seedBackup(harness, 'b1.db.gz', async () => {});
+
+    await harness.service.preflight('b1.db.gz');
+    await harness.service.confirm('b1.db.gz');
+
+    expect(harness.safetySnapshots).toEqual(['恢复']);
+  });
+
+  it('安全快照失败则整个恢复拒绝开始，与「没有回退点就不动手」同一条原则', async () => {
+    await seedBackup(harness, 'b1.db.gz', async (connection) => {
+      await new SqliteItemRepository(() => connection).create('todo', {
+        title: '云端的',
+        kind: 'task',
+      });
+    });
+    await new SqliteItemRepository(() => harness.holder.current()).create('todo', {
+      title: '本地的',
+      kind: 'task',
+    });
+    await harness.service.preflight('b1.db.gz');
+    harness.failSafetySnapshot.yes = true;
+
+    await expect(harness.service.confirm('b1.db.gz')).rejects.toThrow(/安全快照/);
+
+    // 本地库一个字节都没被碰过。
+    expect(await titles(harness.holder.current())).toEqual(['本地的']);
+    expect(harness.state.current().state).toBe('idle');
+  });
+
+  it('预检不打快照：它对本地库只读，随时可取消', async () => {
+    await seedBackup(harness, 'b1.db.gz', async () => {});
+
+    await harness.service.preflight('b1.db.gz');
+
+    expect(harness.safetySnapshots).toEqual([]);
   });
 });

@@ -26,6 +26,11 @@ export const backupMetaSchema = z.object({
   counts: z.record(z.string(), z.number()),
   bytes: z.number().int().nonnegative(),
   sha256: z.string(),
+  /**
+   * 这份备份为什么存在（「恢复前」「导入前」…）。**可选**：旧的 meta 没有这个字段，
+   * 加成必填会让所有既有备份一夜之间变成「不完整」。手动备份不带它。
+   */
+  reason: z.string().optional(),
 });
 export type BackupMeta = z.infer<typeof backupMetaSchema>;
 

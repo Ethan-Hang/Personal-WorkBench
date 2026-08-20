@@ -21,6 +21,8 @@ interface Harness {
   sqlite: Database.Database;
   settings: SqliteSettingsRepository;
   service: LocalBackupService;
+  /** 让 24h 限流可测：不动系统时钟，只挪服务看到的「现在」。 */
+  setNow: (at: Date | undefined) => void;
 }
 
 function harness(): Harness {
@@ -32,6 +34,7 @@ function harness(): Harness {
   runCoreMigrations(db);
   openDatabases.push(sqlite);
   const settings = new SqliteSettingsRepository(() => sqlite);
+  let now: Date | undefined;
   const service = new LocalBackupService({
     settings,
     getSqlite: () => sqlite,
@@ -39,8 +42,17 @@ function harness(): Harness {
     dataDir,
     device: 'test-device',
     appVersion: '0.0.0',
+    now: () => now ?? new Date(),
   });
-  return { dataDir, sqlite, settings, service };
+  return {
+    dataDir,
+    sqlite,
+    settings,
+    service,
+    setNow: (at) => {
+      now = at;
+    },
+  };
 }
 
 /** 同一毫秒内连跑会撞名（upload 用 wx 排他创建），错开一点点。 */
@@ -215,5 +227,97 @@ describe('remove', () => {
     await service.remove(item.name);
 
     expect(await service.list()).toEqual([]);
+  });
+});
+
+describe('启动时的自动快照', () => {
+  it('开关关着时一份都不打：磁盘占用不该在用户不知情时增长', async () => {
+    const { service } = harness();
+
+    await service.maybeAutoSnapshot();
+
+    expect(await service.list()).toEqual([]);
+  });
+
+  it('开关开着且没有历史备份时打一份', async () => {
+    const { service } = harness();
+    await service.updateConfig({ autoEnabled: true });
+
+    await service.maybeAutoSnapshot();
+
+    expect(await service.list()).toHaveLength(1);
+  });
+
+  it('距上次不足 24h 就跳过：一天重启十次不该刷出十份', async () => {
+    const { service, setNow } = harness();
+    await service.updateConfig({ autoEnabled: true });
+    await service.maybeAutoSnapshot();
+
+    setNow(new Date(Date.now() + 23 * 60 * 60 * 1000));
+    await service.maybeAutoSnapshot();
+
+    expect(await service.list()).toHaveLength(1);
+  });
+
+  it('距上次超过 24h 就再打一份', async () => {
+    const { service, setNow } = harness();
+    await service.updateConfig({ autoEnabled: true });
+    await service.maybeAutoSnapshot();
+
+    setNow(new Date(Date.now() + 25 * 60 * 60 * 1000));
+    await service.maybeAutoSnapshot();
+
+    expect(await service.list()).toHaveLength(2);
+  });
+
+  it('限流只看完整备份的时间，孤儿不能把限流窗口顶开', async () => {
+    const { service, dataDir } = harness();
+    await service.updateConfig({ autoEnabled: true });
+    const dir = join(dataDir, 'backups');
+    mkdirSync(dir, { recursive: true });
+    // 一个「刚刚才写下」的孤儿。若限流按它算，这次启动就会被错误地跳过。
+    writeFileSync(join(dir, '2099-01-01T00-00-00-000Z.db.gz'), Buffer.from([1]));
+
+    await service.maybeAutoSnapshot();
+
+    expect((await service.list()).filter((entry) => entry.complete)).toHaveLength(1);
+  });
+});
+
+describe('高危操作前的强制快照', () => {
+  it('开关关着也照打：这是安全网，不是周期备份', async () => {
+    const { service } = harness();
+
+    await service.snapshotBefore('恢复');
+
+    expect(await service.list()).toHaveLength(1);
+  });
+
+  it('不限流：刚打过也照打，因为下一步就要不可逆地改数据', async () => {
+    const { service } = harness();
+    await service.updateConfig({ autoEnabled: true });
+    await service.maybeAutoSnapshot();
+    await tick();
+
+    await service.snapshotBefore('导入');
+
+    expect(await service.list()).toHaveLength(2);
+  });
+
+  it('原因写进 meta，界面才能解释这份备份为什么存在', async () => {
+    const { service } = harness();
+
+    const item = await service.snapshotBefore('删除账号');
+
+    expect(item.meta?.reason).toBe('删除账号');
+    expect((await service.list())[0]?.meta?.reason).toBe('删除账号');
+  });
+
+  it('手动导出不带 reason，不给一份用户主动打的备份编一个理由', async () => {
+    const { service } = harness();
+
+    const item = await service.run();
+
+    expect(item.meta?.reason).toBeUndefined();
   });
 });
