@@ -19,6 +19,7 @@ import {
   IconSearch,
   IconPlus,
   IconTarget,
+  IconAlertCircle,
 } from '@workbench/ui';
 import { type WorkbenchItem, type ScheduleInput } from '../contract.js';
 import {
@@ -237,7 +238,12 @@ export function CalendarPage() {
   }, [selectedDate, timezone]);
 
   // 1. 获取日历区间数据
-  const { data: calendarData } = useQuery({
+  const {
+    data: calendarData,
+    isPending: isCalendarPending,
+    isError: isCalendarError,
+    error: calendarError,
+  } = useQuery({
     queryKey: ['workbench', 'calendar', weekRange.from, weekRange.to],
     queryFn: () => fetchCalendar(weekRange.from, weekRange.to),
     staleTime: 5000,
@@ -526,10 +532,29 @@ export function CalendarPage() {
   const availableYears = useMemo(() => getAvailableYears(weekRange.year, 8), [weekRange.year]);
   const yearWeeks = useMemo(() => getWeeksInYear(pickerYear, timezone), [pickerYear, timezone]);
 
+  if (isCalendarPending && !calendarData) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 text-center animate-fade-in">
+        <div className="size-10 rounded-full border-3 border-line border-t-accent animate-spin-ring" />
+        <p className="mt-3 text-xs font-medium text-muted">正在加载周历工作台数据…</p>
+      </div>
+    );
+  }
+
+  if (isCalendarError) {
+    return (
+      <div className="rounded-panel border border-critical-soft bg-critical-soft p-6 text-center text-critical animate-slide-down-in">
+        <IconAlertCircle size={28} className="mx-auto mb-2" />
+        <h3 className="font-bold">加载周历数据失败</h3>
+        <p className="mt-1 text-xs">{calendarError?.message || '网络或数据加载异常'}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col flex-1 h-[calc(100vh-92px)] max-h-[calc(100vh-92px)] min-h-0 gap-3 overflow-hidden">
       {/* 顶部周历控制条 (高度固定，不参与滚动) */}
-      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-2.5">
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-2.5 animate-slide-down-in">
         {/* 左侧：周导航与标题 */}
         <div className="flex flex-wrap items-center gap-3">
           {/* 上下周切换按钮组 */}
@@ -777,7 +802,7 @@ export function CalendarPage() {
       {/* 主工作区：左侧 7 列周历时间轴网格 + 右侧常驻抽屉 (完全填充剩余视口高度) */}
       <div className="flex flex-col lg:flex-row gap-4 items-start flex-1 min-h-0 overflow-hidden w-full">
         {/* 左侧：周历主体（7 列日历 + 全天栏 + 24 小时时间轴） */}
-        <div className="flex-1 min-w-0 w-full rounded-card border border-line bg-surface shadow-xs flex flex-col h-full min-h-0 overflow-hidden">
+        <div className="flex-1 min-w-0 w-full rounded-card border border-line bg-surface shadow-xs flex flex-col h-full min-h-0 overflow-hidden animate-slide-down-in stagger-1">
           {/* 横向滚动容器：保证在极端小屏下每列不低于 120px，在大屏下无缝完全展开 */}
           <div className="w-full h-full flex flex-col min-h-0 overflow-x-auto overflow-y-hidden">
             <div className="w-full min-w-[960px] h-full flex flex-col min-h-0">
@@ -982,7 +1007,7 @@ export function CalendarPage() {
                         {/* 实时红线（若该列为今天） */}
                         {isToday && nowIndicator && (
                           <div
-                            className="absolute left-0 right-0 z-20 flex items-center pointer-events-none"
+                            className="absolute left-0 right-0 z-20 flex items-center pointer-events-none animate-fade-in"
                             style={{ top: nowIndicator.topPx }}
                           >
                             <div className="size-2 rounded-full bg-critical -ml-1 ring-2 ring-white" />
@@ -1040,10 +1065,10 @@ export function CalendarPage() {
 
         {/* 右侧：常驻待排程任务抽屉与周度概览面板 (限制在视口高度内独立滚动) */}
         {isSideDrawerOpen && (
-          <aside className="w-full lg:w-80 shrink-0 space-y-3.5 h-full max-h-full overflow-y-auto pr-1">
+          <aside className="w-full lg:w-80 shrink-0 space-y-3.5 h-full max-h-full overflow-y-auto pr-1 animate-slide-right-in">
             {/* 1. 待排程抽屉卡片 */}
             <div
-              className="rounded-panel border border-line bg-surface p-4 shadow-xs"
+              className="rounded-panel border border-line bg-surface p-4 shadow-xs animate-slide-right-in stagger-1"
               onDragOver={(e) => {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
@@ -1130,7 +1155,7 @@ export function CalendarPage() {
             </div>
 
             {/* 2. 本周执行度概览 */}
-            <div className="rounded-panel border border-line bg-surface p-3.5 shadow-xs space-y-2.5">
+            <div className="rounded-panel border border-line bg-surface p-3.5 shadow-xs space-y-2.5 animate-slide-right-in stagger-2">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted">
                   本周执行度
@@ -1161,7 +1186,7 @@ export function CalendarPage() {
             </div>
 
             {/* 3. 今日习惯打卡预览 (对齐方案 A 设计) */}
-            <div className="rounded-panel border border-line bg-surface p-3.5 shadow-xs space-y-2">
+            <div className="rounded-panel border border-line bg-surface p-3.5 shadow-xs space-y-2 animate-slide-right-in stagger-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-muted">今日习惯</h3>
                 <Chip tone="good">2 / 3 完成</Chip>
@@ -1367,7 +1392,7 @@ function CalendarEventChip({
       onDragStart={onDragStart}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className={`group flex items-center gap-1.5 rounded-control px-2 py-1 text-xs border shadow-2xs cursor-grab active:cursor-grabbing transition-all hover:scale-[1.01] ${
+      className={`group flex items-center gap-1.5 rounded-control px-2 py-1 text-xs border shadow-2xs cursor-grab active:cursor-grabbing transition-all hover:scale-[1.01] animate-item-enter ${
         isDone
           ? 'bg-surface-2/60 text-muted border-line opacity-75'
           : item.importance === 'high'
@@ -1432,7 +1457,7 @@ function CalendarTimedEventCard({
         top: topPx,
         height: heightPx,
       }}
-      className={`absolute left-1 right-1 z-10 rounded-control p-1.5 border shadow-2xs overflow-hidden cursor-grab active:cursor-grabbing transition-all hover:z-30 hover:shadow-md ${
+      className={`absolute left-1 right-1 z-10 rounded-control p-1.5 border shadow-2xs overflow-hidden cursor-grab active:cursor-grabbing transition-all hover:z-30 hover:shadow-md animate-item-enter ${
         isDone
           ? 'bg-surface-2/80 text-muted border-line opacity-70'
           : isCampus
@@ -1500,7 +1525,7 @@ function UnscheduledItemCard({
       onDragStart={onDragStart}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className="group rounded-control border border-line bg-surface p-2.5 text-xs shadow-2xs hover:border-accent/60 hover:shadow-xs transition-all cursor-grab active:cursor-grabbing space-y-1.5"
+      className="group rounded-control border border-line bg-surface p-2.5 text-xs shadow-2xs hover:border-accent/60 hover:shadow-xs transition-all cursor-grab active:cursor-grabbing space-y-1.5 animate-item-enter"
     >
       <div className="flex items-start justify-between gap-2">
         <ScrollableTitle
