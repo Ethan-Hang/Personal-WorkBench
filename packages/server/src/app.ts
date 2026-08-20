@@ -110,7 +110,7 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (opts.localBackup !== undefined) registerLocalBackupRoutes(app, opts.localBackup);
   const restoreForImport = opts.restore ?? opts.backup?.restore;
   if (restoreForImport !== undefined) {
-    registerLocalImportRoutes(app, restoreForImport, opts.localImport);
+    registerLocalImportRoutes(app, restoreForImport, opts.localImport, opts.localBackup);
   }
   if (opts.gistSync !== undefined) registerSyncRoutes(app, opts.gistSync);
 

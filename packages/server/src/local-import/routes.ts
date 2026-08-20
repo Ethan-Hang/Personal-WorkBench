@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import {
   LOCAL_IMPORT_API,
@@ -6,6 +8,7 @@ import {
   localImportPreflightBodySchema,
 } from '@workbench/sync/contract';
 import { SyncError } from '@workbench/sync/node';
+import type { LocalBackupService } from '../local-backup/service.js';
 import type { RestoreService } from '../restore/service.js';
 import type { LocalImportService } from './service.js';
 
@@ -19,11 +22,23 @@ export function registerLocalImportRoutes(
   app: FastifyInstance,
   restore: RestoreService,
   asNewAccount?: LocalImportService,
+  localBackup?: LocalBackupService,
 ): void {
+  async function resolveFilePath(rawPath: string): Promise<string> {
+    if (existsSync(rawPath)) return rawPath;
+    if (localBackup !== undefined) {
+      const config = await localBackup.getConfig();
+      const candidate = join(config.resolvedDir, rawPath);
+      if (existsSync(candidate)) return candidate;
+    }
+    return rawPath;
+  }
+
   app.post(LOCAL_IMPORT_API.preflight(), async (request) => {
     const body = localImportPreflightBodySchema.safeParse(request.body);
     if (!body.success) throw new SyncError('缺少要导入的文件路径', 400);
-    return restore.preflightLocalFile(body.data.filePath);
+    const filePath = await resolveFilePath(body.data.filePath);
+    return restore.preflightLocalFile(filePath);
   });
 
   /**
@@ -36,7 +51,8 @@ export function registerLocalImportRoutes(
   app.post(LOCAL_IMPORT_API.confirm(), async (request) => {
     const body = localImportConfirmBodySchema.safeParse(request.body);
     if (!body.success) throw new SyncError('缺少要导入的文件路径', 400);
-    return restore.confirm(body.data.filePath);
+    const filePath = await resolveFilePath(body.data.filePath);
+    return restore.confirm(filePath);
   });
 
   if (asNewAccount === undefined) return;
@@ -48,10 +64,8 @@ export function registerLocalImportRoutes(
   app.post(LOCAL_IMPORT_API.asNewAccount(), async (request) => {
     const body = localImportAsNewAccountBodySchema.safeParse(request.body);
     if (!body.success) throw new SyncError('缺少文件路径或新账号的名字', 400);
-    const account = await asNewAccount.importAsNewAccount(
-      body.data.filePath,
-      body.data.displayName,
-    );
+    const filePath = await resolveFilePath(body.data.filePath);
+    const account = await asNewAccount.importAsNewAccount(filePath, body.data.displayName);
     return { id: account.id, displayName: account.displayName };
   });
 }

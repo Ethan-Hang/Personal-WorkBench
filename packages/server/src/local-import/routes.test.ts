@@ -11,8 +11,10 @@ import {
   openSqliteConnection,
   resolveActiveDatabase,
   runCoreMigrations,
+  SqliteSettingsRepository,
 } from '@workbench/data';
 import { migrationWatermarks } from '@workbench/sync/node';
+import { LocalBackupService } from '../local-backup/service.js';
 import { LocalImportService } from './service.js';
 import {
   LOCAL_IMPORT_API,
@@ -32,7 +34,10 @@ function migrate(sqlite: Parameters<typeof createDatabaseClient>[0]): void {
   runCoreMigrations(createDatabaseClient(sqlite));
 }
 
-async function buildImportApp(): Promise<FastifyInstance> {
+async function buildImportApp(options?: { withLocalBackup?: boolean }): Promise<{
+  app: FastifyInstance;
+  localBackup?: LocalBackupService;
+}> {
   const dataDir = mkdtempSync(join(tmpdir(), 'workbench-local-import-routes-'));
   temporaryDirectories.push(dataDir);
   const active = resolveActiveDatabase({ dataDir });
@@ -58,14 +63,26 @@ async function buildImportApp(): Promise<FastifyInstance> {
     localWatermarks: () => migrationWatermarks(holder.current()),
   });
 
+  const localBackup = options?.withLocalBackup
+    ? new LocalBackupService({
+        settings: new SqliteSettingsRepository(() => holder.current()),
+        getSqlite: () => holder.current(),
+        accountId: () => 'local-default',
+        dataDir,
+        device: '测试机',
+        appVersion: '0.0.0',
+      })
+    : undefined;
+
   const app = await buildApp({
     getSqlite: () => holder.current(),
     modules: [],
     restore,
     localImport,
+    localBackup,
   });
   openApps.push(app);
-  return app;
+  return { app, localBackup };
 }
 
 /** 造一份能被导入的本地 .db.gz。 */
@@ -91,7 +108,7 @@ afterEach(async () => {
 
 describe('本地导入路由', () => {
   it('预检的响应形状与契约一致', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -103,8 +120,23 @@ describe('本地导入路由', () => {
     expect(() => localImportPreflightResponseSchema.parse(res.json())).not.toThrow();
   });
 
+  it('传入纯文件名时能自动在本地备份目录解析', async () => {
+    const { app, localBackup } = await buildImportApp({ withLocalBackup: true });
+    expect(localBackup).toBeDefined();
+    const backupItem = await localBackup!.run();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.preflight(),
+      payload: { filePath: backupItem.name },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(() => localImportPreflightResponseSchema.parse(res.json())).not.toThrow();
+  });
+
   it('缺少 filePath → 400，而不是 500', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -117,7 +149,7 @@ describe('本地导入路由', () => {
   });
 
   it('文件不存在 → 404，界面据此提示重新选文件', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -131,7 +163,7 @@ describe('本地导入路由', () => {
 
 describe('本地导入的确认路由', () => {
   it('预检之后确认，返回的状态形状与契约一致', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
     const filePath = seedFile();
     await app.inject({
       method: 'POST',
@@ -149,8 +181,28 @@ describe('本地导入的确认路由', () => {
     expect(() => restoreStateSchema.parse(res.json())).not.toThrow();
   });
 
+  it('传入纯文件名时预检与确认均能自动在本地备份目录解析', async () => {
+    const { app, localBackup } = await buildImportApp({ withLocalBackup: true });
+    const backupItem = await localBackup!.run();
+
+    const preflightRes = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.preflight(),
+      payload: { filePath: backupItem.name },
+    });
+    expect(preflightRes.statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.confirm(),
+      payload: { filePath: backupItem.name },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(() => restoreStateSchema.parse(res.json())).not.toThrow();
+  });
+
   it('没预检过就确认 → 409，而不是 500', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -163,7 +215,7 @@ describe('本地导入的确认路由', () => {
   });
 
   it('缺少 filePath → 400', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -177,7 +229,7 @@ describe('本地导入的确认路由', () => {
 
 describe('导入为新账号的路由', () => {
   it('不需要先预检就能导入，响应形状与契约一致', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -189,8 +241,22 @@ describe('导入为新账号的路由', () => {
     expect(() => localImportAsNewAccountResponseSchema.parse(res.json())).not.toThrow();
   });
 
+  it('传入纯文件名导入新账号时能自动解析', async () => {
+    const { app, localBackup } = await buildImportApp({ withLocalBackup: true });
+    const backupItem = await localBackup!.run();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.asNewAccount(),
+      payload: { filePath: backupItem.name, displayName: '纯文件名导入' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(() => localImportAsNewAccountResponseSchema.parse(res.json())).not.toThrow();
+  });
+
   it('缺少 displayName → 400', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',
@@ -202,7 +268,7 @@ describe('导入为新账号的路由', () => {
   });
 
   it('文件不存在 → 404', async () => {
-    const app = await buildImportApp();
+    const { app } = await buildImportApp();
 
     const res = await app.inject({
       method: 'POST',

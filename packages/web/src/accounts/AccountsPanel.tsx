@@ -40,6 +40,7 @@ import {
   updateAccount,
 } from './accountsApi.js';
 import { GistSyncPanel } from '../sync/GistSyncPanel.js';
+import { fetchLocalBackupConfig, fetchLocalBackupList } from '../sync/localBackupApi.js';
 import { LocalImportModal } from '../sync/LocalImportModal.js';
 import { fetchSyncStatus } from '../sync/syncApi.js';
 
@@ -145,6 +146,16 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
   const { data: syncStatus } = useQuery({
     queryKey: ['sync-status'],
     queryFn: () => fetchSyncStatus(),
+  });
+
+  const { data: localConfig } = useQuery({
+    queryKey: ['local-backup-config'],
+    queryFn: () => fetchLocalBackupConfig(),
+  });
+
+  const { data: localBackups = [] } = useQuery({
+    queryKey: ['local-backup-list'],
+    queryFn: () => fetchLocalBackupList(),
   });
 
   const activeId = data?.activeId ?? 'local-default';
@@ -1591,6 +1602,8 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         initialDirection="new-account"
+        knownBackups={localBackups}
+        resolvedDir={localConfig?.resolvedDir}
         onSuccess={(res) => {
           void refetch();
           showToast(`新账号「${res.displayName || ''}」已成功创建并导入数据`);

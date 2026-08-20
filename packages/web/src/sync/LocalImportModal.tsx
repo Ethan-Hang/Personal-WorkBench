@@ -23,12 +23,21 @@ import { confirmLocalImport, importAsNewAccount, preflightLocalImport } from './
 
 type ImportDirection = 'overwrite' | 'new-account';
 
+export function joinBackupFilePath(dir?: string, name?: string): string {
+  if (!name) return '';
+  if (!dir) return name;
+  const cleanDir = dir.trim().replace(/[/\\]+$/, '');
+  const separator = cleanDir.includes('\\') ? '\\' : '/';
+  return `${cleanDir}${separator}${name}`;
+}
+
 export interface LocalImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialFilePath?: string;
   initialDirection?: ImportDirection;
   knownBackups?: BackupListItem[];
+  resolvedDir?: string;
   onSuccess?: (result: {
     direction: ImportDirection;
     accountId?: string;
@@ -42,6 +51,7 @@ export function LocalImportModal({
   initialFilePath = '',
   initialDirection = 'overwrite',
   knownBackups = [],
+  resolvedDir,
   onSuccess,
 }: LocalImportModalProps) {
   const queryClient = useQueryClient();
@@ -261,26 +271,30 @@ export function LocalImportModal({
                 <div className="space-y-1">
                   <span className="text-[11px] text-muted block">快捷选择已有快照：</span>
                   <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-1">
-                    {knownBackups.map((b) => (
-                      <button
-                        key={b.name}
-                        type="button"
-                        onClick={() => {
-                          setFilePath(b.name);
-                          setActionError(null);
-                        }}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-control text-[11px] border transition-colors ${
-                          filePath === b.name
-                            ? 'border-accent bg-accent-soft text-accent font-semibold'
-                            : 'border-line bg-surface hover:bg-surface-2 text-secondary hover:text-ink'
-                        }`}
-                      >
-                        <IconFolder size={11} />
-                        <span className="truncate max-w-[220px]">
-                          {b.meta ? formatUtcToLocal(b.meta.createdAt).full : b.name}
-                        </span>
-                      </button>
-                    ))}
+                    {knownBackups.map((b) => {
+                      const fullPath = joinBackupFilePath(resolvedDir, b.name);
+                      const isSelected = filePath === fullPath || filePath === b.name;
+                      return (
+                        <button
+                          key={b.name}
+                          type="button"
+                          onClick={() => {
+                            setFilePath(fullPath);
+                            setActionError(null);
+                          }}
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-control text-[11px] border transition-colors ${
+                            isSelected
+                              ? 'border-accent bg-accent-soft text-accent font-semibold'
+                              : 'border-line bg-surface hover:bg-surface-2 text-secondary hover:text-ink'
+                          }`}
+                        >
+                          <IconFolder size={11} />
+                          <span className="truncate max-w-[220px]">
+                            {b.meta ? formatUtcToLocal(b.meta.createdAt).full : b.name}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}

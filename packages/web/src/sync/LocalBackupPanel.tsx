@@ -26,7 +26,7 @@ import {
   runLocalBackup,
   updateLocalBackupConfig,
 } from './localBackupApi.js';
-import { LocalImportModal } from './LocalImportModal.js';
+import { LocalImportModal, joinBackupFilePath } from './LocalImportModal.js';
 
 export function LocalBackupPanel() {
   const queryClient = useQueryClient();
@@ -381,7 +381,8 @@ export function LocalBackupPanel() {
                         size="sm"
                         icon={<IconUpload size={13} />}
                         onClick={() => {
-                          setImportFilePath(item.name);
+                          const fullPath = joinBackupFilePath(config?.resolvedDir, item.name);
+                          setImportFilePath(fullPath);
                           setImportDirection('overwrite');
                           setIsImportModalOpen(true);
                         }}
@@ -535,6 +536,7 @@ export function LocalBackupPanel() {
         initialFilePath={importFilePath}
         initialDirection={importDirection}
         knownBackups={backups}
+        resolvedDir={config?.resolvedDir}
         onSuccess={(res) => {
           void refetchBackups();
           if (res.direction === 'overwrite') {
