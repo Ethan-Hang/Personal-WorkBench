@@ -34,6 +34,12 @@ export { PreferencesProvider, usePreferences, DEFAULT_PREFERENCES } from './Pref
 export type { WorkbenchPreferences, PreferencesContextValue } from './PreferencesContext.js';
 export { AppShell } from './AppShell.js';
 export type { ShellNavGroup, ShellNavItem } from './AppShell.js';
+export { CommandPalette, matchCommandItem } from './CommandPalette.js';
+export type {
+  CommandCategory,
+  CommandItemDescriptor,
+  CommandPaletteProps,
+} from './CommandPalette.js';
 export { Avatar, resolveAvatarUrl } from './Avatar.js';
 export type { AvatarProps, AvatarSize, AvatarAccountInfo } from './Avatar.js';
 export * from './icons.js';
