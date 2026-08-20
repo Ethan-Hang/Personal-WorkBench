@@ -50,6 +50,19 @@ function count(fallback: number, min: number, max: number): SettingCodec<number>
 }
 
 /**
+ * 自由文本。**去首尾空白**：路径末尾一个肉眼看不见的空格，会让 mkdir 建出一个
+ * 名字带空格的目录，症状是「备份跑了但目录里什么都没有」。
+ *
+ * 不校验路径是否存在或可写——那是 IO，core 零 IO。可写性由写入侧当场校验。
+ */
+function text(fallback: string): SettingCodec<string> {
+  return {
+    default: fallback,
+    parse: (raw) => (typeof raw === 'string' ? raw.trim() : undefined),
+  };
+}
+
+/**
  * 时区的合法值域是**真实 IANA id**，而不是 UI 那份 WORLD_TIMEZONES 展示列表——
  * 后者是选择器的取材范围，把它当值域会让手动设置的冷门时区被判为脏值。
  */
@@ -84,6 +97,18 @@ export const SETTINGS_CODECS = {
   'backup.autoEnabled': bool(false),
   /** 自动清理保留几份。跟随 autoEnabled——自动删除不可逆，不能在关着开关时背后删。 */
   'backup.retentionCount': count(10, 1, 100),
+  /**
+   * 本地备份的落点。空串 = 用 `data/local/backups`，**不写死绝对路径**：
+   * 设置要能跟着账号目录走，而 core 不知道 WORKBENCH_DATA_DIR 是什么。
+   */
+  'localBackup.targetDir': text(''),
+  /**
+   * 自动本地快照默认**关**。与 backup.autoEnabled 刻意各记一个键——本地与云端的
+   * 代价完全不同（磁盘 vs 网络与配额），共用一个开关就无法只要其中一样。
+   */
+  'localBackup.autoEnabled': bool(false),
+  /** 本地保留几份。比云端少，因为它占的是本机磁盘。 */
+  'localBackup.retentionCount': count(5, 1, 100),
 } satisfies Record<string, SettingCodec<unknown>>;
 
 export type SettingKey = keyof typeof SETTINGS_CODECS;

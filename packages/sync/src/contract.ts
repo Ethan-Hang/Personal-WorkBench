@@ -26,6 +26,11 @@ export const backupMetaSchema = z.object({
   counts: z.record(z.string(), z.number()),
   bytes: z.number().int().nonnegative(),
   sha256: z.string(),
+  /**
+   * 这份备份为什么存在（「恢复前」「导入前」…）。**可选**：旧的 meta 没有这个字段，
+   * 加成必填会让所有既有备份一夜之间变成「不完整」。手动备份不带它。
+   */
+  reason: z.string().optional(),
 });
 export type BackupMeta = z.infer<typeof backupMetaSchema>;
 
@@ -55,6 +60,38 @@ export const backupConfigPatchSchema = z.object({
   retentionCount: z.number().int().min(1).max(100).optional(),
 });
 export type BackupConfigPatch = z.infer<typeof backupConfigPatchSchema>;
+
+/**
+ * 本地备份的前后端接缝（TASK-044）。与 `SYNC_API` 并列而不是并入：本地与云端的
+ * 配置模型不同（目录 vs 凭据），共用一组端点会得到一个装不下任何一方的形状。
+ * 列表项复用 `backupListItemSchema`——产物本来就完全同形。
+ */
+export const LOCAL_BACKUP_API = {
+  config: () => '/api/local-backup/config',
+  run: () => '/api/local-backup/run',
+  list: () => '/api/local-backup/list',
+  item: (name: string) =>
+    name === NAME_PARAM
+      ? `/api/local-backup/${NAME_PARAM}`
+      : `/api/local-backup/${encodeURIComponent(name)}`,
+} as const;
+
+export const localBackupConfigSchema = z.object({
+  /** 用户设的落点。空串 = 用默认目录。 */
+  targetDir: z.string(),
+  /** 实际落点的绝对路径。界面必须显示它——否则用户无从知道备份到底在哪。 */
+  resolvedDir: z.string(),
+  autoEnabled: z.boolean(),
+  retentionCount: z.number().int().min(1).max(100),
+});
+export type LocalBackupConfig = z.infer<typeof localBackupConfigSchema>;
+
+export const localBackupConfigPatchSchema = z.object({
+  targetDir: z.string().optional(),
+  autoEnabled: z.boolean().optional(),
+  retentionCount: z.number().int().min(1).max(100).optional(),
+});
+export type LocalBackupConfigPatch = z.infer<typeof localBackupConfigPatchSchema>;
 
 export const GITHUB_AUTH_API = {
   device: '/api/auth/github/device',

@@ -28,6 +28,13 @@ export interface RestoreServiceDeps {
   source: RestoreBackupSource;
   migrate: (sqlite: Database.Database) => void;
   moduleIds: readonly string[];
+  /**
+   * 换库之前的强制本地快照（TASK-045）。回退点之外再多一层网：`rollback.db`
+   * 只有一个槽位、会被下一次恢复覆盖，而这一份是可列出、可长期保留的。
+   *
+   * 不传则跳过——`WORKBENCH_DB` 逃生舱下就没有本地备份服务。
+   */
+  snapshotBefore?: (reason: string) => Promise<unknown>;
 }
 
 const EMPTY_DIFF: RestoreDiff = { core: { added: [], removed: [], modified: [] }, modules: [] };
@@ -144,6 +151,17 @@ export class RestoreService {
     }
     if (!remembered.compatible) {
       throw new SyncError('这份备份比当前代码新，拒绝恢复', 409);
+    }
+
+    // 安全快照在**进入忙碌态之前**打：这一刻本地库还一个字节都没被碰过，
+    // 失败了就当无事发生。与「没有回退点就不动手」是同一条原则——快照写不下去
+    // 通常意味着磁盘满或备份目录坏了，那正是最不该去换数据库文件的时候。
+    if (this.deps.snapshotBefore !== undefined) {
+      try {
+        await this.deps.snapshotBefore('恢复');
+      } catch (cause) {
+        throw new SyncError('恢复前的安全快照失败，恢复拒绝开始', 500, { cause });
+      }
     }
 
     const dbPath = this.deps.dbPath();

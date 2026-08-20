@@ -8,6 +8,8 @@ export interface SnapshotContext {
   accountId: string;
   device: string;
   appVersion: string;
+  /** 高危操作前的强制快照带上它；手动与周期备份不带。 */
+  reason?: string;
 }
 
 /** 迁移记账表的名字都以此开头（`runMigrationsFrom` 按目录派生专属记账表）。 */
@@ -96,6 +98,7 @@ export async function createSnapshot(
     counts,
     bytes: raw.byteLength,
     sha256: createHash('sha256').update(raw).digest('hex'),
+    ...(ctx.reason === undefined ? {} : { reason: ctx.reason }),
   };
 
   return { name: `${fileStamp(createdAt)}.db.gz`, gz, meta };
