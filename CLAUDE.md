@@ -9,8 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 因此本项目的首要目标不是实现某组功能，而是：**让第 10 个模块的加入成本，与第 2 个模块相同。** 所有架构选择都服务于这一条；遇到取舍时，以它为准。
 
 当前状态：Walking Skeleton 完成，秋招模块与工作台模块已全量接入（UI 已全部迁移至
-`modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化落库（`app_settings` 表）。
-现有三个模块（todo、workbench、campus-recruit）、一层共享设计基座
+`modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化落库（`app_settings` 表），
+多账号体系、WebDAV 备份恢复与 Gist 设置零知识加密同步（TASK-038）已全栈贯通。
+现有三个业务模块（todo、workbench、campus-recruit）、一层共享设计基座
 （`packages/ui`：18+ 个组件 + SettingsProvider 与主题/时区/偏好三套上下文 + Apple-Style 胶囊开关 + 图标集）、以及带请求编号的错误追踪。
 
 两次架构考试都过了，且考的是不同的东西：

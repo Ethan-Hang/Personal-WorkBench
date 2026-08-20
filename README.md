@@ -30,7 +30,7 @@ npm run dev
 | `npm run setup`       | 安装依赖（跳过多余的原生编译）并装回 git 钩子；克隆后先跑这个 |
 | `npm run dev`         | 同时启动后端与前端                                            |
 | `npm run check`       | 格式 + 类型 + lint + 测试（提交前跑这个，必须全绿）           |
-| `npm run test`        | 运行全部 Vitest 自动化测试 (670+ tests)                       |
+| `npm run test`        | 运行全部 Vitest 自动化测试 (680+ tests)                       |
 | `npm run format`      | 使用 Prettier 自动格式化代码                                  |
 | `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移                 |
 
@@ -72,6 +72,11 @@ npm run dev
    - **头像优先级解析与 GitHub 自动联动**：默认展示经典用户矢量头像；绑定 GitHub 账号后自动拉取并呈现 GitHub 官方头像；
    - **多来源个性化设置**：支持本地图片智能居中裁剪与等比压缩存储至 `accounts.json`、内置 8 款精选矢量渐变预设头像，以及远程 HTTPS 图片链接；
    - **优雅离线降级与悬停交互**：图片加载异常自动无缝兜底；主卡片支持悬停编辑遮罩微交互。
+
+7. **WebDAV 远程快照恢复与 Gist 零知识偏好同步体系 (`BackupPanel` & `GistSyncPanel`)**：
+   - **WebDAV 一致性快照与五态恢复机**：基于 SQLite Online Backup API 避免 WAL 遗漏，全服务 503 拦截保护，支持行级差异比对、安全回滚与断电续命；
+   - **Gist 设置与凭据零知识加密同步**：使用 `scrypt` + `AES-256-GCM` 派生加密，Secret Gist 明文 Header 用于轻量比对，支持口令解锁与冲突手动决策（从云端拉取覆写 / 本地覆写云端）；
+   - **OS 系统凭据保管库优先**：优先使用 Windows Credential Manager / macOS Keychain 安全存储 GitHub Token 与同步口令，无保管库时明确警示并禁用明文口令持久化。
 
 ## 要改代码先读什么
 
