@@ -5,7 +5,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   ConnectionHolder,
-  CredentialsStore,
+  JsonFileBackend,
+  SecretStore,
   createDatabaseClient,
   runCoreMigrations,
   SqliteSettingsRepository,
@@ -81,7 +82,7 @@ async function buildBackupApp(): Promise<FastifyInstance> {
   const store = new MemoryStore();
   const state = new ServiceState();
   const backup = new BackupService({
-    credentials: new CredentialsStore(dataDir),
+    credentials: new SecretStore(new JsonFileBackend(dataDir)),
     settings: new SqliteSettingsRepository(() => holder.current()),
     getSqlite: () => holder.current(),
     accountId: () => 'local-default',

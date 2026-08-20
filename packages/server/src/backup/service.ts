@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { SettingsRepository } from '@workbench/core';
 import { resolveSettings } from '@workbench/core';
-import type { CredentialsStore, WebdavCredentials } from '@workbench/data';
+import type { WebdavCredentials, WebdavCredentialStore } from '@workbench/data';
 import type {
   BackupConfig,
   BackupConfigPatch,
@@ -23,7 +23,7 @@ export interface BackupStore {
 }
 
 export interface BackupServiceDeps {
-  credentials: CredentialsStore;
+  credentials: WebdavCredentialStore;
   settings: SettingsRepository;
   getSqlite: () => Database.Database;
   /** 当前账号 id，写进 meta：恢复时要知道这份备份是谁的。 */

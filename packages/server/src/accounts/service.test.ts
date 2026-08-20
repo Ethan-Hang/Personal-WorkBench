@@ -238,6 +238,21 @@ describe('AccountsService.bindGithub / unbindGithub', () => {
     );
   });
 
+  it('绑定时选的方向会交出去——绑定那一刻用户还没设过口令，执行不了', () => {
+    const seen: Array<[string, string]> = [];
+    const service = new AccountsService({
+      store: harness.store,
+      holder: harness.holder,
+      state: harness.state,
+      migrate: () => {},
+      onGithubBound: (accountId, direction) => seen.push([accountId, direction]),
+    });
+
+    service.bindGithub('local-default', github, 'cloud-to-local');
+
+    expect(seen).toEqual([['local-default', 'cloud-to-local']]);
+  });
+
   it('解绑清掉 github 字段并变回本地账号', () => {
     harness.service.bindGithub('local-default', github, 'local-to-cloud');
 

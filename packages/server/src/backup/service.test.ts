@@ -5,7 +5,8 @@ import { gunzipSync } from 'node:zlib';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  CredentialsStore,
+  JsonFileBackend,
+  SecretStore,
   openTestDatabase,
   SqliteItemRepository,
   SqliteSettingsRepository,
@@ -57,7 +58,7 @@ class FakeBackupStore implements BackupStore {
 interface Harness {
   dataDir: string;
   sqlite: Database.Database;
-  credentials: CredentialsStore;
+  credentials: SecretStore;
   settings: SqliteSettingsRepository;
   service: BackupService;
   stores: FakeBackupStore[];
@@ -77,7 +78,7 @@ function createHarness(): Harness {
   const dataDir = mkdtempSync(join(tmpdir(), 'workbench-backup-'));
   temporaryDirectories.push(dataDir);
   const { sqlite } = openTestDatabase();
-  const credentials = new CredentialsStore(dataDir);
+  const credentials = new SecretStore(new JsonFileBackend(dataDir));
   const settings = new SqliteSettingsRepository(() => sqlite);
   const stores: FakeBackupStore[] = [];
   // 真实的 WebdavBackupStore 是无状态的（数据在网盘上），假的把数据放在自己身上，

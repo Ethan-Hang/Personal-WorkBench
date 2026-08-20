@@ -24,6 +24,14 @@ export interface AccountsServiceDeps {
    * 切换必须跑迁移；而「哪些模块有迁移」只有组合根知道（铁律 2）。
    */
   migrate: (sqlite: Database.Database) => void;
+  /**
+   * 绑定 GitHub 时选的同步方向要交给谁。
+   *
+   * 绑定发生在 Device Flow 刚走完那一刻，用户**还没设过同步口令**，所以方向当时
+   * 执行不了；组合根把它接到 SecretStore，等第一次解锁再执行（见 sync/service.ts）。
+   * AccountsService 因此不必知道 Gist 同步的存在。
+   */
+  onGithubBound?: (accountId: string, direction: BindDirection) => void;
   now?: () => Date;
 }
 
@@ -107,12 +115,7 @@ export class AccountsService {
     return this.list();
   }
 
-  /**
-   * 绑定 GitHub。
-   *
-   * TODO(TASK-038)：`direction` 目前只被校验，没有消费方——设置与凭据的 Gist 同步
-   * 尚未接线。UI（TASK-037）在 038 落地前不要把方向选择呈现成「已生效」。
-   */
+  /** 绑定 GitHub。**只写元数据，不动数据库**。 */
   bindGithub(id: string, github: GitHubBinding, direction: BindDirection): AccountsResponse {
     const registry = this.deps.store.read();
     this.require(registry, id);
@@ -125,14 +128,13 @@ export class AccountsService {
     if (taken !== undefined) {
       throw conflict(`GitHub 账号 ${github.login} 已绑定到「${taken.displayName}」`);
     }
-    void direction;
-
     this.deps.store.write({
       ...registry,
       accounts: registry.accounts.map((account) =>
         account.id === id ? { ...account, kind: 'github', github } : account,
       ),
     });
+    this.deps.onGithubBound?.(id, direction);
     return this.list();
   }
 

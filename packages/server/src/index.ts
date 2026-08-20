@@ -5,7 +5,8 @@ import type Database from 'better-sqlite3';
 import {
   AccountsStore,
   ConnectionHolder,
-  CredentialsStore,
+  createSecretBackend,
+  SecretStore,
   SqliteSettingsRepository,
   createDatabaseClient,
   resolveActiveDatabase,
@@ -16,11 +17,12 @@ import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
-import { WebdavBackupStore } from '@workbench/sync/node';
+import { GistClient, WebdavBackupStore } from '@workbench/sync/node';
 import { buildApp } from './app.js';
 import { AccountsService } from './accounts/service.js';
 import { BackupService } from './backup/service.js';
 import { RestoreService } from './restore/service.js';
+import { GistSyncService } from './sync/service.js';
 import { runModuleMigrations } from './registry.js';
 import { ServiceState } from './service-state.js';
 
@@ -55,7 +57,13 @@ async function main() {
     };
     runCoreMigrations(createDatabaseClient(sqlite));
 
+    // 优先系统保管库，拿不到才退到明文 credentials.json（设计 §7.4）。
+    // 退化会通过 /api/sync/status 的 protectedByOsVault 报给设置页——
+    // **这是降级不是等价选项，不得静默发生**。
+    const secrets = new SecretStore(createSecretBackend(DATA_DIR));
+
     const serviceState = new ServiceState();
+    const currentAccountId = () => (active.mode === 'accounts' ? active.account.id : 'single');
     const accounts =
       active.mode === 'accounts'
         ? new AccountsService({
@@ -63,20 +71,32 @@ async function main() {
             holder,
             state: serviceState,
             migrate,
+            // 绑定那一刻用户还没设过同步口令，方向只能先记下来，等第一次解锁再执行。
+            onGithubBound: (accountId, direction) =>
+              secrets.writePendingDirection(accountId, direction),
           })
         : undefined;
+
+    const gistSync = new GistSyncService({
+      secrets,
+      settings: new SqliteSettingsRepository(getSqlite),
+      accountId: currentAccountId,
+      device: hostname(),
+      gist: {
+        create: (token, envelope) => new GistClient(token).create(envelope),
+        update: (token, gistId, envelope) => new GistClient(token).update(gistId, envelope),
+        read: (token, gistId) => new GistClient(token).read(gistId),
+      },
+    });
 
     // 日志落盘而非只进 stdout：终端一关就没了的日志，事后追不了任何东西。
     mkdirSync(dirname(resolve(LOG_PATH)), { recursive: true });
 
-    // 备份与恢复：与账号一样只在账号模式下装配——逃生舱锁定单库时没有账号目录，
-    // 也就没有 .restore/ 与 accounts.json 可依托。
-    const credentials = new CredentialsStore(DATA_DIR);
     const backupService = new BackupService({
-      credentials,
+      credentials: secrets,
       settings: new SqliteSettingsRepository(getSqlite),
       getSqlite,
-      accountId: () => (active.mode === 'accounts' ? active.account.id : 'single'),
+      accountId: currentAccountId,
       dataDir: DATA_DIR,
       device: hostname(),
       appVersion: process.env.npm_package_version ?? '0.0.0',
@@ -100,6 +120,7 @@ async function main() {
       serviceState,
       accounts,
       backup: { backup: backupService, restore: restoreService },
+      gistSync,
       logger: { level: 'info', file: LOG_PATH },
     });
 

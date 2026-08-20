@@ -255,3 +255,51 @@ export type RestorePreflightBody = z.infer<typeof restorePreflightBodySchema>;
 export type RestorePreflightResponse = z.infer<typeof restorePreflightResponseSchema>;
 export type RestoreConfirmBody = z.infer<typeof restoreConfirmBodySchema>;
 export type RestoreState = z.infer<typeof restoreStateSchema>;
+
+/**
+ * Gist 设置同步的前后端接缝（设计 §8）。
+ *
+ * Gist 里只有**设置与 WebDAV 凭据**，且是加密后的信封。
+ * **GitHub token 永远只在本地，绝不进 Gist**；业务数据同样不进（单文件 1MB 上限）。
+ */
+export const GIST_SYNC_API = {
+  status: () => '/api/sync/status',
+  unlock: () => '/api/sync/unlock',
+  push: () => '/api/sync/push',
+  pull: () => '/api/sync/pull',
+} as const;
+
+export const syncStatusSchema = z.object({
+  /** 当前账号绑了 GitHub 且本地有可用 token。 */
+  linked: z.boolean(),
+  /**
+   * 本机凭据是否受系统保管库保护。为 false 时设置页**必须明示**
+   * 「本机凭据未受系统保管库保护」——这是降级不是等价选项，不得静默发生。
+   */
+  protectedByOsVault: z.boolean(),
+  /** 本进程是否已拿到同步口令。口令不落盘（除非有保管库且用户选了记住）。 */
+  unlocked: z.boolean(),
+  gistId: z.string().nullable(),
+  /** 云端信封的 header，**不解密就能读**。 */
+  cloudUpdatedAt: z.string().nullable(),
+  cloudDevice: z.string().nullable(),
+  /** 本端上次见到的云端版本。与 cloudUpdatedAt 不等即为冲突。 */
+  lastSeenUpdatedAt: z.string().nullable(),
+  /** 云端被另一台设备改过。**刻意不自动合并**，等用户选方向。 */
+  conflict: z.boolean(),
+  /** 绑定时选了方向但当时还没解锁，将在下次解锁后执行。 */
+  pendingDirection: z.enum(BIND_DIRECTIONS).nullable(),
+});
+
+export const syncUnlockBodySchema = z.object({
+  passphrase: z.string().min(1),
+  /** 记住口令。**没有系统保管库时服务端会拒绝**——口令绝不写进明文文件。 */
+  remember: z.boolean().optional(),
+});
+
+/** 推送时若云端更新，必须显式带上方向才会覆盖。 */
+export const syncPushBodySchema = z.object({ force: z.boolean().optional() });
+
+export type SyncStatus = z.infer<typeof syncStatusSchema>;
+export type SyncUnlockBody = z.infer<typeof syncUnlockBodySchema>;
+export type SyncPushBody = z.infer<typeof syncPushBodySchema>;
