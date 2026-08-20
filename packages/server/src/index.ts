@@ -22,6 +22,7 @@ import { buildApp } from './app.js';
 import { AccountsService } from './accounts/service.js';
 import { BackupService } from './backup/service.js';
 import { RestoreService } from './restore/service.js';
+import { LocalBackupService } from './local-backup/service.js';
 import { GistSyncService } from './sync/service.js';
 import { runModuleMigrations } from './registry.js';
 import { ServiceState } from './service-state.js';
@@ -113,6 +114,15 @@ async function main() {
       appVersion: process.env.npm_package_version ?? '0.0.0',
       createStore: (creds) => new WebdavBackupStore(creds),
     });
+    // 本地备份与云端各自成服务：它不需要凭据，所以默认配置下就能用。
+    const localBackupService = new LocalBackupService({
+      settings: new SqliteSettingsRepository(getSqlite),
+      getSqlite,
+      accountId: currentAccountId,
+      dataDir: DATA_DIR,
+      device: hostname(),
+      appVersion: process.env.npm_package_version ?? '0.0.0',
+    });
     const restoreService = new RestoreService({
       holder,
       state: serviceState,
@@ -131,6 +141,7 @@ async function main() {
       serviceState,
       accounts,
       backup: { backup: backupService, restore: restoreService },
+      localBackup: localBackupService,
       gistSync,
       logger: { level: 'info', file: LOG_PATH },
     });
