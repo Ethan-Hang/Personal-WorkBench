@@ -321,3 +321,63 @@ describe('高危操作前的强制快照', () => {
     expect(item.meta?.reason).toBeUndefined();
   });
 });
+
+describe('给另一个账号的库打快照', () => {
+  it('落在当前账号的备份目录，但 meta.accountId 记着真正的主', async () => {
+    const { service, dataDir } = harness();
+    const otherDir = mkdtempSync(join(tmpdir(), 'wb-other-account-'));
+    temporaryDirectories.push(otherDir);
+    const otherPath = join(otherDir, 'workbench.db');
+    const other = openDatabase(otherPath);
+    openDatabases.push(other.sqlite);
+    runCoreMigrations(other.db);
+    await new SqliteItemRepository(() => other.sqlite).create('todo', {
+      title: '另一个账号的事项',
+      kind: 'task',
+    });
+    other.sqlite.close();
+    openDatabases.pop();
+
+    const item = await service.snapshotOfDatabase(otherPath, '工作账号', '删除账号');
+
+    expect(item?.meta?.accountId).toBe('工作账号');
+    expect(item?.meta?.reason).toBe('删除账号');
+    expect(existsSync(join(dataDir, 'backups', item!.name))).toBe(true);
+  });
+
+  it('快照里装的是那个库的数据，不是当前库的', async () => {
+    const { service, dataDir } = harness();
+    const otherDir = mkdtempSync(join(tmpdir(), 'wb-other-account-'));
+    temporaryDirectories.push(otherDir);
+    const otherPath = join(otherDir, 'workbench.db');
+    const other = openDatabase(otherPath);
+    runCoreMigrations(other.db);
+    await new SqliteItemRepository(() => other.sqlite).create('todo', {
+      title: '只在另一个账号里',
+      kind: 'task',
+    });
+    other.sqlite.close();
+
+    const item = await service.snapshotOfDatabase(otherPath, '工作账号', '删除账号');
+
+    const restored = join(dataDir, 'other-roundtrip.db');
+    writeFileSync(restored, gunzipSync(await service.download(item!.name)));
+    const reopened = openDatabase(restored).sqlite;
+    openDatabases.push(reopened);
+    const row = reopened.prepare('SELECT title FROM items').get() as { title: string };
+    expect(row.title).toBe('只在另一个账号里');
+  });
+
+  it('库文件不存在时返回 null 而不是抛：没有东西可丢，不该拦住删除', async () => {
+    const { service } = harness();
+
+    const item = await service.snapshotOfDatabase(
+      join(tmpdir(), 'wb-no-such-account.db'),
+      '工作账号',
+      '删除账号',
+    );
+
+    expect(item).toBeNull();
+    expect(await service.list()).toEqual([]);
+  });
+});

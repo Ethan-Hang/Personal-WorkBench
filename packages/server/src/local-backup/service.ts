@@ -1,8 +1,9 @@
-import { statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { SettingsRepository } from '@workbench/core';
 import { resolveSettings } from '@workbench/core';
+import { openSqliteConnection } from '@workbench/data';
 import type {
   BackupListItem,
   LocalBackupConfig,
@@ -125,6 +126,40 @@ export class LocalBackupService {
    */
   async snapshotBefore(reason: string): Promise<BackupListItem> {
     return this.run(reason);
+  }
+
+  /**
+   * 给**另一个账号**的库打快照——删账号前用（TASK-045）。
+   *
+   * 那个库不是当前连接，所以必须单独打开它；`sqlite.backup()` 会把它自己的 WAL
+   * 一并带上。产物落在**当前账号**的备份目录里：被删账号的目录马上就要 rm -rf，
+   * 放进去等于没备份。`meta.accountId` 记着真正的主，所以来源不会认错。
+   *
+   * 库文件不存在时返回 null 而不抛：没有东西可丢，不该因此拦住删除。
+   */
+  async snapshotOfDatabase(
+    dbPath: string,
+    accountId: string,
+    reason: string,
+  ): Promise<BackupListItem | null> {
+    if (!existsSync(dbPath)) return null;
+
+    const store = await this.store();
+    const connection = openSqliteConnection(dbPath);
+    let snapshot;
+    try {
+      snapshot = await createSnapshot(connection, this.snapshotTmpPath(), {
+        accountId,
+        device: this.deps.device,
+        appVersion: this.deps.appVersion,
+        reason,
+      });
+    } finally {
+      connection.close();
+    }
+
+    await store.upload(snapshot.name, snapshot.gz, snapshot.meta);
+    return { name: snapshot.name, complete: true, meta: snapshot.meta };
   }
 
   async list(): Promise<BackupListItem[]> {

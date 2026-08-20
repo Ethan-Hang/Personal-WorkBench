@@ -65,6 +65,15 @@ async function main() {
 
     const serviceState = new ServiceState();
     const currentAccountId = () => (active.mode === 'accounts' ? active.account.id : 'single');
+    // 本地备份与云端各自成服务：它不需要凭据，所以默认配置下就能用。
+    const localBackupService = new LocalBackupService({
+      settings: new SqliteSettingsRepository(getSqlite),
+      getSqlite,
+      accountId: currentAccountId,
+      dataDir: DATA_DIR,
+      device: hostname(),
+      appVersion: process.env.npm_package_version ?? '0.0.0',
+    });
     const accounts =
       active.mode === 'accounts'
         ? new AccountsService({
@@ -83,6 +92,8 @@ async function main() {
               secrets.clearGithubToken(accountId);
               secrets.clearPendingDirection(accountId);
             },
+            onBeforeAccountRemoved: (accountId, dbPath) =>
+              localBackupService.snapshotOfDatabase(dbPath, accountId, '删除账号'),
             onAccountRemoved: (accountId) => {
               secrets.clearAccountSecrets(accountId);
             },
@@ -113,15 +124,6 @@ async function main() {
       device: hostname(),
       appVersion: process.env.npm_package_version ?? '0.0.0',
       createStore: (creds) => new WebdavBackupStore(creds),
-    });
-    // 本地备份与云端各自成服务：它不需要凭据，所以默认配置下就能用。
-    const localBackupService = new LocalBackupService({
-      settings: new SqliteSettingsRepository(getSqlite),
-      getSqlite,
-      accountId: currentAccountId,
-      dataDir: DATA_DIR,
-      device: hostname(),
-      appVersion: process.env.npm_package_version ?? '0.0.0',
     });
     const restoreService = new RestoreService({
       holder,
