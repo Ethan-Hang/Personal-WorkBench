@@ -21,6 +21,7 @@ import type { BackupService } from './backup/service.js';
 import type { RestoreService } from './restore/service.js';
 import { registerLocalBackupRoutes } from './local-backup/routes.js';
 import type { LocalBackupService } from './local-backup/service.js';
+import { registerLocalImportRoutes } from './local-import/routes.js';
 import { registerSyncRoutes } from './sync/routes.js';
 import type { GistSyncService } from './sync/service.js';
 import type { AccountsService } from './accounts/service.js';
@@ -40,6 +41,11 @@ export interface BuildAppOptions {
    * 本地导入走的是 TASK-047/048 那条独立链路。
    */
   localBackup?: LocalBackupService;
+  /**
+   * 本地文件导入。只需要 RestoreService——导入复用的就是那台五态机。
+   * 与 `backup` 分开传，是因为本地导入不依赖任何云端凭据。
+   */
+  restore?: RestoreService;
   /** 设置与凭据的 Gist 同步。 */
   gistSync?: GistSyncService;
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
@@ -99,6 +105,8 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
     registerBackupRoutes(app, opts.backup.backup, opts.backup.restore);
   }
   if (opts.localBackup !== undefined) registerLocalBackupRoutes(app, opts.localBackup);
+  const restoreForImport = opts.restore ?? opts.backup?.restore;
+  if (restoreForImport !== undefined) registerLocalImportRoutes(app, restoreForImport);
   if (opts.gistSync !== undefined) registerSyncRoutes(app, opts.gistSync);
 
   const items = new SqliteItemRepository(opts.getSqlite);

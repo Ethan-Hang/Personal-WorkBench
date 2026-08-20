@@ -1,14 +1,24 @@
-import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import type Database from 'better-sqlite3';
 import { openSqliteConnection, readJsonFile, type ConnectionHolder } from '@workbench/data';
 import type {
   BackupListItem,
+  LocalImportPreflightResponse,
   RestoreDiff,
   RestorePreflightResponse,
   RestoreState,
 } from '@workbench/sync/contract';
+import { backupMetaSchema } from '@workbench/sync/contract';
 import { migrationWatermarks, SyncError } from '@workbench/sync/node';
 import type { ServiceState } from '../service-state.js';
 import { compareWatermarks } from './compatibility.js';
@@ -104,20 +114,7 @@ export class RestoreService {
       throw new SyncError(`云端没有这份可恢复的备份：${name}`, 409);
     }
 
-    mkdirSync(this.restoreDir, { recursive: true });
-    rmSync(this.incomingPath, { force: true });
-    writeFileSync(this.incomingPath, gunzipSync(await this.deps.source.download(name)));
-
-    const incoming = openSqliteConnection(this.incomingPath);
-    try {
-      const integrity = incoming.pragma('integrity_check', { simple: true });
-      if (integrity !== 'ok') {
-        throw new SyncError(`备份文件损坏（integrity_check: ${String(integrity)}）`, 409);
-      }
-    } finally {
-      // 必须先关掉：ATTACH 一个还开着的库会读到不一致的中间状态。
-      incoming.close();
-    }
+    this.materialiseIncoming(await this.deps.source.download(name));
 
     const comparison = compareWatermarks(
       migrationWatermarks(this.deps.holder.current()),
@@ -141,6 +138,100 @@ export class RestoreService {
     );
     this.rememberPreflight(name, true);
     return { name, compatible: true, meta: listed.meta, diff };
+  }
+
+  /**
+   * 本地文件导入的预检（TASK-046）。与云端预检共用同一台五态机、同一个
+   * `incoming.db` 槽位与同一次 `rememberPreflight`——**不要再造第二套**。
+   *
+   * 两处刻意的不同：
+   *
+   * 1. **入参是文件路径，不是备份名。** 用户可能从 U 盘里挑一份从没出现在任何
+   *    列表里的备份，没有 `list()` 可查。
+   * 2. **水位读自库本身，而不是旁挂的 `.meta.json`。** 那个文件可能根本不存在
+   *    （只拷了 `.db.gz`），而且它是可以撒谎的——云端之所以读 meta，是为了
+   *    「不必下载整个库」；本地文件就在手边，解压是白拿的，读真实水位严格更可靠。
+   */
+  async preflightLocalFile(filePath: string): Promise<LocalImportPreflightResponse> {
+    if (!existsSync(filePath)) {
+      throw new SyncError(`找不到这个文件：${filePath}`, 404);
+    }
+
+    let gz: Buffer;
+    try {
+      gz = readFileSync(filePath);
+    } catch (cause) {
+      throw new SyncError(`读不了这个文件：${filePath}`, 409, { cause });
+    }
+    this.materialiseIncoming(gz);
+
+    const incoming = openSqliteConnection(this.incomingPath);
+    let backupWatermarks: Record<string, number>;
+    try {
+      backupWatermarks = migrationWatermarks(incoming);
+    } finally {
+      incoming.close();
+    }
+
+    const meta = this.readSidecarMeta(filePath);
+    const comparison = compareWatermarks(
+      migrationWatermarks(this.deps.holder.current()),
+      backupWatermarks,
+    );
+    if (comparison.verdict === 'backup-newer') {
+      this.rememberPreflight(filePath, false);
+      return {
+        name: filePath,
+        compatible: false,
+        ...(comparison.reason === undefined ? {} : { reason: comparison.reason }),
+        meta,
+        diff: EMPTY_DIFF,
+      };
+    }
+
+    const diff = computeRestoreDiff(
+      this.deps.holder.current(),
+      this.incomingPath,
+      this.deps.moduleIds,
+    );
+    this.rememberPreflight(filePath, true);
+    return { name: filePath, compatible: true, meta, diff };
+  }
+
+  /** 解压到 `incoming.db` 并做完整性检查。云端与本地导入共用这一步。 */
+  private materialiseIncoming(gz: Buffer): void {
+    mkdirSync(this.restoreDir, { recursive: true });
+    rmSync(this.incomingPath, { force: true });
+    let raw: Buffer;
+    try {
+      raw = gunzipSync(gz);
+    } catch (cause) {
+      throw new SyncError('这个文件不是一份 gzip 压缩的备份', 409, { cause });
+    }
+    writeFileSync(this.incomingPath, raw);
+
+    const incoming = openSqliteConnection(this.incomingPath);
+    try {
+      const integrity = incoming.pragma('integrity_check', { simple: true });
+      if (integrity !== 'ok') {
+        throw new SyncError(`备份文件损坏（integrity_check: ${String(integrity)}）`, 409);
+      }
+    } finally {
+      // 必须先关掉：ATTACH 一个还开着的库会读到不一致的中间状态。
+      incoming.close();
+    }
+  }
+
+  /** 旁挂的 `<file>.meta.json`。缺失或形状不对都返回 null——它只用于展示。 */
+  private readSidecarMeta(filePath: string): LocalImportPreflightResponse['meta'] {
+    const metaPath = `${filePath}.meta.json`;
+    if (!existsSync(metaPath)) return null;
+    try {
+      const parsed = backupMetaSchema.safeParse(JSON.parse(readFileSync(metaPath, 'utf8')));
+      return parsed.success ? parsed.data : null;
+    } catch {
+      return null;
+    }
   }
 
   /** 确认恢复：从这里开始全服务 503。 */

@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -360,5 +360,156 @@ describe('恢复前的强制安全快照', () => {
     await harness.service.preflight('b1.db.gz');
 
     expect(harness.safetySnapshots).toEqual([]);
+  });
+});
+
+async function seedItemInto(holder: ConnectionHolder, title: string): Promise<void> {
+  await new SqliteItemRepository(() => holder.current()).create('todo', { kind: 'task', title });
+}
+
+/** 把一份 .db.gz 里的库水位顶到未来，用来触发「备份比代码新」。 */
+async function seedLocalFileWithFutureWatermark(source: string): Promise<string> {
+  const directory = mkdtempSync(join(tmpdir(), 'workbench-local-import-newer-'));
+  temporaryDirectories.push(directory);
+  const raw = gunzipSync(readFileSync(source));
+  const path = join(directory, 'bumped.db');
+  writeFileSync(path, raw);
+  const connection = openSqliteConnection(path);
+  connection.prepare('UPDATE __drizzle_migrations SET created_at = created_at + 999999999').run();
+  connection.close();
+
+  const gzPath = join(directory, '2099-01-01T00-00-00-000Z.db.gz');
+  writeFileSync(gzPath, gzipSync(readFileSync(path)));
+  return gzPath;
+}
+
+/** 造一个本地 .db.gz 文件（可选地带上旁挂 meta），模拟用户从别处拷来的备份。 */
+async function seedLocalFile(
+  seed: (connection: Database.Database) => Promise<void>,
+  options: { withMeta?: Partial<BackupMeta> | false; corrupt?: boolean } = {},
+): Promise<string> {
+  const directory = mkdtempSync(join(tmpdir(), 'workbench-local-import-'));
+  temporaryDirectories.push(directory);
+  const path = join(directory, 'seed.db');
+  const connection = openSqliteConnection(path);
+  migrate(connection);
+  await seed(connection);
+  const migrations = migrationWatermarks(connection);
+  connection.close();
+
+  const raw = readFileSync(path);
+  const gzPath = join(directory, '2026-08-19T10-00-00-000Z.db.gz');
+  writeFileSync(gzPath, options.corrupt === true ? Buffer.from('这不是 gzip') : gzipSync(raw));
+
+  if (options.withMeta !== false) {
+    writeFileSync(
+      `${gzPath}.meta.json`,
+      JSON.stringify({
+        v: 1,
+        createdAt: '2026-08-19T10:00:00.000Z',
+        accountId: 'local-default',
+        device: '另一台机器',
+        appVersion: '0.0.0',
+        migrations,
+        counts: {},
+        bytes: raw.byteLength,
+        sha256: 'x',
+        ...(options.withMeta ?? {}),
+      }),
+    );
+  }
+  return gzPath;
+}
+
+describe('本地文件导入的预检', () => {
+  it('算出差异，与云端预检走的是同一条 ATTACH/EXCEPT 通路', async () => {
+    await seedItemInto(harness.holder, '只在本地的');
+    const filePath = await seedLocalFile(async (connection) => {
+      await new SqliteItemRepository(() => connection).create('todo', {
+        title: '只在文件里的',
+        kind: 'task',
+      });
+    });
+
+    const result = await harness.service.preflightLocalFile(filePath);
+
+    expect(result.compatible).toBe(true);
+    expect(result.diff.core.added.map((entry) => entry.title)).toEqual(['只在文件里的']);
+    expect(result.diff.core.removed.map((entry) => entry.title)).toEqual(['只在本地的']);
+  });
+
+  it('没有旁挂 meta.json 也能预检——用户从 U 盘拷来的可能只有 .db.gz', async () => {
+    const filePath = await seedLocalFile(async () => {}, { withMeta: false });
+
+    const result = await harness.service.preflightLocalFile(filePath);
+
+    expect(result.compatible).toBe(true);
+    expect(result.meta).toBeNull();
+  });
+
+  it('有旁挂 meta.json 时带上它，界面才能显示来源与时间', async () => {
+    const filePath = await seedLocalFile(async () => {});
+
+    const result = await harness.service.preflightLocalFile(filePath);
+
+    expect(result.meta?.device).toBe('另一台机器');
+  });
+
+  it('水位比当前代码新则拒绝，且不给出差异——那份差异没有意义', async () => {
+    const filePath = await seedLocalFile(async () => {});
+    // 直接把文件里那个库的水位顶高，而不是改 meta：判断必须以真实的库为准。
+    const bumped = await seedLocalFileWithFutureWatermark(filePath);
+
+    const result = await harness.service.preflightLocalFile(bumped);
+
+    expect(result.compatible).toBe(false);
+    expect(result.reason).toMatch(/比当前代码新/);
+    expect(result.diff.core.added).toEqual([]);
+  });
+
+  it('文件不存在 → 404', async () => {
+    await expect(
+      harness.service.preflightLocalFile(join(tmpdir(), 'wb-no-such-file.db.gz')),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('不是 gzip → 409，并说清是文件本身的问题', async () => {
+    const filePath = await seedLocalFile(async () => {}, { corrupt: true });
+
+    await expect(harness.service.preflightLocalFile(filePath)).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it('预检不进忙碌态：它对本地库只读，随时可取消', async () => {
+    const filePath = await seedLocalFile(async () => {});
+
+    await harness.service.preflightLocalFile(filePath);
+
+    expect(harness.state.current().state).toBe('idle');
+  });
+
+  it('连做两次预检不失败——ATTACH 之后必须 DETACH', async () => {
+    const filePath = await seedLocalFile(async () => {});
+
+    await harness.service.preflightLocalFile(filePath);
+
+    await expect(harness.service.preflightLocalFile(filePath)).resolves.toMatchObject({
+      compatible: true,
+    });
+  });
+
+  it('预检之后可以直接 confirm：本地导入复用的就是那台五态机', async () => {
+    const filePath = await seedLocalFile(async (connection) => {
+      await new SqliteItemRepository(() => connection).create('todo', {
+        title: '从文件导入的',
+        kind: 'task',
+      });
+    });
+
+    await harness.service.preflightLocalFile(filePath);
+    await harness.service.confirm(filePath);
+
+    expect(await titles(harness.holder.current())).toEqual(['从文件导入的']);
   });
 });

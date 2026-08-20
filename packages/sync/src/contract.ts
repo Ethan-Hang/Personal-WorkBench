@@ -307,6 +307,34 @@ export type RestoreConfirmBody = z.infer<typeof restoreConfirmBodySchema>;
 export type RestoreState = z.infer<typeof restoreStateSchema>;
 
 /**
+ * 本地文件导入的前后端接缝（TASK-046）。与 `RESTORE_API` 分开是因为入参不同：
+ * 云端认的是备份**名字**，本地认的是一个**文件路径**——用户可能从 U 盘里挑一份
+ * 从没出现在任何列表里的备份。
+ */
+export const LOCAL_IMPORT_API = {
+  preflight: () => '/api/local-import/preflight',
+} as const;
+
+export const localImportPreflightBodySchema = z.object({
+  filePath: z.string().min(1),
+});
+export type LocalImportPreflightBody = z.infer<typeof localImportPreflightBodySchema>;
+
+export const localImportPreflightResponseSchema = z.object({
+  /** 这里的 name 是文件的绝对路径——confirm 用它认领刚才那次预检。 */
+  name: z.string().min(1),
+  compatible: z.boolean(),
+  reason: z.string().optional(),
+  /**
+   * **可空**，这是与云端预检最大的不同：旁挂的 `.meta.json` 可能根本不存在
+   * （用户只拷了 `.db.gz`）。兼容性判断因此不依赖它，改为读库里的真实水位。
+   */
+  meta: backupMetaSchema.nullable(),
+  diff: restoreDiffSchema,
+});
+export type LocalImportPreflightResponse = z.infer<typeof localImportPreflightResponseSchema>;
+
+/**
  * Gist 设置同步的前后端接缝（设计 §8）。
  *
  * Gist 里只有**设置与 WebDAV 凭据**，且是加密后的信封。
