@@ -15,6 +15,7 @@ import {
   IconPlus,
   IconRefreshCw,
   IconTrash,
+  IconUpload,
   Modal,
   useTimezone,
 } from '@workbench/ui';
@@ -25,6 +26,7 @@ import {
   runLocalBackup,
   updateLocalBackupConfig,
 } from './localBackupApi.js';
+import { LocalImportModal } from './LocalImportModal.js';
 
 export function LocalBackupPanel() {
   const queryClient = useQueryClient();
@@ -54,6 +56,11 @@ export function LocalBackupPanel() {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   }
+
+  // 本地导入向导状态
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importFilePath, setImportFilePath] = useState('');
+  const [importDirection, setImportDirection] = useState<'overwrite' | 'new-account'>('overwrite');
 
   // 本地配置表单状态
   const [isEditingConfig, setIsEditingConfig] = useState(false);
@@ -178,7 +185,20 @@ export function LocalBackupPanel() {
           </div>
 
           {/* 右侧主快捷按钮 */}
-          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center">
+          <div className="flex items-center gap-2 shrink-0 self-start sm:self-center flex-wrap">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              icon={<IconUpload size={14} />}
+              onClick={() => {
+                setImportFilePath('');
+                setImportDirection('overwrite');
+                setIsImportModalOpen(true);
+              }}
+            >
+              从文件导入
+            </Button>
             <Button
               type="button"
               variant="primary"
@@ -354,7 +374,21 @@ export function LocalBackupPanel() {
 
                   {/* 动作区 */}
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                    {!item.complete && (
+                    {item.complete ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        icon={<IconUpload size={13} />}
+                        onClick={() => {
+                          setImportFilePath(item.name);
+                          setImportDirection('overwrite');
+                          setIsImportModalOpen(true);
+                        }}
+                      >
+                        导入
+                      </Button>
+                    ) : (
                       <span className="text-[11px] text-warning px-2 py-1 bg-warning-soft rounded-control font-medium">
                         不可恢复
                       </span>
@@ -491,6 +525,25 @@ export function LocalBackupPanel() {
           </div>
         )}
       </Modal>
+
+      {/* ========================================================================= */}
+      {/* 弹窗 3：本地备份文件导入向导 Modal */}
+      {/* ========================================================================= */}
+      <LocalImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        initialFilePath={importFilePath}
+        initialDirection={importDirection}
+        knownBackups={backups}
+        onSuccess={(res) => {
+          void refetchBackups();
+          if (res.direction === 'overwrite') {
+            showToast('已提交覆盖导入请求，系统正在恢复数据...');
+          } else {
+            showToast(`新账号「${res.displayName || ''}」已成功创建并导入数据`);
+          }
+        }}
+      />
     </div>
   );
 }

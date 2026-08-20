@@ -40,6 +40,7 @@ import {
   updateAccount,
 } from './accountsApi.js';
 import { GistSyncPanel } from '../sync/GistSyncPanel.js';
+import { LocalImportModal } from '../sync/LocalImportModal.js';
 import { fetchSyncStatus } from '../sync/syncApi.js';
 
 const PRESET_AVATARS: Array<{ id: string; label: string; url: string }> = [
@@ -159,6 +160,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
 
   // 新建账号弹窗状态
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
 
@@ -653,19 +655,30 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
               在不同的本地独立工作区之间秒级切换；每个工作区拥有专属数据
             </p>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            icon={<IconPlus size={14} />}
-            onClick={() => {
-              setNewDisplayName('');
-              setCreateError(null);
-              setIsCreateModalOpen(true);
-            }}
-          >
-            添加新账户
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              icon={<IconUpload size={14} />}
+              onClick={() => setIsImportModalOpen(true)}
+            >
+              从备份导入为新账号
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              icon={<IconPlus size={14} />}
+              onClick={() => {
+                setNewDisplayName('');
+                setCreateError(null);
+                setIsCreateModalOpen(true);
+              }}
+            >
+              添加新账户
+            </Button>
+          </div>
         </div>
 
         <div className="rounded-panel border border-line bg-surface overflow-hidden divide-y divide-line text-xs shadow-2xs">
@@ -1570,6 +1583,19 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
           </form>
         )}
       </Modal>
+
+      {/* ========================================================================= */}
+      {/* 弹窗 4：本地备份导入为新账号 Modal */}
+      {/* ========================================================================= */}
+      <LocalImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        initialDirection="new-account"
+        onSuccess={(res) => {
+          void refetch();
+          showToast(`新账号「${res.displayName || ''}」已成功创建并导入数据`);
+        }}
+      />
     </div>
   );
 }
