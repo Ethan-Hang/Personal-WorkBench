@@ -263,7 +263,7 @@ export function AppShell({
             <button
               type="button"
               onClick={() => handleSearchOpenChange(true)}
-              className="hidden items-center gap-2 rounded-control border border-line bg-surface-2/60 px-2.5 py-1.5 text-xs text-muted hover:border-line hover:text-secondary sm:inline-flex cursor-pointer transition-colors"
+              className="hidden items-center gap-2 rounded-control border border-line bg-surface-2/60 px-2.5 py-1.5 text-xs text-muted hover:border-line hover:text-secondary sm:inline-flex cursor-pointer transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
             >
               <IconSearch size={13} />
               <span>搜索任务或公司…</span>

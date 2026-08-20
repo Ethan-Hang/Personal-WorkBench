@@ -84,16 +84,19 @@ export function CommandPalette({
   items,
   placeholder = '搜索事项、公司，或输入命令…',
 }: CommandPaletteProps) {
-  // 全局快捷键 ⌘K / Ctrl+K 监听
+  // 全局快捷键 ⌘K / Ctrl+K 与 ESC 监听
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         onOpenChange(!open);
+      } else if (open && e.key === 'Escape') {
+        e.preventDefault();
+        onOpenChange(false);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [open, onOpenChange]);
 
   if (!open) return null;
@@ -121,12 +124,18 @@ export function CommandPalette({
       }}
     >
       <Command
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onOpenChange(false);
+          }
+        }}
         filter={(value, search) => {
           const item = itemMap.get(value);
           if (!item) return 0;
           return matchCommandItem(item, search);
         }}
-        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-surface text-ink shadow-2xl transition-all"
+        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-line bg-surface text-ink shadow-2xl transition-all origin-top animate-command-palette-in"
       >
         {/* 顶部搜索栏 */}
         <div className="flex h-14 items-center gap-3 border-b border-line px-4 shrink-0">
@@ -134,11 +143,17 @@ export function CommandPalette({
           <Command.Input
             autoFocus
             placeholder={placeholder}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                onOpenChange(false);
+              }
+            }}
             className="w-full bg-transparent text-sm text-ink placeholder:text-muted outline-hidden"
           />
           <kbd
             onClick={() => onOpenChange(false)}
-            className="cursor-pointer select-none rounded-control border border-line bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted hover:text-ink"
+            className="cursor-pointer select-none rounded-control border border-line bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold text-muted hover:text-ink hover:bg-surface-2/80 transition-colors"
           >
             ESC
           </kbd>
