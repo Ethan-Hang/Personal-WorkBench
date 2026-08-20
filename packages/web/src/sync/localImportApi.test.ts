@@ -9,7 +9,9 @@ import {
   LocalImportApiError,
   confirmLocalImport,
   importAsNewAccount,
+  pickLocalFile,
   preflightLocalImport,
+  uploadLocalBackupFile,
 } from './localImportApi.js';
 
 function mockResponse(status: number, body: unknown): Response {
@@ -192,5 +194,53 @@ describe('localImportApi', () => {
     const promise = importAsNewAccount('D:/test.db.gz', '新账号', fetchFn);
     await expect(promise).rejects.toBeInstanceOf(LocalImportApiError);
     await expect(promise).rejects.toThrow('网络连接失败，请检查服务是否正常运行');
+  });
+
+  it('pickLocalFile sends POST to /api/local-import/pick-file with initialDir', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValue(
+        mockResponse(200, { filePath: 'D:/backups/selected.db.gz', cancelled: false }),
+      );
+    const result = await pickLocalFile('D:/backups', fetchFn);
+
+    expect(fetchFn).toHaveBeenCalledWith(LOCAL_IMPORT_API.pickFile(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ initialDir: 'D:/backups' }),
+    });
+    expect(result).toEqual({ filePath: 'D:/backups/selected.db.gz', cancelled: false });
+  });
+
+  it('uploadLocalBackupFile sends binary POST to /api/local-import/upload', async () => {
+    const mockFile = {
+      name: 'backup.db.gz',
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+    } as unknown as File;
+
+    const fetchFn = vi.fn().mockResolvedValue(
+      mockResponse(200, {
+        filePath: 'C:/temp/uploaded.db.gz',
+        fileName: 'backup.db.gz',
+        bytes: 3,
+      }),
+    );
+    const result = await uploadLocalBackupFile(mockFile, fetchFn);
+
+    expect(fetchFn).toHaveBeenCalledWith(
+      LOCAL_IMPORT_API.upload(),
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-file-name': encodeURIComponent('backup.db.gz'),
+        },
+      }),
+    );
+    expect(result).toEqual({
+      filePath: 'C:/temp/uploaded.db.gz',
+      fileName: 'backup.db.gz',
+      bytes: 3,
+    });
   });
 });

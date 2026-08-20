@@ -1,14 +1,17 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import {
   LOCAL_IMPORT_API,
   localImportAsNewAccountBodySchema,
   localImportConfirmBodySchema,
+  localImportPickFileBodySchema,
   localImportPreflightBodySchema,
 } from '@workbench/sync/contract';
 import { SyncError } from '@workbench/sync/node';
 import type { LocalBackupService } from '../local-backup/service.js';
+import { openNativeFileDialog } from './native-dialog.js';
 import type { RestoreService } from '../restore/service.js';
 import type { LocalImportService } from './service.js';
 
@@ -23,6 +26,7 @@ export function registerLocalImportRoutes(
   restore: RestoreService,
   asNewAccount?: LocalImportService,
   localBackup?: LocalBackupService,
+  pickFileHandler: (initialDir?: string) => Promise<string | null> = openNativeFileDialog,
 ): void {
   async function resolveFilePath(rawPath: string): Promise<string> {
     if (existsSync(rawPath)) return rawPath;
@@ -33,6 +37,49 @@ export function registerLocalImportRoutes(
     }
     return rawPath;
   }
+
+  /**
+   * 唤起系统文件选择器对话框。
+   * 默认初始目录设置为程序保存本地备份的实际目录。
+   */
+  app.post(LOCAL_IMPORT_API.pickFile(), async (request) => {
+    const body = localImportPickFileBodySchema.safeParse(request.body ?? {});
+    let initialDir = body.success ? body.data.initialDir : undefined;
+    if (!initialDir && localBackup !== undefined) {
+      const config = await localBackup.getConfig();
+      initialDir = config.resolvedDir;
+    }
+    const picked = await pickFileHandler(initialDir);
+    return {
+      filePath: picked,
+      cancelled: picked === null,
+    };
+  });
+
+  /**
+   * 网页端直接上传本地备份文件流。
+   */
+  app.post(LOCAL_IMPORT_API.upload(), async (request) => {
+    const rawBuffer = request.body as Buffer;
+    if (!Buffer.isBuffer(rawBuffer) || rawBuffer.length === 0) {
+      throw new SyncError('请上传非空的备份文件', 400);
+    }
+    const rawFileName =
+      typeof request.headers['x-file-name'] === 'string'
+        ? decodeURIComponent(request.headers['x-file-name'])
+        : '';
+    const safeName =
+      rawFileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || `upload-${Date.now()}.db.gz`;
+    const uploadsDir = join(tmpdir(), 'workbench-uploads');
+    mkdirSync(uploadsDir, { recursive: true });
+    const targetPath = join(uploadsDir, `${Date.now()}-${safeName}`);
+    writeFileSync(targetPath, rawBuffer);
+    return {
+      filePath: targetPath,
+      fileName: safeName,
+      bytes: rawBuffer.length,
+    };
+  });
 
   app.post(LOCAL_IMPORT_API.preflight(), async (request) => {
     const body = localImportPreflightBodySchema.safeParse(request.body);

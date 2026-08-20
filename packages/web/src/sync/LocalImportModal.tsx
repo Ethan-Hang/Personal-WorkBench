@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BackupListItem } from '@workbench/sync/contract';
 import {
@@ -19,7 +19,13 @@ import {
   useTimezone,
 } from '@workbench/ui';
 import { switchAccount } from '../accounts/accountsApi.js';
-import { confirmLocalImport, importAsNewAccount, preflightLocalImport } from './localImportApi.js';
+import {
+  confirmLocalImport,
+  importAsNewAccount,
+  pickLocalFile,
+  preflightLocalImport,
+  uploadLocalBackupFile,
+} from './localImportApi.js';
 
 type ImportDirection = 'overwrite' | 'new-account';
 
@@ -29,6 +35,84 @@ export function joinBackupFilePath(dir?: string, name?: string): string {
   const cleanDir = dir.trim().replace(/[/\\]+$/, '');
   const separator = cleanDir.includes('\\') ? '\\' : '/';
   return `${cleanDir}${separator}${name}`;
+}
+
+export function AutoScrollPath({
+  text,
+  prefix,
+  className = '',
+}: {
+  text?: string;
+  prefix?: React.ReactNode;
+  className?: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [overflowDistance, setOverflowDistance] = useState(0);
+
+  useEffect(() => {
+    function updateOverflow() {
+      if (!containerRef.current || !textRef.current) return;
+      const containerWidth = containerRef.current.clientWidth;
+      const textWidth = textRef.current.scrollWidth;
+      if (textWidth > containerWidth) {
+        setOverflowDistance(textWidth - containerWidth);
+      } else {
+        setOverflowDistance(0);
+      }
+    }
+
+    updateOverflow();
+    const timer = setTimeout(updateOverflow, 60);
+    window.addEventListener('resize', updateOverflow);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', updateOverflow);
+    };
+  }, [text]);
+
+  if (!text) return null;
+
+  const duration = Math.max(4, overflowDistance / 30 + 3);
+  const animKey = `scroll_${text.replace(/[^a-zA-Z0-9]/g, '_').slice(-24)}_${overflowDistance}`;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`relative overflow-hidden whitespace-nowrap select-all ${className}`}
+      title={text}
+    >
+      <div
+        style={
+          overflowDistance > 0
+            ? {
+                animation: `${animKey} ${duration}s ease-in-out 1.2s infinite alternate`,
+                willChange: 'transform',
+              }
+            : undefined
+        }
+        className="inline-block hover:[animation-play-state:paused]"
+      >
+        {prefix}
+        <span ref={textRef} className="font-mono inline-block text-[11px] text-muted">
+          {text}
+        </span>
+      </div>
+
+      {overflowDistance > 0 && (
+        <style>{`
+          @keyframes ${animKey} {
+            0%, 15% {
+              transform: translateX(0);
+            }
+            85%, 100% {
+              transform: translateX(-${overflowDistance}px);
+            }
+          }
+        `}</style>
+      )}
+    </div>
+  );
 }
 
 export interface LocalImportModalProps {
@@ -56,6 +140,7 @@ export function LocalImportModal({
 }: LocalImportModalProps) {
   const queryClient = useQueryClient();
   const { formatUtcToLocal } = useTimezone();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 1. 表单状态
   const [filePath, setFilePath] = useState(initialFilePath);
@@ -66,6 +151,45 @@ export function LocalImportModal({
     null,
   );
   const [actionError, setActionError] = useState<string | null>(null);
+  const [isPickingFile, setIsPickingFile] = useState(false);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+
+  async function handlePickFile() {
+    setIsPickingFile(true);
+    setActionError(null);
+    try {
+      const res = await pickLocalFile(resolvedDir);
+      if (res.filePath && !res.cancelled) {
+        setFilePath(res.filePath);
+        return;
+      }
+      if (res.cancelled) {
+        return;
+      }
+      // 若系统原生对话框不可用（无头环境/远程/未安装组件），无缝唤起网页端文件选择器
+      fileInputRef.current?.click();
+    } catch {
+      fileInputRef.current?.click();
+    } finally {
+      setIsPickingFile(false);
+    }
+  }
+
+  async function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingFile(true);
+    setActionError(null);
+    try {
+      const res = await uploadLocalBackupFile(file);
+      setFilePath(res.filePath);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '上传备份文件失败');
+    } finally {
+      setIsUploadingFile(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
 
   // 当外部初始入参变化时同步重置
   useEffect(() => {
@@ -237,38 +361,125 @@ export function LocalImportModal({
           /* 向导主要配置与预览区 */
           /* ========================================================================= */
           <>
-            {/* 步骤 1：文件路径输入与选择 */}
+            {/* 步骤 1：文件选择与绝对路径展示 */}
             <div className="space-y-2.5">
-              <Field label="备份文件路径（.db 或 .db.gz 格式）">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    required
-                    value={filePath}
-                    onChange={(e) => {
-                      setFilePath(e.target.value);
-                      setActionError(null);
-                    }}
-                    placeholder="例如：D:/backups/2026-08-20.db.gz 或 data/local/backups/xxx.db.gz"
-                    className={controlClass}
-                  />
-                  {trimmedFilePath && (
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".db,.db.gz,.gz,application/gzip,application/x-sqlite3"
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+
+              <div className="space-y-1.5">
+                <span className="font-bold text-ink text-[12px] block">选择备份快照文件：</span>
+
+                {trimmedFilePath ? (
+                  /* 已选定文件：展示图标、文件名、绝对路径以及重新选择/清除按钮 */
+                  <div className="p-3 rounded-panel border border-accent/40 bg-accent-soft/20 flex items-center justify-between gap-3 animate-fade-in">
+                    <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
+                      <div className="flex size-9 items-center justify-center rounded-lg bg-accent text-white shrink-0 shadow-xs">
+                        <IconDatabase size={16} />
+                      </div>
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-ink text-xs truncate">
+                            {trimmedFilePath.split(/[/\\]/).pop() || trimmedFilePath}
+                          </span>
+                          <Chip tone="good">已选定</Chip>
+                        </div>
+                        <AutoScrollPath text={trimmedFilePath} className="mt-1" />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={isPickingFile || isUploadingFile}
+                        icon={
+                          isPickingFile || isUploadingFile ? (
+                            <IconRefreshCw size={13} className="animate-spin" />
+                          ) : (
+                            <IconFolder size={13} />
+                          )
+                        }
+                        onClick={handlePickFile}
+                      >
+                        {isPickingFile ? '选择中...' : '重新选择'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setFilePath('');
+                          setActionError(null);
+                        }}
+                        className="text-muted hover:text-critical"
+                      >
+                        清除
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  /* 未选定文件：展示选择文件按钮与默认路径提示 */
+                  <div className="p-4 rounded-panel border-2 border-dashed border-line hover:border-accent bg-surface hover:bg-surface-2/40 transition-all flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0 flex-1 overflow-hidden">
+                      <div className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent shrink-0">
+                        <IconFolder size={20} />
+                      </div>
+                      <div className="min-w-0 flex-1 overflow-hidden">
+                        <div className="font-bold text-ink text-xs">
+                          {isPickingFile
+                            ? '正在打开文件选择器...'
+                            : isUploadingFile
+                              ? '正在读取备份文件...'
+                              : '选择本地快照文件'}
+                        </div>
+                        {resolvedDir ? (
+                          <AutoScrollPath
+                            text={resolvedDir}
+                            prefix={<span className="text-[11px] text-muted">默认路径：</span>}
+                            className="mt-0.5"
+                          />
+                        ) : (
+                          <div className="text-[11px] text-muted mt-0.5">
+                            支持 .db 或 .db.gz 格式的快照文件
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="primary"
                       size="sm"
-                      onClick={() => setFilePath('')}
-                      className="shrink-0 text-muted hover:text-ink"
+                      disabled={isPickingFile || isUploadingFile}
+                      icon={
+                        isPickingFile || isUploadingFile ? (
+                          <IconRefreshCw size={14} className="animate-spin" />
+                        ) : (
+                          <IconFolder size={14} />
+                        )
+                      }
+                      onClick={handlePickFile}
+                      className="shrink-0"
                     >
-                      清空
+                      {isPickingFile
+                        ? '正在选择...'
+                        : isUploadingFile
+                          ? '正在上传...'
+                          : '选择备份文件...'}
                     </Button>
-                  )}
-                </div>
-              </Field>
+                  </div>
+                )}
+              </div>
 
               {/* 快捷选择已知本地备份 */}
               {knownBackups.length > 0 && (
-                <div className="space-y-1">
+                <div className="space-y-1 pt-0.5">
                   <span className="text-[11px] text-muted block">快捷选择已有快照：</span>
                   <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto pr-1">
                     {knownBackups.map((b) => {

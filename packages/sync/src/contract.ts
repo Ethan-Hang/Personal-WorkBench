@@ -315,7 +315,27 @@ export const LOCAL_IMPORT_API = {
   preflight: () => '/api/local-import/preflight',
   confirm: () => '/api/local-import/confirm',
   asNewAccount: () => '/api/local-import/as-new-account',
+  pickFile: () => '/api/local-import/pick-file',
+  upload: () => '/api/local-import/upload',
 } as const;
+
+export const localImportPickFileBodySchema = z.object({
+  initialDir: z.string().optional(),
+});
+export type LocalImportPickFileBody = z.infer<typeof localImportPickFileBodySchema>;
+
+export const localImportPickFileResponseSchema = z.object({
+  filePath: z.string().nullable(),
+  cancelled: z.boolean(),
+});
+export type LocalImportPickFileResponse = z.infer<typeof localImportPickFileResponseSchema>;
+
+export const localImportUploadResponseSchema = z.object({
+  filePath: z.string().min(1),
+  fileName: z.string().min(1),
+  bytes: z.number().int().nonnegative(),
+});
+export type LocalImportUploadResponse = z.infer<typeof localImportUploadResponseSchema>;
 
 export const localImportPreflightBodySchema = z.object({
   filePath: z.string().min(1),

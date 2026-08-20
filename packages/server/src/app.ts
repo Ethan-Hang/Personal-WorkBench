@@ -51,6 +51,8 @@ export interface BuildAppOptions {
   localImport?: LocalImportService;
   /** 设置与凭据的 Gist 同步。 */
   gistSync?: GistSyncService;
+  /** 本地文件选择器处理器（供测试注入 mock 或自定义平台处理）。 */
+  pickFileHandler?: (initialDir?: string) => Promise<string | null>;
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
   logger?: FastifyServerOptions['logger'];
 }
@@ -110,7 +112,13 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (opts.localBackup !== undefined) registerLocalBackupRoutes(app, opts.localBackup);
   const restoreForImport = opts.restore ?? opts.backup?.restore;
   if (restoreForImport !== undefined) {
-    registerLocalImportRoutes(app, restoreForImport, opts.localImport, opts.localBackup);
+    registerLocalImportRoutes(
+      app,
+      restoreForImport,
+      opts.localImport,
+      opts.localBackup,
+      opts.pickFileHandler,
+    );
   }
   if (opts.gistSync !== undefined) registerSyncRoutes(app, opts.gistSync);
 

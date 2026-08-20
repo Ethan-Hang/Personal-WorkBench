@@ -34,7 +34,10 @@ function migrate(sqlite: Parameters<typeof createDatabaseClient>[0]): void {
   runCoreMigrations(createDatabaseClient(sqlite));
 }
 
-async function buildImportApp(options?: { withLocalBackup?: boolean }): Promise<{
+async function buildImportApp(options?: {
+  withLocalBackup?: boolean;
+  pickFileHandler?: (initialDir?: string) => Promise<string | null>;
+}): Promise<{
   app: FastifyInstance;
   localBackup?: LocalBackupService;
 }> {
@@ -80,6 +83,8 @@ async function buildImportApp(options?: { withLocalBackup?: boolean }): Promise<
     restore,
     localImport,
     localBackup,
+    pickFileHandler:
+      options?.pickFileHandler ?? (async (dir) => `${dir ?? 'D:/backups'}/picked.db.gz`),
   });
   openApps.push(app);
   return { app, localBackup };
@@ -277,5 +282,55 @@ describe('导入为新账号的路由', () => {
     });
 
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('本地导入的文件选择与上传路由', () => {
+  it('POST /api/local-import/pick-file 返回选择的文件路径', async () => {
+    const { app } = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.pickFile(),
+      payload: { initialDir: 'D:/some/path' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toHaveProperty('filePath');
+    expect(res.json()).toHaveProperty('cancelled');
+  });
+
+  it('POST /api/local-import/upload 上传并落盘备份文件', async () => {
+    const { app } = await buildImportApp();
+    const fakeBuffer = Buffer.from('fake-db-gz-content');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.upload(),
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-file-name': encodeURIComponent('my-backup.db.gz'),
+      },
+      payload: fakeBuffer,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const json = res.json();
+    expect(json.fileName).toContain('my-backup.db.gz');
+    expect(json.bytes).toBe(fakeBuffer.length);
+    expect(typeof json.filePath).toBe('string');
+  });
+
+  it('POST /api/local-import/upload 空内容返回 400', async () => {
+    const { app } = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.upload(),
+      headers: { 'content-type': 'application/octet-stream' },
+      payload: Buffer.alloc(0),
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 });

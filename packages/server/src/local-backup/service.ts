@@ -1,5 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
 import type { SettingsRepository } from '@workbench/core';
 import { resolveSettings } from '@workbench/core';
@@ -196,7 +196,8 @@ export class LocalBackupService {
   }
 
   private resolveDir(targetDir: string): string {
-    return targetDir === '' ? join(this.deps.dataDir, DEFAULT_SUBDIR) : targetDir;
+    const dir = targetDir === '' ? join(this.deps.dataDir, DEFAULT_SUBDIR) : targetDir;
+    return resolve(dir);
   }
 
   private assertUsableDir(dir: string): void {

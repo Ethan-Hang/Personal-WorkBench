@@ -3,11 +3,16 @@ import {
   localImportAsNewAccountBodySchema,
   localImportAsNewAccountResponseSchema,
   localImportConfirmBodySchema,
+  localImportPickFileBodySchema,
+  localImportPickFileResponseSchema,
   localImportPreflightBodySchema,
   localImportPreflightResponseSchema,
+  localImportUploadResponseSchema,
   restoreStateSchema,
   type LocalImportAsNewAccountResponse,
+  type LocalImportPickFileResponse,
   type LocalImportPreflightResponse,
+  type LocalImportUploadResponse,
   type RestoreState,
 } from '@workbench/sync/contract';
 import { z } from 'zod';
@@ -87,6 +92,49 @@ async function request<T>(
     });
   }
   return parsed.data;
+}
+
+/**
+ * 唤起系统原生文件选择对话框（默认初始目录为程序保存备份目录）
+ */
+export async function pickLocalFile(
+  initialDir?: string,
+  fetchFn: FetchFn = fetch,
+): Promise<LocalImportPickFileResponse> {
+  const body = localImportPickFileBodySchema.parse({ initialDir });
+  return request(
+    LOCAL_IMPORT_API.pickFile(),
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+    localImportPickFileResponseSchema,
+    fetchFn,
+  );
+}
+
+/**
+ * 网页端直接上传本地备份文件
+ */
+export async function uploadLocalBackupFile(
+  file: File,
+  fetchFn: FetchFn = fetch,
+): Promise<LocalImportUploadResponse> {
+  const arrayBuffer = await file.arrayBuffer();
+  return request(
+    LOCAL_IMPORT_API.upload(),
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/octet-stream',
+        'x-file-name': encodeURIComponent(file.name),
+      },
+      body: arrayBuffer,
+    },
+    localImportUploadResponseSchema,
+    fetchFn,
+  );
 }
 
 /**
