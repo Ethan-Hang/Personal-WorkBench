@@ -23,30 +23,32 @@
 
 ## 2. 目录归属：谁碰哪里
 
-| 目录                            | 归属     | 说明                             |
-| ------------------------------- | -------- | -------------------------------- |
-| `packages/ui/**`                | 前端     | 视觉系统的家。后端不改这里的样式 |
-| `modules/*/src/ui/**`           | 前端     | 页面与交互                       |
-| `packages/web/**`               | 前端     | 外壳、导航、主题装配             |
-| `packages/core/**`              | 后端     | **动它之前先读 `docs/adr/`**     |
-| `packages/data/**`              | 后端     | schema 与迁移                    |
-| `packages/server/**`            | 后端     | 装配与模块注册                   |
-| `modules/*/src/server/**`       | 后端     | service、路由、投影              |
-| `modules/*/src/storage/**`      | 后端     | SQLite 适配器（ADR-0008）        |
-| **`modules/*/src/contract.ts`** | **共同** | **交接点。改它之前先说一声**     |
+| 目录                                | 归属     | 说明                                                   |
+| ----------------------------------- | -------- | ------------------------------------------------------ |
+| `packages/ui/**`                    | 前端     | 视觉系统的家。后端不改这里的样式                       |
+| `modules/*/src/ui/**`               | 前端     | 页面与交互                                             |
+| `packages/web/**`                   | 前端     | 外壳、导航、主题装配、备份与同步面板                   |
+| `packages/core/**`                  | 后端     | **动它之前先读 `docs/adr/`**                           |
+| `packages/data/**`                  | 后端     | schema 与迁移、连接持有层、凭据保管库                  |
+| `packages/server/**`                | 后端     | 装配与模块注册、备份/恢复/账号/同步路由                |
+| `packages/sync/src/node/**`         | 后端     | WebDAV 客户端、Gist 客户端、node:crypto 加密           |
+| `modules/*/src/server/**`           | 后端     | service、路由、投影                                    |
+| `modules/*/src/storage/**`          | 后端     | SQLite 适配器（ADR-0008）                              |
+| **`modules/*/src/contract.ts`**     | **共同** | **交接点。业务模块契约，改它之前先说一声**             |
+| **`packages/sync/src/contract.ts`** | **共同** | **交接点。同步/恢复/账号/认证契约，纯 Zod 浏览器安全** |
 
-> `modules/workbench` 目前只有服务端。它的 `src/ui/` 建起来之后归前端，规则同上。
+> `modules/workbench` 的 UI 搬迁已完成。`modules/todo/src/ui/` 已不再挂载。
 
-## 3. 交接点只有一个：`contract.ts`
+## 3. 交接点：`contract.ts`
 
-每个模块的 `src/contract.ts` 里同时放着两样东西，前后端共用同一份：
+每个业务模块的 `src/contract.ts` 以及系统级同步包的 `packages/sync/src/contract.ts` 里同时放着两样东西，前后端共用同一份：
 
-- **端点路径**（`TODO_API` / `CAMPUS_API`）：传 `ID_PARAM` 得到 Fastify 注册模式，传真实 id 得到请求路径
+- **端点路径**（`TODO_API` / `WORKBENCH_API` / `CAMPUS_API` / `SYNC_API` / `RESTORE_API` / `ACCOUNTS_API` / `GITHUB_AUTH_API` / `GIST_SYNC_API`）：传 `ID_PARAM` / `ACCOUNT_ID_PARAM` / `NAME_PARAM` 得到 Fastify 注册模式，传真实参数得到请求路径
 - **请求 / 响应形状**（Zod schema）：服务端校验入参，客户端 `.parse()` 校验响应
 
 由此得到两条对协作重要的性质：
 
-- **写前端只需要读 `contract.ts`**，不必读 `src/server/`
+- **写前端只需要读 `contract.ts`**，不必读 `src/server/` 或 `packages/sync/src/node/`
 - **后端改了形状，前端会在接缝处大声失败**，而不是页面静默变空
 
 所以：**改 `contract.ts` = 改契约 = 影响对方。** 其余目录各改各的，互不通知也没关系。

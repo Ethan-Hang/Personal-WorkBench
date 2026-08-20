@@ -65,6 +65,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 决定（默认 `./data/local`）；`WORKBENCH_DB` 保留为**逃生舱**——显式设置时锁定单库、
 跳过账号机制与一次性迁移，供 CI 与测试用。
 
+完整数据目录布局：
+
+```
+data/local/
+  accounts.json                     引导文件，原子写，可手工修
+  accounts/
+    local-default/workbench.db      主库文件（WAL 模式）
+    <其他账号>/workbench.db
+  .restore/                         恢复中工作目录
+    state.json                      恢复状态，断电续命用
+    incoming.db                     已下载解压的候选库
+    rollback.db                     恢复前的本地快照 = 回退点
+  credentials.json                  OS 保管库不可用时的退化明文存储
+  server.log
+```
+
 启动时若 `accounts.json` 不存在而旧的 `data/local/workbench.db` 还在，会做一次性迁移：
 **先正常打开旧库再 close 让 WAL checkpoint 掉**，然后只 rename 一个主库文件。顺序是
 承重的——这样不必同时处理 `-wal`/`-shm`，也不会搬出半截状态。
@@ -88,16 +104,22 @@ pre-commit hook 只跑 Prettier（lint-staged），**不跑测试**——测试�
 
 ```
 packages/core     纯领域逻辑，零 IO 依赖，不知道任何模块存在
-packages/data     SQLite + Drizzle + 迁移 + 仓储实现
-packages/server   Fastify，装配 core + data + 已注册模块
+packages/data     SQLite + Drizzle + 迁移 + 仓储实现 + 连接持有层 + 凭据保管
+packages/sync     WebDAV 备份恢复、账号/Device Flow 契约、Gist 设置同步与加密（/contract 与 /node）
+packages/server   Fastify，装配 core + data + sync + 已注册模块
 packages/ui       共享设计基座与壳层 Context，依赖 @workbench/core
 packages/web      React 外壳、导航、页面、SettingsStore HTTP 实现
 modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
 ```
 
-项目内依赖箭头**恒指向内层**：`data → core`，`server → core/data`，`ui → core`，`modules → core`，`web → core/ui`。
+项目内依赖箭头**恒指向内层**：`data → core`，`sync → core/data`，`server → core/data/sync`，`ui → core`，`modules → core`，`web → core/ui/sync`。
 模块可依赖 React、Zod、Drizzle 等外部库，但不得依赖其他模块或 `@workbench/data`。
 core 定义 `ItemRepository` 与 `SettingsRepository` 接口，data 提供实现（DIP）。
+
+**`packages/sync` 必须做子路径导出（ISP 与浏览器安全）：**
+
+- `@workbench/sync/contract`：纯 Zod 形状与端点常量，浏览器安全，web 与 server 共用；
+- `@workbench/sync/node`：WebDAV 客户端、Gist 客户端、`node:crypto` 加密，仅 server 依赖。
 
 ### 三条铁律
 
