@@ -8,6 +8,7 @@ import type {
   AccountView,
   BindDirection,
   GitHubBinding,
+  GitHubCredential,
 } from '@workbench/sync/contract';
 import type { ServiceState } from '../service-state.js';
 import { conflict, notFound } from './errors.js';
@@ -25,13 +26,19 @@ export interface AccountsServiceDeps {
    */
   migrate: (sqlite: Database.Database) => void;
   /**
-   * 绑定 GitHub 时选的同步方向要交给谁。
+   * 绑定 GitHub 时选的同步方向与凭据要交给谁。
    *
    * 绑定发生在 Device Flow 刚走完那一刻，用户**还没设过同步口令**，所以方向当时
    * 执行不了；组合根把它接到 SecretStore，等第一次解锁再执行（见 sync/service.ts）。
    * AccountsService 因此不必知道 Gist 同步的存在。
    */
-  onGithubBound?: (accountId: string, direction: BindDirection) => void;
+  onGithubBound?: (
+    accountId: string,
+    direction: BindDirection,
+    credential?: GitHubCredential,
+  ) => void;
+  onGithubUnbound?: (accountId: string) => void;
+  onAccountRemoved?: (accountId: string) => void;
   now?: () => Date;
 }
 
@@ -111,12 +118,18 @@ export class AccountsService {
       ...registry,
       accounts: registry.accounts.filter((account) => account.id !== id),
     });
+    this.deps.onAccountRemoved?.(id);
     rmSync(dirname(this.deps.store.dbPathOf(target)), { recursive: true, force: true });
     return this.list();
   }
 
   /** 绑定 GitHub。**只写元数据，不动数据库**。 */
-  bindGithub(id: string, github: GitHubBinding, direction: BindDirection): AccountsResponse {
+  bindGithub(
+    id: string,
+    github: GitHubBinding,
+    direction: BindDirection,
+    credential?: GitHubCredential,
+  ): AccountsResponse {
     const registry = this.deps.store.read();
     this.require(registry, id);
 
@@ -134,7 +147,7 @@ export class AccountsService {
         account.id === id ? { ...account, kind: 'github', github } : account,
       ),
     });
-    this.deps.onGithubBound?.(id, direction);
+    this.deps.onGithubBound?.(id, direction, credential);
     return this.list();
   }
 
@@ -152,6 +165,7 @@ export class AccountsService {
         return { ...rest, kind: 'local' };
       }),
     });
+    this.deps.onGithubUnbound?.(id);
     return this.list();
   }
 

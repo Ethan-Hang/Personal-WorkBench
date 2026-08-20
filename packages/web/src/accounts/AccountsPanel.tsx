@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AccountView, BindDirection, GitHubDeviceCode } from '@workbench/sync/contract';
+import type {
+  AccountView,
+  BindDirection,
+  GitHubCredential,
+  GitHubDeviceCode,
+} from '@workbench/sync/contract';
 import {
   Avatar,
   Button,
@@ -179,7 +184,12 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
   // GitHub Device Flow 认证与绑定状态
   const [authStep, setAuthStep] = useState<AuthStep>('idle');
   const [deviceCodeData, setDeviceCodeData] = useState<GitHubDeviceCode | null>(null);
-  const [authorizedUser, setAuthorizedUser] = useState<{ login: string; id: number } | null>(null);
+  const [authorizedUser, setAuthorizedUser] = useState<{
+    login: string;
+    id: number;
+    avatarUrl?: string;
+  } | null>(null);
+  const [authorizedCredential, setAuthorizedCredential] = useState<GitHubCredential | null>(null);
   const [bindDirection, setBindDirection] = useState<BindDirection>('cloud-to-local');
   const [authError, setAuthError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -251,11 +261,13 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
       id,
       direction,
       github,
+      credential,
     }: {
       id: string;
       direction: BindDirection;
       github: { login: string; userId: number; avatarUrl?: string };
-    }) => bindGithubAccount(id, { direction, github }),
+      credential?: GitHubCredential;
+    }) => bindGithubAccount(id, { direction, github, credential }),
     onSuccess: async (res) => {
       void queryClient.setQueryData(['accounts'], res);
       await queryClient.invalidateQueries();
@@ -350,6 +362,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
     setAuthStep('starting');
     setDeviceCodeData(null);
     setAuthorizedUser(null);
+    setAuthorizedCredential(null);
     setPollCount(0);
     setCopiedCode(false);
 
@@ -414,6 +427,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
         } else if (res.status === 'authorized') {
           stopPolling();
           setAuthorizedUser(res.user);
+          setAuthorizedCredential(res.credential);
           setAuthStep('bind_direction');
         }
       } catch (err: unknown) {
@@ -466,7 +480,9 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
       github: {
         login: authorizedUser.login,
         userId: authorizedUser.id,
+        ...(authorizedUser.avatarUrl ? { avatarUrl: authorizedUser.avatarUrl } : {}),
       },
+      credential: authorizedCredential ?? undefined,
     });
   }
 

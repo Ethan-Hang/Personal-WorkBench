@@ -48,7 +48,12 @@ export function registerAccountsRoutes(app: FastifyInstance, service: AccountsSe
   app.post(ACCOUNTS_API.bindGithub(ACCOUNT_ID_PARAM), async (request) => {
     const body = bindGithubBodySchema.safeParse(request.body);
     if (!body.success) throw badRequest('绑定方向与 GitHub 身份必须是有效值');
-    return service.bindGithub(idOf(request), body.data.github, body.data.direction);
+    return service.bindGithub(
+      idOf(request),
+      body.data.github,
+      body.data.direction,
+      body.data.credential,
+    );
   });
 
   app.delete(ACCOUNTS_API.github(ACCOUNT_ID_PARAM), async (request) =>

@@ -125,7 +125,7 @@ export function GistSyncPanel({ activeAccount, onStartGitHubAuth }: GistSyncPane
     });
   }
 
-  const isLinked = Boolean(syncStatus?.linked || activeAccount?.kind === 'github');
+  const isLinked = Boolean(syncStatus?.linked);
   const isProtected = syncStatus?.protectedByOsVault ?? true;
   const isUnlocked = Boolean(syncStatus?.unlocked);
   const hasConflict = Boolean(syncStatus?.conflict);
@@ -297,8 +297,12 @@ export function GistSyncPanel({ activeAccount, onStartGitHubAuth }: GistSyncPane
         {/* 底部操作区 */}
         <div className="pt-3 border-t border-line/60 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs">
           {!isLinked ? (
-            <div className="flex items-center justify-between w-full">
-              <span className="text-muted">关联 GitHub 账户以启用 Gist 设置与凭据同步</span>
+            <div className="flex items-center justify-between w-full flex-wrap gap-2">
+              <span className="text-muted">
+                {activeAccount?.kind === 'github'
+                  ? 'GitHub 访问令牌已失效或尚未登录，请重新连接以启用 Gist 同步'
+                  : '关联 GitHub 账户以启用 Gist 设置与凭据同步'}
+              </span>
               {onStartGitHubAuth && (
                 <Button
                   type="button"
@@ -307,7 +311,7 @@ export function GistSyncPanel({ activeAccount, onStartGitHubAuth }: GistSyncPane
                   icon={<IconGithub size={14} />}
                   onClick={onStartGitHubAuth}
                 >
-                  连接 GitHub
+                  {activeAccount?.kind === 'github' ? '重新连接 GitHub' : '连接 GitHub'}
                 </Button>
               )}
             </div>

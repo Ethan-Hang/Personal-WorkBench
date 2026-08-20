@@ -168,6 +168,10 @@ export class SecretStore {
     this.backend.set(`gist-id:${accountId}`, gistId);
   }
 
+  clearGistId(accountId: string): void {
+    this.backend.delete(`gist-id:${accountId}`);
+  }
+
   /**
    * 绑定时选的同步方向。绑定发生在 Device Flow 刚走完那一刻，用户**还没有设过
    * 口令**，所以方向当时执行不了——记下来，等第一次解锁再执行（然后清掉）。
@@ -192,6 +196,17 @@ export class SecretStore {
 
   writeLastSeenUpdatedAt(accountId: string, updatedAt: string): void {
     this.backend.set(`last-seen:${accountId}`, updatedAt);
+  }
+
+  clearLastSeenUpdatedAt(accountId: string): void {
+    this.backend.delete(`last-seen:${accountId}`);
+  }
+
+  clearAccountSecrets(accountId: string): void {
+    this.clearGithubToken(accountId);
+    this.clearGistId(accountId);
+    this.clearPendingDirection(accountId);
+    this.clearLastSeenUpdatedAt(accountId);
   }
 
   readPassphrase(): string | undefined {

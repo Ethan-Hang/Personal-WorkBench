@@ -92,13 +92,21 @@ describe('账号路由', () => {
     expect(accountsResponseSchema.parse(removed.json()).accounts).toHaveLength(1);
   });
 
-  it('绑定与解绑 GitHub', async () => {
+  it('绑定与解绑 GitHub（支持携带 credential）', async () => {
     const app = await buildAccountsApp();
 
     const bound = await app.inject({
       method: 'POST',
       url: ACCOUNTS_API.bindGithub('local-default'),
-      payload: { direction: 'local-to-cloud', github: { login: 'Ethan-Hang', userId: 12345 } },
+      payload: {
+        direction: 'local-to-cloud',
+        github: { login: 'Ethan-Hang', userId: 12345 },
+        credential: {
+          accessToken: 'ghu_fake_token',
+          tokenType: 'bearer',
+          scope: 'gist',
+        },
+      },
     });
     expect(bound.statusCode).toBe(200);
     expect(accountsResponseSchema.parse(bound.json()).accounts[0]?.kind).toBe('github');

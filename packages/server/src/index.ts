@@ -72,8 +72,19 @@ async function main() {
             state: serviceState,
             migrate,
             // 绑定那一刻用户还没设过同步口令，方向只能先记下来，等第一次解锁再执行。
-            onGithubBound: (accountId, direction) =>
-              secrets.writePendingDirection(accountId, direction),
+            onGithubBound: (accountId, direction, credential) => {
+              secrets.writePendingDirection(accountId, direction);
+              if (credential !== undefined) {
+                secrets.writeGithubToken(accountId, credential);
+              }
+            },
+            onGithubUnbound: (accountId) => {
+              secrets.clearGithubToken(accountId);
+              secrets.clearPendingDirection(accountId);
+            },
+            onAccountRemoved: (accountId) => {
+              secrets.clearAccountSecrets(accountId);
+            },
           })
         : undefined;
 

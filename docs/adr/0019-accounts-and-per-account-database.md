@@ -30,8 +30,9 @@ ADR-0001 明确关闭过这条路：「不做账号体系」，并预言「若�
   （本地上传图片裁剪压缩保存为 base64、精选矢量预设、图片 URL）、GitHub 官方头像自动联动以及系统默认头像。
   解析优先级为：`自定义 avatar > GitHub 头像 > 默认经典图标`，零触碰底层数据库文件
 - **绑定 / 解绑 GitHub 账号不改账号 `id`、不改 `dbDir`。** 二者是纯元数据操作：往
-  `accounts.json` 里加/删一个 `github` 字段，零文件系统动作。若绑定时顺带把
-  `local-default` 改名成 `gh-Ethan-Hang` 之类，就需要连带重命名数据目录，一次失败
+  `accounts.json` 里加/删一个 `github` 字段，零文件系统动作。绑定时将 Device Flow 授权凭据
+  由组合根存入本地系统保管库（`SecretStore`）；解绑与删除账号时由组合根联动清理对应凭据。
+  若绑定时顺带把 `local-default` 改名成 `gh-Ethan-Hang` 之类，就需要连带重命名数据目录，一次失败
   就可能留下一个账号条目找不到对应库文件的悬空状态
 - 同一个 GitHub 账号不能绑定两个本地账号（按 `github.userId` 在 `accounts.json`
   层面校验唯一），否则两个库会向同一个 Gist 写设置、互相覆盖

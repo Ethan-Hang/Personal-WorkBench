@@ -238,29 +238,46 @@ describe('AccountsService.bindGithub / unbindGithub', () => {
     );
   });
 
-  it('绑定时选的方向会交出去——绑定那一刻用户还没设过口令，执行不了', () => {
-    const seen: Array<[string, string]> = [];
+  it('绑定时选的方向与凭据会交出去——凭据存进保管库，方向等第一次解锁执行', () => {
+    const seen: Array<{ accountId: string; direction: string; token?: string }> = [];
     const service = new AccountsService({
       store: harness.store,
       holder: harness.holder,
       state: harness.state,
       migrate: () => {},
-      onGithubBound: (accountId, direction) => seen.push([accountId, direction]),
+      onGithubBound: (accountId, direction, cred) =>
+        seen.push({ accountId, direction, token: cred?.accessToken }),
     });
 
-    service.bindGithub('local-default', github, 'cloud-to-local');
+    service.bindGithub('local-default', github, 'cloud-to-local', {
+      accessToken: 'ghu_token_123',
+      tokenType: 'bearer',
+      scope: 'gist',
+    });
 
-    expect(seen).toEqual([['local-default', 'cloud-to-local']]);
+    expect(seen).toEqual([
+      { accountId: 'local-default', direction: 'cloud-to-local', token: 'ghu_token_123' },
+    ]);
   });
 
-  it('解绑清掉 github 字段并变回本地账号', () => {
-    harness.service.bindGithub('local-default', github, 'local-to-cloud');
+  it('解绑清掉 github 字段并触发 onGithubUnbound', () => {
+    const unboundIds: string[] = [];
+    const service = new AccountsService({
+      store: harness.store,
+      holder: harness.holder,
+      state: harness.state,
+      migrate: () => {},
+      onGithubUnbound: (accountId) => unboundIds.push(accountId),
+    });
 
-    const response = harness.service.unbindGithub('local-default');
+    service.bindGithub('local-default', github, 'local-to-cloud');
+
+    const response = service.unbindGithub('local-default');
 
     const unbound = response.accounts.find((account) => account.id === 'local-default');
     expect(unbound?.kind).toBe('local');
     expect(unbound?.github).toBeUndefined();
+    expect(unboundIds).toEqual(['local-default']);
   });
 });
 

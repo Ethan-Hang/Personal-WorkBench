@@ -97,11 +97,16 @@ describe('accountsApi', () => {
     expect(result).toEqual(sampleAccounts);
   });
 
-  it('bindGithubAccount sends POST to bind endpoint with direction and github info', async () => {
+  it('bindGithubAccount sends POST to bind endpoint with direction, github info and credential', async () => {
     const fetchFn = vi.fn().mockResolvedValue(mockResponse(200, sampleAccounts));
     const body = {
       direction: 'cloud-to-local' as const,
       github: { login: 'octocat', userId: 123456 },
+      credential: {
+        accessToken: 'ghu_access_token',
+        tokenType: 'bearer',
+        scope: 'gist',
+      },
     };
     const result = await bindGithubAccount('local-default', body, fetchFn);
 

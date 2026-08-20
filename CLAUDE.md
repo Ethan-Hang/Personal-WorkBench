@@ -362,6 +362,9 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
 - **salt 只在改口令时换，不是每次写。** scrypt 很慢，每改一次主题就重派生会明显卡。
 - **刻意不做自动合并。** 云端被另一台设备改过就停下来让用户选方向；逐键取新会产生两边的
   混合体，无法回答「我现在用的到底是哪一套设置」。
+- **Gist 同步状态的 `linked` 严格以本地是否有可用 Token 为准**：前端 Gist 同步面板以
+  服务端的 `syncStatus.linked` 为唯一连接判据（而非仅按账号 `kind === 'github'`），
+  若 Token 缺失或失效会明确提示重新授权。
 
 本地凭据优先走 **OS 保管库**（`@napi-rs/keyring`，N-API 预编译，`--ignore-scripts` 装得上），
 拿不到才退到明文 `credentials.json`。退化通过 `/api/sync/status` 的 `protectedByOsVault`
@@ -373,7 +376,8 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
   放在同一台机器的明文里，加密就白做了。
 
 绑定 GitHub 时选的方向**当时执行不了**（用户那一刻还没设过口令），所以记成
-`pendingDirection`，等第一次解锁再执行然后清掉。
+`pendingDirection`，等第一次解锁再执行然后清掉；同时 Device Flow 拿到的 GitHub Token
+随绑定请求提交，由组合根写入 `SecretStore.writeGithubToken`。
 
 ### 无 body 的 POST 会撞上 415
 
@@ -403,6 +407,8 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
   都落在错误的账号里，**而且不报错**。
 - **`id` 与 `dbDir` 恒不变。** 绑定 / 解绑 GitHub 是纯元数据操作，一个文件都不动；
   绑定也**不动数据库**——想拉云端数据要走恢复流程（差异 → 确认 → 可回退）。
+  绑定时传入 Device Flow 授权的 `credential` 并存入本地 `SecretStore`；解绑（`onGithubUnbound`）
+  与删除账号（`onAccountRemoved`）时会自动清理关联凭据。
 - **资料与头像修改走纯元数据通道（`PATCH /api/accounts/:id`）**：支持自定义头像与显示名修改，
   头像优先级为「自定义 `avatar` > 绑定的 GitHub 官方头像 > 默认经典矢量头像」，图片本地上传经
   前端等比缩放裁剪为轻量 base64 存入 `accounts.json`，不动任何库文件。

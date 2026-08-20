@@ -510,12 +510,13 @@ POST /api/accounts/active { id }
 
 ### 7.6 绑定与解绑
 
-**绑定**（D4）：已登录 GitHub → 选方向（云→本 / 本→云）→ 只作用于设置与凭据 →
-写入 `github` 字段。完成后提示「检测到云端有 N 份备份，要看差异吗？」，
-点进去走 §6.3 的恢复流程。
+**绑定**（D4）：已登录 GitHub → 选方向（云→本 / 本→云）→ 传入 `direction`、`github` 与 Device Flow 获得的 `credential`
+（含 `accessToken`、`tokenType`、`scope` 等）→ 服务端在写入 `github` 字段的同时由组合根调用
+`SecretStore.writeGithubToken(accountId, credential)` 安全持久化至本地保管库 → 记下 `pendingDirection`
+供首次解锁执行。完成后提示「检测到云端有 N 份备份，要看差异吗？」，点进去走 §6.3 的恢复流程。
 
-**解绑**：删掉 `github` 字段、清本地 token 与 gistId。**不删云端 gist**（可能还在别处用），
-但提示可手动删除。
+**解绑**：删掉 `github` 字段，服务端触发 `onGithubUnbound` 清除本地保存的 GitHub Token、gistId 与未决方向。
+**不删云端 gist**（可能还在别处用），但提示可手动删除。账号删除（`DELETE /api/accounts/:id`）时同步清理该账号的所有关联凭据。
 
 ### 7.7 个人资料与头像设置 (`PATCH /api/accounts/:id` & `Avatar`)
 
@@ -590,25 +591,25 @@ GitHub 认证后 5000 次/小时，debounce 之后完全够。
 
 路径常量与 Zod 形状放 `@workbench/sync/contract`，server 与 web 共用同一份。
 
-| 方法    | 路径                            | 说明                           |
-| ------- | ------------------------------- | ------------------------------ |
-| GET     | `/api/accounts`                 | 列表 + `activeId`              |
-| POST    | `/api/accounts`                 | 新建本地账号                   |
-| POST    | `/api/accounts/active`          | 切换（触发 `switching` 态）    |
-| DELETE  | `/api/accounts/:id`             | 删除账号与其数据（需二次确认） |
-| POST    | `/api/accounts/:id/github/bind` | 绑定，body 带方向              |
-| DELETE  | `/api/accounts/:id/github`      | 解绑                           |
-| POST    | `/api/auth/github/device`       | 发起 device flow               |
-| POST    | `/api/auth/github/device/poll`  | 轮询换 token                   |
-| GET/PUT | `/api/backup/config`            | WebDAV 配置与 `autoEnabled`    |
-| POST    | `/api/backup/run`               | 立即备份                       |
-| GET     | `/api/backup/list`              | 云端列表（读 meta，不下载库）  |
-| DELETE  | `/api/backup/:name`             | 删除一份                       |
-| POST    | `/api/restore/preflight`        | 下载 + 校验 + 差异报告         |
-| POST    | `/api/restore/confirm`          | 进入 `restoring`               |
-| POST    | `/api/restore/rollback`         | 手动回退                       |
-| GET     | `/api/restore/state`            | 当前状态（白名单）             |
-| GET     | `/api/health`                   | **新增 `state` 字段**          |
+| 方法    | 路径                            | 说明                                                |
+| ------- | ------------------------------- | --------------------------------------------------- |
+| GET     | `/api/accounts`                 | 列表 + `activeId`                                   |
+| POST    | `/api/accounts`                 | 新建本地账号                                        |
+| POST    | `/api/accounts/active`          | 切换（触发 `switching` 态）                         |
+| DELETE  | `/api/accounts/:id`             | 删除账号与其数据（需二次确认）                      |
+| POST    | `/api/accounts/:id/github/bind` | 绑定，body 带方向、GitHub 信息与 credential（可选） |
+| DELETE  | `/api/accounts/:id/github`      | 解绑                                                |
+| POST    | `/api/auth/github/device`       | 发起 device flow                                    |
+| POST    | `/api/auth/github/device/poll`  | 轮询换 token                                        |
+| GET/PUT | `/api/backup/config`            | WebDAV 配置与 `autoEnabled`                         |
+| POST    | `/api/backup/run`               | 立即备份                                            |
+| GET     | `/api/backup/list`              | 云端列表（读 meta，不下载库）                       |
+| DELETE  | `/api/backup/:name`             | 删除一份                                            |
+| POST    | `/api/restore/preflight`        | 下载 + 校验 + 差异报告                              |
+| POST    | `/api/restore/confirm`          | 进入 `restoring`                                    |
+| POST    | `/api/restore/rollback`         | 手动回退                                            |
+| GET     | `/api/restore/state`            | 当前状态（白名单）                                  |
+| GET     | `/api/health`                   | **新增 `state` 字段**                               |
 
 这些路由在 `buildApp` 里与 `/api/settings` 并排注册，**不经模块注册表**。
 

@@ -87,16 +87,18 @@ const githubSlowDownSchema = z.object({
 const githubExpiredSchema = z.object({ status: z.literal('expired') });
 const githubDeniedSchema = z.object({ status: z.literal('denied') });
 
+export const githubCredentialSchema = z.object({
+  accessToken: z.string().min(1),
+  tokenType: z.string().min(1),
+  scope: z.string(),
+  refreshToken: z.string().min(1).optional(),
+  expiresIn: z.number().int().positive().optional(),
+  refreshTokenExpiresIn: z.number().int().positive().optional(),
+});
+
 const githubAuthorizedSchema = z.object({
   status: z.literal('authorized'),
-  credential: z.object({
-    accessToken: z.string().min(1),
-    tokenType: z.string().min(1),
-    scope: z.string(),
-    refreshToken: z.string().min(1).optional(),
-    expiresIn: z.number().int().positive().optional(),
-    refreshTokenExpiresIn: z.number().int().positive().optional(),
-  }),
+  credential: githubCredentialSchema,
   user: z.object({
     login: z.string().min(1),
     id: z.number().int().nonnegative(),
@@ -112,6 +114,7 @@ export const githubDevicePollResponseSchema = z.discriminatedUnion('status', [
   githubAuthorizedSchema,
 ]);
 
+export type GitHubCredential = z.infer<typeof githubCredentialSchema>;
 export type GitHubDeviceCode = z.infer<typeof githubDeviceCodeSchema>;
 export type GitHubDevicePollBody = z.infer<typeof githubDevicePollBodySchema>;
 export type GitHubDevicePollResponse = z.infer<typeof githubDevicePollResponseSchema>;
@@ -182,6 +185,7 @@ export const BIND_DIRECTIONS = ['cloud-to-local', 'local-to-cloud'] as const;
 export const bindGithubBodySchema = z.object({
   direction: z.enum(BIND_DIRECTIONS),
   github: githubBindingSchema,
+  credential: githubCredentialSchema.optional(),
 });
 
 export type GitHubBinding = z.infer<typeof githubBindingSchema>;
