@@ -10,7 +10,11 @@ import {
   openSqliteConnection,
   runCoreMigrations,
 } from '@workbench/data';
-import { LOCAL_IMPORT_API, localImportPreflightResponseSchema } from '@workbench/sync/contract';
+import {
+  LOCAL_IMPORT_API,
+  localImportPreflightResponseSchema,
+  restoreStateSchema,
+} from '@workbench/sync/contract';
 import { buildApp } from '../app.js';
 import { ServiceState } from '../service-state.js';
 import { RestoreService } from '../restore/service.js';
@@ -104,5 +108,51 @@ describe('本地导入路由', () => {
     });
 
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('本地导入的确认路由', () => {
+  it('预检之后确认，返回的状态形状与契约一致', async () => {
+    const app = await buildImportApp();
+    const filePath = seedFile();
+    await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.preflight(),
+      payload: { filePath },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.confirm(),
+      payload: { filePath },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(() => restoreStateSchema.parse(res.json())).not.toThrow();
+  });
+
+  it('没预检过就确认 → 409，而不是 500', async () => {
+    const app = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.confirm(),
+      payload: { filePath: seedFile() },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ requestId: expect.any(String) });
+  });
+
+  it('缺少 filePath → 400', async () => {
+    const app = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.confirm(),
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
   });
 });

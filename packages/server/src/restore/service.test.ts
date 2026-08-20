@@ -513,3 +513,68 @@ describe('本地文件导入的预检', () => {
     expect(await titles(harness.holder.current())).toEqual(['从文件导入的']);
   });
 });
+
+describe('本地文件导入的确认', () => {
+  it('换库时把 -wal 与 -shm 一并删掉——留下旧 WAL 会让旧数据复活', async () => {
+    await seedItemInto(harness.holder, '还在 WAL 里没 checkpoint 的旧数据');
+    expect(existsSync(`${harness.dbPath}-wal`)).toBe(true);
+    const filePath = await seedLocalFile(async () => {});
+    await harness.service.preflightLocalFile(filePath);
+
+    await harness.service.confirm(filePath);
+
+    harness.holder.close();
+    const reopened = openSqliteConnection(harness.dbPath);
+    expect(await titles(reopened)).toEqual([]);
+    reopened.close();
+  });
+
+  it('导入前也会打一份安全快照，且失败则整个导入拒绝开始', async () => {
+    await seedItemInto(harness.holder, '本地的');
+    const filePath = await seedLocalFile(async () => {});
+    await harness.service.preflightLocalFile(filePath);
+    harness.failSafetySnapshot.yes = true;
+
+    await expect(harness.service.confirm(filePath)).rejects.toThrow(/安全快照/);
+
+    expect(await titles(harness.holder.current())).toEqual(['本地的']);
+  });
+
+  it('没预检过就确认 → 409，不动任何文件', async () => {
+    const filePath = await seedLocalFile(async () => {});
+
+    await expect(harness.service.confirm(filePath)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('换了一个文件就确认 → 409：认领的必须是刚才预检的那一份', async () => {
+    const first = await seedLocalFile(async () => {});
+    const second = await seedLocalFile(async () => {});
+    await harness.service.preflightLocalFile(first);
+
+    await expect(harness.service.confirm(second)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('水位比代码新的文件预检过也拒绝确认', async () => {
+    const filePath = await seedLocalFile(async () => {});
+    const bumped = await seedLocalFileWithFutureWatermark(filePath);
+    await harness.service.preflightLocalFile(bumped);
+
+    await expect(harness.service.confirm(bumped)).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('导入之后还能回退到导入前', async () => {
+    await seedItemInto(harness.holder, '导入前就在的');
+    const filePath = await seedLocalFile(async (connection) => {
+      await new SqliteItemRepository(() => connection).create('todo', {
+        title: '文件里的',
+        kind: 'task',
+      });
+    });
+    await harness.service.preflightLocalFile(filePath);
+    await harness.service.confirm(filePath);
+
+    await harness.service.rollback();
+
+    expect(await titles(harness.holder.current())).toEqual(['导入前就在的']);
+  });
+});

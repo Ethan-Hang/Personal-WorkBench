@@ -313,12 +313,19 @@ export type RestoreState = z.infer<typeof restoreStateSchema>;
  */
 export const LOCAL_IMPORT_API = {
   preflight: () => '/api/local-import/preflight',
+  confirm: () => '/api/local-import/confirm',
 } as const;
 
 export const localImportPreflightBodySchema = z.object({
   filePath: z.string().min(1),
 });
 export type LocalImportPreflightBody = z.infer<typeof localImportPreflightBodySchema>;
+
+/** 确认导入。`filePath` 必须与刚才预检的那一个相同，否则 409。 */
+export const localImportConfirmBodySchema = z.object({
+  filePath: z.string().min(1),
+});
+export type LocalImportConfirmBody = z.infer<typeof localImportConfirmBodySchema>;
 
 export const localImportPreflightResponseSchema = z.object({
   /** 这里的 name 是文件的绝对路径——confirm 用它认领刚才那次预检。 */
