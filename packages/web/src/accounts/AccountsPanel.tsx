@@ -34,6 +34,8 @@ import {
   unbindGithubAccount,
   updateAccount,
 } from './accountsApi.js';
+import { GistSyncPanel } from '../sync/GistSyncPanel.js';
+import { fetchSyncStatus } from '../sync/syncApi.js';
 
 const PRESET_AVATARS: Array<{ id: string; label: string; url: string }> = [
   {
@@ -131,6 +133,12 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => fetchAccounts(),
+  });
+
+  // 同步状态查询
+  const { data: syncStatus } = useQuery({
+    queryKey: ['sync-status'],
+    queryFn: () => fetchSyncStatus(),
   });
 
   const activeId = data?.activeId ?? 'local-default';
@@ -587,17 +595,33 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
           {/* 活跃记录与时间线 */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-4 gap-2 hover:bg-surface-2/30 transition-colors">
             <div className="flex items-center gap-3">
-              <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-secondary">
-                <IconShield size={18} />
+              <div
+                className={`flex size-9 shrink-0 items-center justify-center rounded-xl ${
+                  syncStatus?.protectedByOsVault === false
+                    ? 'bg-warning-soft text-warning'
+                    : 'bg-surface-2 text-secondary'
+                }`}
+              >
+                {syncStatus?.protectedByOsVault === false ? (
+                  <IconAlertCircle size={18} />
+                ) : (
+                  <IconShield size={18} />
+                )}
               </div>
               <div>
                 <div className="font-semibold text-ink">凭据与安全保护</div>
                 <div className="text-muted text-[11px] mt-0.5">
-                  本地凭据经 OS 系统保管库保护，业务数据绝不外泄
+                  {syncStatus?.protectedByOsVault === false
+                    ? '本机凭据未受系统保管库保护，已降级为明文存储，口令禁止持久化'
+                    : '本地凭据经 OS 系统保管库加密保护，业务数据绝不外泄'}
                 </div>
               </div>
             </div>
-            <Chip tone="neutral">系统保管库优先</Chip>
+            {syncStatus?.protectedByOsVault === false ? (
+              <Chip tone="warning">明文存储降级</Chip>
+            ) : (
+              <Chip tone="neutral">系统保管库保护</Chip>
+            )}
           </div>
         </div>
       </section>
@@ -736,7 +760,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
       {/* ========================================================================= */}
       {/* 模块 4：Windows 设置风格的「云端同步与备份」卡片组 (Cloud Sync & Backup) */}
       {/* ========================================================================= */}
-      <section className="space-y-3">
+      <section className="space-y-4">
         <div>
           <h3 className="text-sm font-bold text-ink">云端同步与备份</h3>
           <p className="text-xs text-secondary">
@@ -744,86 +768,37 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {/* 卡片 1：GitHub 账户关联 */}
-          <div className="rounded-panel border border-line bg-surface p-4 flex flex-col justify-between shadow-2xs hover:border-line transition-all">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-ink text-surface">
-                  <IconGithub size={18} />
-                </div>
-                {activeAccount?.kind === 'github' ? (
-                  <Chip tone="good">已关联 Gist</Chip>
-                ) : (
-                  <Chip tone="neutral">未连接</Chip>
-                )}
-              </div>
-              <div>
-                <div className="font-bold text-ink text-sm">GitHub 账户与设置同步</div>
-                <p className="text-xs text-muted mt-1 leading-relaxed">
-                  {activeAccount?.kind === 'github' && activeAccount.github
-                    ? `已成功绑定 @${activeAccount.github.login}。系统偏好设置与 WebDAV 凭据（零知识加密）将自动同步至云端 Gist。`
-                    : `连接 GitHub 后可通过 Secret Gist 安全同步工作台外观、时区与凭据，换设备自动恢复。`}
-                </p>
-              </div>
-            </div>
+        {/* Gist 设置同步与零知识加密控制台 */}
+        <GistSyncPanel activeAccount={activeAccount} onStartGitHubAuth={handleStartGitHubAuth} />
 
-            <div className="mt-4 pt-3 border-t border-line/60 flex items-center justify-end">
-              {activeAccount?.kind === 'github' ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setUnbindError(null);
-                    setIsUnbindModalOpen(true);
-                  }}
-                >
-                  管理或解除关联
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  icon={<IconGithub size={14} />}
-                  onClick={handleStartGitHubAuth}
-                >
-                  连接 GitHub
-                </Button>
-              )}
+        {/* WebDAV 备份管理引导条 */}
+        <div className="rounded-panel border border-line bg-surface p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 shadow-2xs hover:border-line transition-all">
+          <div className="flex items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">
+              <IconCloud size={18} />
+            </div>
+            <div>
+              <div className="font-bold text-ink text-sm flex items-center gap-2">
+                <span>WebDAV 远程快照与数据库恢复</span>
+                <Chip tone="accent">业务数据保障</Chip>
+              </div>
+              <p className="text-xs text-muted mt-0.5 leading-relaxed">
+                使用坚果云 / Nextcloud 等 WebDAV 存储完整 SQLite
+                数据库快照。支持行级差异比对、安全回滚与断电续命。
+              </p>
             </div>
           </div>
 
-          {/* 卡片 2：WebDAV 数据备份 */}
-          <div className="rounded-panel border border-line bg-surface p-4 flex flex-col justify-between shadow-2xs hover:border-line transition-all">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-accent-soft text-accent">
-                  <IconCloud size={18} />
-                </div>
-                <Chip tone="accent">业务数据保障</Chip>
-              </div>
-              <div>
-                <div className="font-bold text-ink text-sm">WebDAV 远程快照与恢复</div>
-                <p className="text-xs text-muted mt-1 leading-relaxed">
-                  使用坚果云 / Nextcloud 等 WebDAV 存储完整 SQLite
-                  数据库快照。支持行级差异比对、安全回滚与断电续命。
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-line/60 flex items-center justify-end">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                icon={<IconDatabase size={14} />}
-                onClick={onNavigateToStorage}
-              >
-                前往数据与存储管理
-              </Button>
-            </div>
+          <div className="shrink-0 self-end sm:self-center">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              icon={<IconDatabase size={14} />}
+              onClick={onNavigateToStorage}
+            >
+              前往数据与存储管理
+            </Button>
           </div>
         </div>
       </section>
