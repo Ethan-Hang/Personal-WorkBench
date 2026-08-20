@@ -17,12 +17,13 @@ import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
-import { GistClient, WebdavBackupStore } from '@workbench/sync/node';
+import { GistClient, migrationWatermarks, WebdavBackupStore } from '@workbench/sync/node';
 import { buildApp } from './app.js';
 import { AccountsService } from './accounts/service.js';
 import { BackupService } from './backup/service.js';
 import { RestoreService } from './restore/service.js';
 import { LocalBackupService } from './local-backup/service.js';
+import { LocalImportService } from './local-import/service.js';
 import { GistSyncService } from './sync/service.js';
 import { runModuleMigrations } from './registry.js';
 import { ServiceState } from './service-state.js';
@@ -74,6 +75,17 @@ async function main() {
       device: hostname(),
       appVersion: process.env.npm_package_version ?? '0.0.0',
     });
+    // 导入为新账号只在有账号机制时可用：WORKBENCH_DB 逃生舱下锁死单库，没有
+    // accounts.json 可写。
+    const localImport =
+      active.mode === 'accounts'
+        ? new LocalImportService({
+            store: new AccountsStore(DATA_DIR),
+            dataDir: DATA_DIR,
+            migrate,
+            localWatermarks: () => migrationWatermarks(getSqlite()),
+          })
+        : undefined;
     const accounts =
       active.mode === 'accounts'
         ? new AccountsService({
@@ -145,6 +157,7 @@ async function main() {
       accounts,
       backup: { backup: backupService, restore: restoreService },
       localBackup: localBackupService,
+      ...(localImport === undefined ? {} : { localImport }),
       gistSync,
       logger: { level: 'info', file: LOG_PATH },
     });

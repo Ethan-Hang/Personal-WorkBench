@@ -5,13 +5,18 @@ import { gzipSync } from 'node:zlib';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AccountsStore,
   ConnectionHolder,
   createDatabaseClient,
   openSqliteConnection,
+  resolveActiveDatabase,
   runCoreMigrations,
 } from '@workbench/data';
+import { migrationWatermarks } from '@workbench/sync/node';
+import { LocalImportService } from './service.js';
 import {
   LOCAL_IMPORT_API,
+  localImportAsNewAccountResponseSchema,
   localImportPreflightResponseSchema,
   restoreStateSchema,
 } from '@workbench/sync/contract';
@@ -30,7 +35,8 @@ function migrate(sqlite: Parameters<typeof createDatabaseClient>[0]): void {
 async function buildImportApp(): Promise<FastifyInstance> {
   const dataDir = mkdtempSync(join(tmpdir(), 'workbench-local-import-routes-'));
   temporaryDirectories.push(dataDir);
-  const dbPath = join(dataDir, 'accounts', 'local-default', 'workbench.db');
+  const active = resolveActiveDatabase({ dataDir });
+  const dbPath = active.dbPath;
   const holder = new ConnectionHolder();
   openHolders.push(holder);
   migrate(holder.open(dbPath));
@@ -45,7 +51,19 @@ async function buildImportApp(): Promise<FastifyInstance> {
     moduleIds: [],
   });
 
-  const app = await buildApp({ getSqlite: () => holder.current(), modules: [], restore });
+  const localImport = new LocalImportService({
+    store: new AccountsStore(dataDir),
+    dataDir,
+    migrate,
+    localWatermarks: () => migrationWatermarks(holder.current()),
+  });
+
+  const app = await buildApp({
+    getSqlite: () => holder.current(),
+    modules: [],
+    restore,
+    localImport,
+  });
   openApps.push(app);
   return app;
 }
@@ -154,5 +172,44 @@ describe('本地导入的确认路由', () => {
     });
 
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe('导入为新账号的路由', () => {
+  it('不需要先预检就能导入，响应形状与契约一致', async () => {
+    const app = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.asNewAccount(),
+      payload: { filePath: seedFile(), displayName: '从文件导入的' },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(() => localImportAsNewAccountResponseSchema.parse(res.json())).not.toThrow();
+  });
+
+  it('缺少 displayName → 400', async () => {
+    const app = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.asNewAccount(),
+      payload: { filePath: seedFile() },
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('文件不存在 → 404', async () => {
+    const app = await buildImportApp();
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LOCAL_IMPORT_API.asNewAccount(),
+      payload: { filePath: join(tmpdir(), 'wb-no-such.db.gz'), displayName: '工作' },
+    });
+
+    expect(res.statusCode).toBe(404);
   });
 });

@@ -314,6 +314,7 @@ export type RestoreState = z.infer<typeof restoreStateSchema>;
 export const LOCAL_IMPORT_API = {
   preflight: () => '/api/local-import/preflight',
   confirm: () => '/api/local-import/confirm',
+  asNewAccount: () => '/api/local-import/as-new-account',
 } as const;
 
 export const localImportPreflightBodySchema = z.object({
@@ -326,6 +327,22 @@ export const localImportConfirmBodySchema = z.object({
   filePath: z.string().min(1),
 });
 export type LocalImportConfirmBody = z.infer<typeof localImportConfirmBodySchema>;
+
+/**
+ * 导入为新账号。**不需要先预检**——它一个现有文件都不动，没有「会覆盖什么」
+ * 可给用户看；兼容性由服务端在导入时自己判。
+ */
+export const localImportAsNewAccountBodySchema = z.object({
+  filePath: z.string().min(1),
+  displayName: z.string().min(1),
+});
+export type LocalImportAsNewAccountBody = z.infer<typeof localImportAsNewAccountBodySchema>;
+
+export const localImportAsNewAccountResponseSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string(),
+});
+export type LocalImportAsNewAccountResponse = z.infer<typeof localImportAsNewAccountResponseSchema>;
 
 export const localImportPreflightResponseSchema = z.object({
   /** 这里的 name 是文件的绝对路径——confirm 用它认领刚才那次预检。 */

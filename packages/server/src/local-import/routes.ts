@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import {
   LOCAL_IMPORT_API,
+  localImportAsNewAccountBodySchema,
   localImportConfirmBodySchema,
   localImportPreflightBodySchema,
 } from '@workbench/sync/contract';
 import { SyncError } from '@workbench/sync/node';
 import type { RestoreService } from '../restore/service.js';
+import type { LocalImportService } from './service.js';
 
 /**
  * 本地文件导入的路由（TASK-046）。
@@ -13,7 +15,11 @@ import type { RestoreService } from '../restore/service.js';
  * 预检**刻意不在 service-state 的白名单里**：它自己不进忙碌态，但别人正在恢复时
  * 它应该被 503 挡住——那一刻库随时会被换掉，算出来的差异下一秒就作废。
  */
-export function registerLocalImportRoutes(app: FastifyInstance, restore: RestoreService): void {
+export function registerLocalImportRoutes(
+  app: FastifyInstance,
+  restore: RestoreService,
+  asNewAccount?: LocalImportService,
+): void {
   app.post(LOCAL_IMPORT_API.preflight(), async (request) => {
     const body = localImportPreflightBodySchema.safeParse(request.body);
     if (!body.success) throw new SyncError('缺少要导入的文件路径', 400);
@@ -31,5 +37,21 @@ export function registerLocalImportRoutes(app: FastifyInstance, restore: Restore
     const body = localImportConfirmBodySchema.safeParse(request.body);
     if (!body.success) throw new SyncError('缺少要导入的文件路径', 400);
     return restore.confirm(body.data.filePath);
+  });
+
+  if (asNewAccount === undefined) return;
+
+  /**
+   * 导入方向二：建一个新账号（TASK-048）。**不需要先预检**——它一个现有文件
+   * 都不动，没有「会覆盖什么」可给用户看，兼容性由服务自己判。
+   */
+  app.post(LOCAL_IMPORT_API.asNewAccount(), async (request) => {
+    const body = localImportAsNewAccountBodySchema.safeParse(request.body);
+    if (!body.success) throw new SyncError('缺少文件路径或新账号的名字', 400);
+    const account = await asNewAccount.importAsNewAccount(
+      body.data.filePath,
+      body.data.displayName,
+    );
+    return { id: account.id, displayName: account.displayName };
   });
 }
