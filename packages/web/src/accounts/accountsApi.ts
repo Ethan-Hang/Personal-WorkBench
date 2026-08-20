@@ -8,6 +8,7 @@ import {
   type BindGithubBody,
   type GitHubDeviceCode,
   type GitHubDevicePollResponse,
+  type UpdateAccountBody,
 } from '@workbench/sync/contract';
 
 export class AccountsApiError extends Error {
@@ -66,6 +67,24 @@ export async function createAccount(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ displayName }),
+    },
+    accountsResponseSchema,
+    fetchFn,
+  );
+}
+
+/** 更新账号信息（如昵称、自定义头像） */
+export async function updateAccount(
+  id: string,
+  patch: UpdateAccountBody,
+  fetchFn: typeof fetch = fetch,
+): Promise<AccountsResponse> {
+  return requestJson(
+    ACCOUNTS_API.byId(id),
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
     },
     accountsResponseSchema,
     fetchFn,

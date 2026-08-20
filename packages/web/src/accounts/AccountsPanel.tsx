@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AccountView, BindDirection, GitHubDeviceCode } from '@workbench/sync/contract';
 import {
+  Avatar,
   Button,
   Chip,
   Field,
@@ -11,13 +12,14 @@ import {
   IconCloud,
   IconCopy,
   IconDatabase,
+  IconEdit,
   IconExternalLink,
   IconGithub,
   IconPlus,
   IconRefreshCw,
   IconShield,
   IconTrash,
-  IconUser,
+  IconUpload,
   Modal,
   useTimezone,
 } from '@workbench/ui';
@@ -30,7 +32,87 @@ import {
   startGithubDeviceFlow,
   switchAccount,
   unbindGithubAccount,
+  updateAccount,
 } from './accountsApi.js';
+
+const PRESET_AVATARS: Array<{ id: string; label: string; url: string }> = [
+  {
+    id: 'aurora-violet',
+    label: '极光紫',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%236366f1'/><stop offset='100%' stop-color='%23a855f7'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'ocean-blue',
+    label: '深海蓝',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%230284c7'/><stop offset='100%' stop-color='%232563eb'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'emerald-green',
+    label: '松石绿',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23059669'/><stop offset='100%' stop-color='%2310b981'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'sunset-amber',
+    label: '落日金',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23d97706'/><stop offset='100%' stop-color='%23ea580c'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'rose-coral',
+    label: '珊瑚粉',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23e11d48'/><stop offset='100%' stop-color='%23f43f5e'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'slate-charcoal',
+    label: '曜石黑',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23334155'/><stop offset='100%' stop-color='%230f172a'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'cyber-cyan',
+    label: '赛博青',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%2306b6d4'/><stop offset='100%' stop-color='%233b82f6'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+  {
+    id: 'warm-sand',
+    label: '麦芒暖杏',
+    url: "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><defs><linearGradient id='g' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' stop-color='%23b45309'/><stop offset='100%' stop-color='%23d97706'/></linearGradient></defs><rect width='100' height='100' rx='50' fill='url(%23g)'/><circle cx='50' cy='38' r='16' fill='%23ffffff' opacity='0.9'/><path d='M26 80 C26 62 74 62 74 80' fill='%23ffffff' opacity='0.9'/></svg>",
+  },
+];
+
+async function processImageFile(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error('请选择有效的图片文件（JPG, PNG, WebP, SVG 等）');
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('读取图片文件失败'));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('图片加载解析失败'));
+      img.onload = () => {
+        try {
+          const size = Math.min(img.width, img.height);
+          const startX = (img.width - size) / 2;
+          const startY = (img.height - size) / 2;
+          const targetSize = 256;
+          const canvas = document.createElement('canvas');
+          canvas.width = targetSize;
+          canvas.height = targetSize;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            return resolve(img.src);
+          }
+          ctx.drawImage(img, startX, startY, size, size, 0, 0, targetSize, targetSize);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(dataUrl);
+        } catch {
+          resolve(img.src);
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 type AuthStep =
   | 'idle'
@@ -75,6 +157,16 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
   // 解绑 GitHub 弹窗状态
   const [isUnbindModalOpen, setIsUnbindModalOpen] = useState(false);
   const [unbindError, setUnbindError] = useState<string | null>(null);
+
+  // 编辑个人资料与头像弹窗状态
+  const [editTarget, setEditTarget] = useState<AccountView | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editAvatar, setEditAvatar] = useState<string | null>(null);
+  const [avatarTab, setAvatarTab] = useState<'presets' | 'upload' | 'url'>('presets');
+  const [urlInput, setUrlInput] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // GitHub Device Flow 认证与绑定状态
   const [authStep, setAuthStep] = useState<AuthStep>('idle');
@@ -154,7 +246,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
     }: {
       id: string;
       direction: BindDirection;
-      github: { login: string; userId: number };
+      github: { login: string; userId: number; avatarUrl?: string };
     }) => bindGithubAccount(id, { direction, github }),
     onSuccess: async (res) => {
       void queryClient.setQueryData(['accounts'], res);
@@ -180,6 +272,69 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
       setUnbindError(err.message);
     },
   });
+
+  // 6. 更新账号资料与头像 Mutation
+  const updateMutation = useMutation({
+    mutationFn: ({
+      id,
+      patch,
+    }: {
+      id: string;
+      patch: { displayName?: string; avatar?: string | null };
+    }) => updateAccount(id, patch),
+    onSuccess: (res) => {
+      void queryClient.setQueryData(['accounts'], res);
+      setEditTarget(null);
+      setEditError(null);
+      showToast('账户资料与头像已更新');
+    },
+    onError: (err: Error) => {
+      setEditError(err.message);
+    },
+  });
+
+  function openEditModal(account: AccountView) {
+    setEditTarget(account);
+    setEditDisplayName(account.displayName);
+    setEditAvatar(account.avatar ?? null);
+    setUrlInput(account.avatar && !account.avatar.startsWith('data:') ? account.avatar : '');
+    setEditError(null);
+    setAvatarTab('presets');
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingImage(true);
+      setEditError(null);
+      const dataUrl = await processImageFile(file);
+      setEditAvatar(dataUrl);
+    } catch (err: unknown) {
+      setEditError((err as Error).message);
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editTarget) return;
+    const trimmedName = editDisplayName.trim();
+    if (!trimmedName) {
+      setEditError('账户名称不能为空');
+      return;
+    }
+    setEditError(null);
+    updateMutation.mutate({
+      id: editTarget.id,
+      patch: {
+        displayName: trimmedName,
+        avatar: editAvatar,
+      },
+    });
+  }
 
   // 发起 GitHub Device Flow 登录
   async function handleStartGitHubAuth() {
@@ -325,22 +480,15 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-5">
             {/* 左侧头像与用户资料 */}
             <div className="flex items-center gap-4">
-              {/* 大圆形头像 */}
-              <div
-                className={`relative flex size-16 shrink-0 items-center justify-center rounded-full border-2 shadow-xs ${
-                  activeAccount.kind === 'github'
-                    ? 'border-ink/20 bg-ink text-surface'
-                    : 'border-accent/30 bg-accent-soft text-accent'
-                }`}
-              >
-                {activeAccount.kind === 'github' ? (
-                  <IconGithub size={32} />
-                ) : (
-                  <IconUser size={32} />
-                )}
-                {/* 状态小圆点 */}
-                <span className="absolute bottom-0 right-0 size-4 rounded-full border-2 border-surface bg-good" />
-              </div>
+              {/* 大圆形头像，支持悬停更换 */}
+              <Avatar
+                account={activeAccount}
+                size="2xl"
+                showStatus
+                editable
+                onEdit={() => openEditModal(activeAccount)}
+                className="hover:scale-105 transition-transform"
+              />
 
               {/* 账户名与信息 */}
               <div className="space-y-1 min-w-0">
@@ -348,6 +496,17 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
                   <h2 className="text-lg font-bold text-ink truncate leading-tight">
                     {activeAccount.displayName}
                   </h2>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    icon={<IconEdit size={12} />}
+                    className="h-6 px-2 text-[11px] text-muted hover:text-ink"
+                    onClick={() => openEditModal(activeAccount)}
+                    title="设置头像与账户资料"
+                  >
+                    设置头像
+                  </Button>
                   {activeAccount.kind === 'github' && activeAccount.github ? (
                     <Chip tone="neutral" icon={<IconGithub size={11} />}>
                       @{activeAccount.github.login}
@@ -496,19 +655,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
                   }`}
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <div
-                      className={`flex size-10 shrink-0 items-center justify-center rounded-full ${
-                        acc.kind === 'github'
-                          ? 'bg-ink text-surface'
-                          : 'bg-surface-2 text-secondary font-bold'
-                      }`}
-                    >
-                      {acc.kind === 'github' ? (
-                        <IconGithub size={18} />
-                      ) : (
-                        <span className="text-xs">{acc.displayName.slice(0, 1).toUpperCase()}</span>
-                      )}
-                    </div>
+                    <Avatar account={acc} size="md" editable onEdit={() => openEditModal(acc)} />
 
                     <div className="min-w-0 space-y-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -530,6 +677,16 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
 
                   {/* 动作按钮 */}
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      icon={<IconEdit size={13} />}
+                      title="编辑头像与账户名称"
+                      onClick={() => openEditModal(acc)}
+                    >
+                      编辑
+                    </Button>
                     {!isActive ? (
                       <>
                         <Button
@@ -1182,6 +1339,244 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
               )}
             </div>
           </div>
+        )}
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* 弹窗 5：编辑个人资料与设置头像 Modal */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        title="设置头像与账户资料"
+        description="自定义账户头像与显示名称，支持本地上传、精选预设与 GitHub 头像联动"
+        maxWidth="max-w-lg"
+      >
+        {editTarget && (
+          <form onSubmit={handleSaveProfile} className="space-y-5 text-xs">
+            {/* 顶部大头像与当前生效指示 */}
+            <div className="flex items-center gap-4 p-4 rounded-panel bg-surface-2/60 border border-line">
+              <Avatar
+                account={{
+                  ...editTarget,
+                  displayName: editDisplayName || editTarget.displayName,
+                  avatar: editAvatar,
+                }}
+                size="2xl"
+                showStatus
+              />
+              <div className="space-y-1 min-w-0 flex-1">
+                <div className="font-bold text-ink text-sm truncate">
+                  {editDisplayName.trim() || editTarget.displayName}
+                </div>
+                <div className="text-[11px] text-muted">
+                  {editAvatar
+                    ? editAvatar.startsWith('data:image/svg')
+                      ? '当前预览：预设艺术头像'
+                      : editAvatar.startsWith('data:')
+                        ? '当前预览：自定义上传图片'
+                        : '当前预览：远程图片 URL'
+                    : editTarget.kind === 'github' || editTarget.github
+                      ? '当前预览：GitHub 官方头像'
+                      : '当前预览：系统默认经典头像'}
+                </div>
+                {/* 快速动作：恢复默认 / 使用 GitHub */}
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  {(editTarget.kind === 'github' || editTarget.github) && (
+                    <button
+                      type="button"
+                      onClick={() => setEditAvatar(null)}
+                      className={`text-[11px] px-2 py-0.5 rounded border transition-colors flex items-center gap-1 ${
+                        editAvatar === null
+                          ? 'border-ink bg-ink text-surface font-semibold'
+                          : 'border-line bg-surface hover:bg-surface-2 text-secondary'
+                      }`}
+                    >
+                      <IconGithub size={11} />
+                      <span>使用 GitHub 头像</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditAvatar(null)}
+                    className="text-[11px] px-2 py-0.5 rounded border border-line bg-surface hover:bg-surface-2 text-secondary transition-colors"
+                  >
+                    恢复默认
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* 账户显示名称 */}
+            <Field label="账户显示名称（1–40 个字符）">
+              <input
+                type="text"
+                value={editDisplayName}
+                onChange={(e) => setEditDisplayName(e.target.value)}
+                placeholder="请输入账户显示名称"
+                maxLength={40}
+                className={controlClass}
+              />
+            </Field>
+
+            {/* 头像来源分类 Tabs */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between border-b border-line pb-2">
+                <div className="font-bold text-ink text-xs">选择新头像</div>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setAvatarTab('presets')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                      avatarTab === 'presets'
+                        ? 'bg-accent text-white font-bold'
+                        : 'text-muted hover:text-ink hover:bg-surface-2'
+                    }`}
+                  >
+                    精选预设
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarTab('upload')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                      avatarTab === 'upload'
+                        ? 'bg-accent text-white font-bold'
+                        : 'text-muted hover:text-ink hover:bg-surface-2'
+                    }`}
+                  >
+                    本地上传
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarTab('url')}
+                    className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                      avatarTab === 'url'
+                        ? 'bg-accent text-white font-bold'
+                        : 'text-muted hover:text-ink hover:bg-surface-2'
+                    }`}
+                  >
+                    图片链接
+                  </button>
+                </div>
+              </div>
+
+              {/* Tab 1: 预设精美头像 */}
+              {avatarTab === 'presets' && (
+                <div className="grid grid-cols-4 gap-2.5 py-1">
+                  {PRESET_AVATARS.map((preset) => {
+                    const isSelected = editAvatar === preset.url;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => setEditAvatar(preset.url)}
+                        className={`group relative flex flex-col items-center gap-1.5 p-2 rounded-panel border transition-all ${
+                          isSelected
+                            ? 'border-accent bg-accent-soft/40 ring-2 ring-accent shadow-xs'
+                            : 'border-line bg-surface hover:bg-surface-2 hover:border-line'
+                        }`}
+                      >
+                        <img
+                          src={preset.url}
+                          alt={preset.label}
+                          className="size-11 rounded-full object-cover shadow-2xs"
+                        />
+                        <span className="text-[10px] text-muted group-hover:text-ink truncate max-w-full font-medium">
+                          {preset.label}
+                        </span>
+                        {isSelected && (
+                          <span className="absolute top-1 right-1 size-3.5 rounded-full bg-accent text-white flex items-center justify-center text-[9px]">
+                            ✓
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Tab 2: 本地上传 */}
+              {avatarTab === 'upload' && (
+                <div className="space-y-3 py-1">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="cursor-pointer flex flex-col items-center justify-center p-6 border-2 border-dashed border-line hover:border-accent rounded-panel bg-surface hover:bg-surface-2/40 transition-all text-center space-y-2"
+                  >
+                    <div className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                      {uploadingImage ? (
+                        <IconRefreshCw size={20} className="animate-spin" />
+                      ) : (
+                        <IconUpload size={20} />
+                      )}
+                    </div>
+                    <div>
+                      <div className="font-bold text-ink text-xs">
+                        {uploadingImage ? '正在处理图片...' : '点击选择或拖放图片至此处'}
+                      </div>
+                      <p className="text-[11px] text-muted mt-0.5">
+                        支持 JPG、PNG、WebP、SVG，将自动智能居中裁剪
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 3: 图片链接 */}
+              {avatarTab === 'url' && (
+                <div className="space-y-3 py-1">
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={urlInput}
+                      onChange={(e) => setUrlInput(e.target.value)}
+                      placeholder="https://example.com/avatar.png"
+                      className={controlClass}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="md"
+                      disabled={!urlInput.trim()}
+                      onClick={() => setEditAvatar(urlInput.trim())}
+                    >
+                      应用
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted">
+                    填入公开可访问的 HTTPS 图片网络链接作为头像。
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {editError && (
+              <div className="flex items-center gap-1.5 text-xs text-critical">
+                <IconAlertCircle size={14} />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
+              <Button type="button" variant="ghost" size="md" onClick={() => setEditTarget(null)}>
+                取消
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                disabled={updateMutation.isPending || !editDisplayName.trim()}
+              >
+                {updateMutation.isPending ? '保存中...' : '保存更改'}
+              </Button>
+            </div>
+          </form>
         )}
       </Modal>
     </div>

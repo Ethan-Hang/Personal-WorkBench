@@ -103,4 +103,30 @@ describe('AccountsStore', () => {
       join(dataDir, 'accounts', 'local-default', 'workbench.db'),
     );
   });
+
+  it('支持保存与读取自定义头像及 GitHub 头像 URL', () => {
+    const dataDir = makeDataDir();
+    const store = new AccountsStore(dataDir);
+    const registryWithAvatar = registryOf({
+      accounts: [
+        {
+          id: 'local-default',
+          kind: 'github',
+          displayName: '本地',
+          avatar: 'data:image/webp;base64,customavatar',
+          dbDir: 'accounts/local-default',
+          createdAt: '2026-08-19T12:00:00.000Z',
+          lastUsedAt: '2026-08-19T12:00:00.000Z',
+          github: {
+            login: 'Ethan-Hang',
+            userId: 12345,
+            avatarUrl: 'https://avatars.githubusercontent.com/u/12345?v=4',
+          },
+        },
+      ],
+    });
+
+    store.write(registryWithAvatar);
+    expect(store.read()).toEqual(registryWithAvatar);
+  });
 });

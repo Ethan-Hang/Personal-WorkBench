@@ -86,7 +86,11 @@ describe('GitHubDeviceFlowClient', () => {
         expires_in: 28_800,
         refresh_token_expires_in: 15_552_000,
       }),
-      json({ login: 'Ethan-Hang', id: 12345 }),
+      json({
+        login: 'Ethan-Hang',
+        id: 12345,
+        avatar_url: 'https://avatars.githubusercontent.com/u/12345?v=4',
+      }),
     );
     const client = new GitHubDeviceFlowClient(fetcher);
 
@@ -100,7 +104,11 @@ describe('GitHubDeviceFlowClient', () => {
         expiresIn: 28_800,
         refreshTokenExpiresIn: 15_552_000,
       },
-      user: { login: 'Ethan-Hang', id: 12345 },
+      user: {
+        login: 'Ethan-Hang',
+        id: 12345,
+        avatarUrl: 'https://avatars.githubusercontent.com/u/12345?v=4',
+      },
     });
 
     const [tokenUrl, tokenInit] = vi.mocked(fetcher).mock.calls[0] ?? [];

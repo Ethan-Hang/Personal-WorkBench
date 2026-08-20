@@ -351,6 +351,7 @@ SELECT id, title FROM cloud.items EXCEPT SELECT id, title FROM main.items;
       "id": "local-default",
       "kind": "local",
       "displayName": "本地",
+      "avatar": "data:image/svg+xml;utf8,…", // 可选：用户自定义头像（base64 data URL 或远程 URL）
       "dbDir": "accounts/local-default",
       "createdAt": "2026-08-19T…",
       "lastUsedAt": "2026-08-19T…",
@@ -363,7 +364,12 @@ SELECT id, title FROM cloud.items EXCEPT SELECT id, title FROM main.items;
 
 ```jsonc
 "kind": "github",
-"github": { "login": "Ethan-Hang", "userId": 12345, "gistId": "abc…" }
+"github": {
+  "login": "Ethan-Hang",
+  "userId": 12345,
+  "avatarUrl": "https://avatars.githubusercontent.com/u/12345?v=4", // GitHub 官方头像 URL
+  "gistId": "abc…"
+}
 ```
 
 **`id` 与 `dbDir` 恒不变（D10）。** 绑定与解绑都是纯元数据操作，一个文件都不动。
@@ -510,6 +516,21 @@ POST /api/accounts/active { id }
 
 **解绑**：删掉 `github` 字段、清本地 token 与 gistId。**不删云端 gist**（可能还在别处用），
 但提示可手动删除。
+
+### 7.7 个人资料与头像设置 (`PATCH /api/accounts/:id` & `Avatar`)
+
+支持自定义账户昵称与个性化头像，纯元数据修改直接操作 `accounts.json`，零触碰底层数据库文件。
+
+1. **头像优先级解析阶梯 (`resolveAvatarUrl`)**：
+   - **最高优先级**：用户自定义 `account.avatar`（本地上传压缩 base64、预设 SVG 或外部图片 URL）。
+   - **次级优先级**：若无自定义设置且绑定了 GitHub，自动解析 `github.avatarUrl`（若无则按 `userId` / `login` 构造 `https://avatars.githubusercontent.com/u/<id>?v=4`）。
+   - **兜底**：系统经典矢量用户图标（柔和主题色背景），若远程图片加载失败亦自动无缝降级至该图标。
+2. **轻量图片处理**：
+   - 本地图片上传在前端通过 `<canvas>` 自动进行等比居中裁剪与缩放（输出 256×256 WebP/JPEG），保持单张头像在 5–15KB 内，防止 `accounts.json` 膨胀。
+3. **接口规范**：
+   - `PATCH /api/accounts/:id`
+   - Body: `{ displayName?: string, avatar?: string | null }`
+   - 传 `avatar: null` 或 `avatar: ''` 时直接清除自定义头像，自动降级为 GitHub 头像（若有）或系统默认头像。
 
 ---
 

@@ -13,12 +13,14 @@ export interface GithubBinding {
   login: string;
   userId: number;
   gistId?: string;
+  avatarUrl?: string;
 }
 
 export interface Account {
   id: string;
   kind: 'local' | 'github';
   displayName: string;
+  avatar?: string;
   /** 相对 dataDir 的账号目录。与 id 一样恒不变（设计 §7.1 D10）。 */
   dbDir: string;
   createdAt: string;

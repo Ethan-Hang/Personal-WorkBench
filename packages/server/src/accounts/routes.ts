@@ -5,6 +5,7 @@ import {
   bindGithubBodySchema,
   createAccountBodySchema,
   switchAccountBodySchema,
+  updateAccountBodySchema,
 } from '@workbench/sync/contract';
 import { badRequest } from './errors.js';
 import type { AccountsService } from './service.js';
@@ -28,6 +29,12 @@ export function registerAccountsRoutes(app: FastifyInstance, service: AccountsSe
     const body = createAccountBodySchema.safeParse(request.body);
     if (!body.success) throw badRequest('账号名须为 1–40 个字符');
     return reply.code(201).send(service.create(body.data.displayName));
+  });
+
+  app.patch(ACCOUNTS_API.byId(ACCOUNT_ID_PARAM), async (request) => {
+    const body = updateAccountBodySchema.safeParse(request.body);
+    if (!body.success) throw badRequest('更新入参格式不合法');
+    return service.update(idOf(request), body.data);
   });
 
   app.post(ACCOUNTS_API.active(), async (request) => {

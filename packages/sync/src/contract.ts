@@ -100,6 +100,7 @@ const githubAuthorizedSchema = z.object({
   user: z.object({
     login: z.string().min(1),
     id: z.number().int().nonnegative(),
+    avatarUrl: z.string().optional(),
   }),
 });
 
@@ -139,6 +140,7 @@ export const githubBindingSchema = z.object({
   login: z.string().min(1),
   userId: z.number().int().nonnegative(),
   gistId: z.string().min(1).optional(),
+  avatarUrl: z.string().optional(),
 });
 
 /**
@@ -149,6 +151,7 @@ export const accountSchema = z.object({
   id: z.string().min(1),
   kind: z.enum(['local', 'github']),
   displayName: z.string().min(1),
+  avatar: z.string().optional(),
   createdAt: z.string().min(1),
   lastUsedAt: z.string().min(1),
   github: githubBindingSchema.optional(),
@@ -161,6 +164,11 @@ export const accountsResponseSchema = z.object({
 
 export const createAccountBodySchema = z.object({
   displayName: z.string().trim().min(1).max(40),
+});
+
+export const updateAccountBodySchema = z.object({
+  displayName: z.string().trim().min(1).max(40).optional(),
+  avatar: z.string().nullable().optional(),
 });
 
 export const switchAccountBodySchema = z.object({ id: z.string().min(1) });
@@ -180,6 +188,7 @@ export type GitHubBinding = z.infer<typeof githubBindingSchema>;
 export type AccountView = z.infer<typeof accountSchema>;
 export type AccountsResponse = z.infer<typeof accountsResponseSchema>;
 export type CreateAccountBody = z.infer<typeof createAccountBodySchema>;
+export type UpdateAccountBody = z.infer<typeof updateAccountBodySchema>;
 export type SwitchAccountBody = z.infer<typeof switchAccountBodySchema>;
 export type BindDirection = (typeof BIND_DIRECTIONS)[number];
 export type BindGithubBody = z.infer<typeof bindGithubBodySchema>;

@@ -21,11 +21,14 @@ ADR-0001 明确关闭过这条路：「不做账号体系」，并预言「若�
 - `data/local/accounts/<accountId>/workbench.db`，每个账号自己一份完整的库（含 core
   与全部模块的表）
 - 账号注册表 `data/local/accounts.json`，记录 `activeId` 与账号列表（`id` / `kind` /
-  `displayName` / `dbDir` / 时间戳，GitHub 账号另加 `github` 字段）
+  `displayName` / `avatar` / `dbDir` / 时间戳，GitHub 账号另加 `github: { login, userId, avatarUrl, gistId }` 字段）
 - **该注册表用 JSON 原子写（写临时文件 + rename），不用 SQLite。** 理由是鸡生蛋：
   要先能读到账号列表，才知道该打开哪个库文件——用 SQLite 存它，等于要一个数据库来
   告诉你去哪找数据库。JSON 还有个人机友好的好处：文件万一损坏，可以直接用记事本修，
   SQLite 库损坏则通常直接打不开
+- **头像设置与个人资料修改是纯元数据操作（`PATCH /api/accounts/:id`）**：头像支持用户自定义
+  （本地上传图片裁剪压缩保存为 base64、精选矢量预设、图片 URL）、GitHub 官方头像自动联动以及系统默认头像。
+  解析优先级为：`自定义 avatar > GitHub 头像 > 默认经典图标`，零触碰底层数据库文件
 - **绑定 / 解绑 GitHub 账号不改账号 `id`、不改 `dbDir`。** 二者是纯元数据操作：往
   `accounts.json` 里加/删一个 `github` 字段，零文件系统动作。若绑定时顺带把
   `local-default` 改名成 `gh-Ethan-Hang` 之类，就需要连带重命名数据目录，一次失败

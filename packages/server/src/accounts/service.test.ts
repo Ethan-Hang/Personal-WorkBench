@@ -263,3 +263,31 @@ describe('AccountsService.bindGithub / unbindGithub', () => {
     expect(unbound?.github).toBeUndefined();
   });
 });
+
+describe('AccountsService.update', () => {
+  it('可以修改账号名称', () => {
+    const response = harness.service.update('local-default', { displayName: '新昵称' });
+    const account = response.accounts.find((a) => a.id === 'local-default');
+    expect(account?.displayName).toBe('新昵称');
+  });
+
+  it('可以设置自定义头像并在响应中返回', () => {
+    const avatarData = 'data:image/webp;base64,samplebase64data';
+    const response = harness.service.update('local-default', { avatar: avatarData });
+    const account = response.accounts.find((a) => a.id === 'local-default');
+    expect(account?.avatar).toBe(avatarData);
+  });
+
+  it('传入 null 或空字符串可以清除自定义头像', () => {
+    harness.service.update('local-default', { avatar: 'https://example.com/avatar.png' });
+    const response = harness.service.update('local-default', { avatar: null });
+    const account = response.accounts.find((a) => a.id === 'local-default');
+    expect(account?.avatar).toBeUndefined();
+  });
+
+  it('更新不存在的账号抛出 404', () => {
+    expect(() => harness.service.update('non-existent', { displayName: 'abc' })).toThrow(
+      expect.objectContaining({ statusCode: 404 }),
+    );
+  });
+});

@@ -147,4 +147,23 @@ describe('账号路由', () => {
 
     expect(res.statusCode).toBe(400);
   });
+
+  it('PATCH 更新账号显示名称与头像', async () => {
+    const app = await buildAccountsApp();
+
+    const patchRes = await app.inject({
+      method: 'PATCH',
+      url: ACCOUNTS_API.byId('local-default'),
+      payload: {
+        displayName: '自定义昵称',
+        avatar: 'data:image/png;base64,sample',
+      },
+    });
+
+    expect(patchRes.statusCode).toBe(200);
+    const parsed = accountsResponseSchema.parse(patchRes.json());
+    const account = parsed.accounts.find((a) => a.id === 'local-default');
+    expect(account?.displayName).toBe('自定义昵称');
+    expect(account?.avatar).toBe('data:image/png;base64,sample');
+  });
 });

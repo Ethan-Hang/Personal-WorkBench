@@ -155,6 +155,32 @@ export class AccountsService {
     return this.list();
   }
 
+  /** 更新账号元数据（例如显示名称、自定义头像）。 */
+  update(id: string, patch: { displayName?: string; avatar?: string | null }): AccountsResponse {
+    const registry = this.deps.store.read();
+    this.require(registry, id);
+
+    this.deps.store.write({
+      ...registry,
+      accounts: registry.accounts.map((account) => {
+        if (account.id !== id) return account;
+        const updated = { ...account };
+        if (patch.displayName !== undefined && patch.displayName.trim().length > 0) {
+          updated.displayName = patch.displayName.trim();
+        }
+        if (patch.avatar !== undefined) {
+          if (patch.avatar === null || patch.avatar === '') {
+            delete updated.avatar;
+          } else {
+            updated.avatar = patch.avatar;
+          }
+        }
+        return updated;
+      }),
+    });
+    return this.list();
+  }
+
   private openAndMigrate(account: Account): void {
     this.deps.holder.swap(this.deps.store.dbPathOf(account));
     this.deps.migrate(this.deps.holder.current());
@@ -195,6 +221,7 @@ function toView(account: Account): AccountView {
     displayName: account.displayName,
     createdAt: account.createdAt,
     lastUsedAt: account.lastUsedAt,
+    ...(account.avatar !== undefined ? { avatar: account.avatar } : {}),
   };
   return account.github === undefined ? view : { ...view, github: account.github };
 }

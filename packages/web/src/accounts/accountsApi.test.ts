@@ -16,6 +16,7 @@ import {
   startGithubDeviceFlow,
   switchAccount,
   unbindGithubAccount,
+  updateAccount,
 } from './accountsApi.js';
 
 function mockResponse(status: number, data: unknown): Response {
@@ -34,6 +35,7 @@ describe('accountsApi', () => {
         id: 'local-default',
         kind: 'local',
         displayName: '本地默认',
+        avatar: 'data:image/png;base64,abc',
         createdAt: '2026-08-19T10:00:00.000Z',
         lastUsedAt: '2026-08-19T12:00:00.000Z',
       },
@@ -56,6 +58,19 @@ describe('accountsApi', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ displayName: '工作账号' }),
+    });
+    expect(result).toEqual(sampleAccounts);
+  });
+
+  it('updateAccount sends PATCH with displayName and avatar to /api/accounts/:id', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(mockResponse(200, sampleAccounts));
+    const patch = { displayName: '新昵称', avatar: 'data:image/webp;base64,new' };
+    const result = await updateAccount('local-default', patch, fetchFn);
+
+    expect(fetchFn).toHaveBeenCalledWith(ACCOUNTS_API.byId('local-default'), {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
     });
     expect(result).toEqual(sampleAccounts);
   });

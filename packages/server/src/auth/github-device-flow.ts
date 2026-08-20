@@ -153,7 +153,9 @@ export class GitHubDeviceFlowClient implements GitHubDeviceFlow {
     }
   }
 
-  private async authenticatedUser(accessToken: string): Promise<{ login: string; id: number }> {
+  private async authenticatedUser(
+    accessToken: string,
+  ): Promise<{ login: string; id: number; avatarUrl?: string }> {
     const response = await this.request(AUTHENTICATED_USER_URL, '用户信息读取', {
       headers: {
         accept: 'application/vnd.github+json',
@@ -167,9 +169,14 @@ export class GitHubDeviceFlowClient implements GitHubDeviceFlow {
     if (!Number.isInteger(id) || (id as number) < 0) {
       throw githubError('GitHub 用户信息响应缺少有效的 id');
     }
+    const avatarUrl =
+      typeof data.avatar_url === 'string' && data.avatar_url.length > 0
+        ? data.avatar_url
+        : undefined;
     return {
       login: stringField(data, 'login', '用户信息读取'),
       id: id as number,
+      ...(avatarUrl !== undefined ? { avatarUrl } : {}),
     };
   }
 
