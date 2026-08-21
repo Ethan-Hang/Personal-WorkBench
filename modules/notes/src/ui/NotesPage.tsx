@@ -31,6 +31,7 @@ import { NoteMasonryView } from './components/NoteMasonryView.js';
 import { NoteListView } from './components/NoteListView.js';
 import { NoteEditorModal } from './components/NoteEditorModal.js';
 import { FolderModal } from './components/FolderModal.js';
+import { NoteExportModal } from './components/NoteExportModal.js';
 
 const NOTES_VIEW_MODE_STORAGE_KEY = 'notes_workbench_view_mode';
 
@@ -96,6 +97,9 @@ export function NotesPage() {
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<FolderView | null>(null);
   const [folderInitialParentId, setFolderInitialParentId] = useState<string | null>(null);
+
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportingNote, setExportingNote] = useState<NoteView | null>(null);
 
   // 5. 远端数据请求
   const foldersQuery = useQuery({
@@ -566,6 +570,10 @@ export function NotesPage() {
               onTrashToggle={handleTrashToggle}
               onDeletePermanent={handleDeletePermanent}
               onRestore={handleRestore}
+              onExport={(note) => {
+                setExportingNote(note);
+                setIsExportModalOpen(true);
+              }}
               onTagClick={(tag) => setSelectedTag(tag)}
             />
           ) : (
@@ -582,6 +590,10 @@ export function NotesPage() {
               onTrashToggle={handleTrashToggle}
               onDeletePermanent={handleDeletePermanent}
               onRestore={handleRestore}
+              onExport={(note) => {
+                setExportingNote(note);
+                setIsExportModalOpen(true);
+              }}
               onTagClick={(tag) => setSelectedTag(tag)}
             />
           )}
@@ -612,6 +624,16 @@ export function NotesPage() {
         initialParentId={folderInitialParentId}
         folders={foldersTree}
         onSave={handleSaveFolder}
+      />
+
+      {/* 导出中心模态弹窗 */}
+      <NoteExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => {
+          setIsExportModalOpen(false);
+          setExportingNote(null);
+        }}
+        note={exportingNote}
       />
     </div>
   );

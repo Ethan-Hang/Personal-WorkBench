@@ -18,6 +18,7 @@ export interface NoteCardProps {
   onTrashToggle?: (note: NoteView) => void;
   onDeletePermanent?: (note: NoteView) => void;
   onRestore?: (note: NoteView) => void;
+  onExport?: (note: NoteView) => void;
   onTagClick?: (tag: string) => void;
   className?: string;
 }
@@ -55,6 +56,7 @@ export function NoteCard({
   onTrashToggle,
   onDeletePermanent,
   onRestore,
+  onExport,
   onTagClick,
   className = '',
 }: NoteCardProps) {
@@ -262,6 +264,19 @@ export function NoteCard({
                       >
                         <IconTrash size={13} />
                         移至废纸篓
+                      </button>
+                    )}
+                    {onExport && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onExport(note);
+                          setShowActionMenu(false);
+                        }}
+                        className="px-3 py-1.5 text-left hover:bg-surface-raised flex items-center gap-2 text-ink border-t border-border/50"
+                      >
+                        <span className="text-xs">📤</span>
+                        导出便签...
                       </button>
                     )}
                   </>

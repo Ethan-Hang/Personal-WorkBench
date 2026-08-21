@@ -5,6 +5,7 @@ import { patchNote, postCreateTodo, postLinkTodo, deleteTodoLink, deleteNote } f
 import { NoteMarkdownViewer } from '../markdown/renderer.js';
 import { NoteFormatToolbar } from './NoteFormatToolbar.js';
 import { NoteOutlineToc } from './NoteOutlineToc.js';
+import { NoteExportModal } from './NoteExportModal.js';
 
 export interface NoteStats {
   words: number;
@@ -113,6 +114,7 @@ export function NoteEditor({
   const [viewMode, setViewMode] = useState<ViewMode>('split');
   const [isTocCollapsed, setIsTocCollapsed] = useState(false);
   const [isTodoDrawerOpen, setIsTodoDrawerOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
@@ -565,6 +567,17 @@ export function NoteEditor({
             📑
           </button>
 
+          {/* 导出中心 */}
+          <button
+            type="button"
+            onClick={() => setIsExportModalOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-control border border-line bg-surface-2 hover:bg-surface-3 text-secondary hover:text-ink text-xs transition"
+            title="导出便签 (Markdown / HTML / PNG / PDF)"
+          >
+            <span>📤</span>
+            <span>导出</span>
+          </button>
+
           {/* 全屏/沉浸式切换 */}
           {onToggleFullscreen && (
             <button
@@ -859,6 +872,24 @@ export function NoteEditor({
           </button>
         </div>
       </footer>
+
+      {/* 导出中心模态弹窗 */}
+      <NoteExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        note={{
+          ...note,
+          title,
+          content,
+          color,
+          folderId,
+          isPinned,
+          tags,
+          todoLinks,
+          revision,
+          updatedAt: lastSavedTime.toISOString(),
+        }}
+      />
     </div>
   );
 }

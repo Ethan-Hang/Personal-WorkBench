@@ -16,6 +16,7 @@ export interface NoteMasonryViewProps {
   onTrashToggle?: (note: NoteView) => void;
   onDeletePermanent?: (note: NoteView) => void;
   onRestore?: (note: NoteView) => void;
+  onExport?: (note: NoteView) => void;
   onTagClick?: (tag: string) => void;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -35,6 +36,7 @@ export function NoteMasonryView({
   onTrashToggle,
   onDeletePermanent,
   onRestore,
+  onExport,
   onTagClick,
   emptyTitle = '暂无便签',
   emptyDescription = '点击右上角「新建便签」开始记录您的第一条灵感与笔记',
@@ -81,6 +83,7 @@ export function NoteMasonryView({
           onTrashToggle={onTrashToggle}
           onDeletePermanent={onDeletePermanent}
           onRestore={onRestore}
+          onExport={onExport}
           onTagClick={onTagClick}
         />
       </div>

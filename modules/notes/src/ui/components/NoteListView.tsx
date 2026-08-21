@@ -17,6 +17,7 @@ export interface NoteListViewProps {
   onTrashToggle?: (note: NoteView) => void;
   onDeletePermanent?: (note: NoteView) => void;
   onRestore?: (note: NoteView) => void;
+  onExport?: (note: NoteView) => void;
   onTagClick?: (tag: string) => void;
   emptyTitle?: string;
   emptyDescription?: string;
@@ -56,6 +57,7 @@ export function NoteListView({
   onTrashToggle,
   onDeletePermanent,
   onRestore,
+  onExport,
   onTagClick,
   emptyTitle = '暂无便签',
   emptyDescription = '点击右上角「新建便签」开始记录您的第一条灵感与笔记',
@@ -293,6 +295,19 @@ export function NoteListView({
                         title="移至废纸篓"
                       >
                         <IconTrash size={13} />
+                      </button>
+                    )}
+                    {onExport && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onExport(note);
+                        }}
+                        className="p-1 rounded hover:bg-surface text-muted hover:text-ink opacity-0 group-hover:opacity-100 transition-colors"
+                        title="导出便签"
+                      >
+                        <span className="text-xs">📤</span>
                       </button>
                     )}
                   </>
