@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/server/index.ts",
     "./contract": "./src/contract.ts",
-    "./storage": "./src/storage/sqlite-repository.ts"
+    "./storage": "./src/storage/sqlite-repository.ts",
+    "./ui/api": "./src/ui/api.ts"
   },
   "dependencies": {
     "@workbench/core": "*",
