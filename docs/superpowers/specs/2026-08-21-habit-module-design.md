@@ -9,7 +9,7 @@
 ## 1. 目标与范围
 
 首页 `modules/workbench/src/ui/TodayPage.tsx:1670` 与周历侧栏
-`modules/workbench/src/ui/CalendarPage.tsx:1188` 各有一块「今日习惯」占位，目前是写死的
+`modules/workbench/src/ui/CalendarPage.tsx:1194` 各有一块「今日习惯」占位，目前是写死的
 假数据。本设计把它换成真实模块。
 
 **范围内：** 习惯的增删改归档、打卡与补卡、连续天数与完成率、一个习惯一级页面
@@ -211,7 +211,7 @@ Fastify 注册模式，传真实 id 得到转义后的请求路径）+ Zod 形�
 `components/TodayHabitCard.tsx`，**同一个组件用于两处**，不抄两份：
 
 - 首页 `TodayPage.tsx:1670` 的「今日习惯」Panel
-- 周历侧栏 `CalendarPage.tsx:1188` 的今日习惯预览
+- 周历侧栏 `CalendarPage.tsx:1194` 的今日习惯预览
 
 只显示 `dueToday === true` 且未归档的习惯。布尔习惯点一下即打卡；有目标值的习惯
 点开小步进器调数值。打卡走**乐观更新**（照 ADR-0011），失败回滚并提示——
