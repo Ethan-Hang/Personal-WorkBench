@@ -98,6 +98,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
   });
 
   const handleToggleBoolean = (item: TodayHabit) => {
+    if (clientToday < item.habit.startDate) return;
     const isCompleted = item.progress.current >= item.progress.target;
     const nextValue = isCompleted ? 0 : item.progress.target;
     checkinMutation.mutate({
@@ -108,6 +109,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
   };
 
   const handleStep = (item: TodayHabit, delta: number) => {
+    if (clientToday < item.habit.startDate) return;
     const nextValue = Math.max(0, item.progress.current + delta);
     checkinMutation.mutate({
       habitId: item.habit.id,
@@ -204,7 +206,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        disabled={checkinMutation.isPending || item.progress.current <= 0}
+                        disabled={item.progress.current <= 0}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStep(item, -1);
@@ -222,7 +224,6 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                       </span>
                       <button
                         type="button"
-                        disabled={checkinMutation.isPending}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStep(item, 1);

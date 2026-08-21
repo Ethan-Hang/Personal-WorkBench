@@ -35,6 +35,21 @@ describe('habitUiModule & HabitsPage', () => {
     expect('2026-08-14' < backfillStart).toBe(true);
   });
 
+  it('早于 startDate 的日期不可打卡且判定为非可补卡状态', () => {
+    const today = '2026-08-21';
+    const startDate = '2026-08-20';
+    const backfillStart = addDays(today, -(CHECKIN_BACKFILL_DAYS - 1)); // 2026-08-15
+
+    const dateBeforeStart = '2026-08-18';
+    const isWithin7Days = dateBeforeStart >= backfillStart && dateBeforeStart <= today;
+    const isBeforeStart = dateBeforeStart < startDate;
+    const isBackfillable = isWithin7Days && !isBeforeStart;
+
+    expect(isWithin7Days).toBe(true);
+    expect(isBeforeStart).toBe(true);
+    expect(isBackfillable).toBe(false);
+  });
+
   it('周起点（周一）计算准确且不跨时区', () => {
     // 2026-08-21 是周五（ISO 5）
     expect(isoWeekdayOf('2026-08-21')).toBe(5);

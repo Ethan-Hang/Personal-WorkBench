@@ -9,6 +9,7 @@ import {
   IconAlertCircle,
   IconArrowDown,
   IconArrowUp,
+  IconCheck,
   IconEdit,
   IconFlame,
   IconPlus,
@@ -16,6 +17,7 @@ import {
   Modal,
   PageHeader,
   Panel,
+  ProgressBar,
   Switch,
   controlClass,
   useTimezone,
@@ -84,6 +86,7 @@ function HabitCard({
   onDelete: () => void;
 }) {
   const queryClient = useQueryClient();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // 热力图区间：展示最近 16 周（112 天）
   const { fromDate, toDate, weeks } = useMemo(() => {
@@ -183,7 +186,7 @@ function HabitCard({
     return dueCount > 0 ? Math.round((metCount / dueCount) * 100) : 100;
   }, [freqObj, habit.targetValue, clientToday, checkinMap]);
 
-  // 7 天窗口内允许补卡，窗口外渲染为禁用态
+  // 7 天窗口内允许补卡，窗口外或早于 startDate 则禁用
   const backfillStart = useMemo(
     () => addDays(clientToday, -(CHECKIN_BACKFILL_DAYS - 1)),
     [clientToday],
@@ -198,6 +201,7 @@ function HabitCard({
       }
     },
     onMutate: async ({ date, value }) => {
+      setErrorMessage(null);
       const qKey = ['habit', 'history', habit.id, fromDate, toDate];
       await queryClient.cancelQueries({ queryKey: qKey });
       const previousData = queryClient.getQueryData<HistoryResponse>(qKey);
@@ -216,10 +220,12 @@ function HabitCard({
 
       return { previousData, qKey };
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       if (context?.previousData) {
         queryClient.setQueryData(context.qKey, context.previousData);
       }
+      const msg = err instanceof Error ? err.message : '打卡失败';
+      setErrorMessage(msg);
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['habit'] });
@@ -227,33 +233,68 @@ function HabitCard({
   });
 
   const handleCellClick = (date: string) => {
-    if (date > clientToday || date < backfillStart) return;
+    if (date > clientToday || date < backfillStart || date < habit.startDate) {
+      return;
+    }
     const currentVal = checkinMap.get(date) ?? 0;
     const isDone = currentVal >= habit.targetValue;
     const nextVal = isDone ? 0 : habit.targetValue;
     checkinMutation.mutate({ date, value: nextVal });
   };
 
+  // 今日打卡交互
+  const todayValue = checkinMap.get(clientToday) ?? 0;
+  const isDoneToday = todayValue >= habit.targetValue;
+  const isDueToday = isDueOn(freqObj, clientToday);
   const isArchived = Boolean(habit.archivedAt);
+
+  const handleTodayToggle = () => {
+    if (clientToday < habit.startDate) return;
+    const nextVal = isDoneToday ? 0 : habit.targetValue;
+    checkinMutation.mutate({ date: clientToday, value: nextVal });
+  };
+
+  const handleTodayStep = (delta: number) => {
+    if (clientToday < habit.startDate) return;
+    const nextVal = Math.max(0, todayValue + delta);
+    checkinMutation.mutate({ date: clientToday, value: nextVal });
+  };
 
   return (
     <Panel className="transition-all duration-200 hover:border-line-strong">
-      {/* 习惯头部信息 */}
+      {/* 错误提示 */}
+      {errorMessage && (
+        <div className="mb-3 flex items-center justify-between rounded-control bg-danger/10 border border-danger/20 px-3 py-1.5 text-xs text-danger animate-fade-in">
+          <div className="flex items-center gap-1.5">
+            <IconAlertCircle size={14} className="shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorMessage(null)}
+            className="hover:opacity-75 font-bold cursor-pointer ml-2"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* 习惯头部信息与操作栏 */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 min-w-0">
           <div
-            className={`flex size-8 shrink-0 items-center justify-center rounded-control border ${
+            className={`flex size-9 shrink-0 items-center justify-center rounded-control border ${
               isArchived
                 ? 'bg-surface-2 text-muted border-line'
                 : 'bg-habit-soft text-habit border-habit/30'
             }`}
           >
-            <IconFlame size={18} />
+            <IconFlame size={20} />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
               <h3
-                className={`text-sm font-bold ${
+                className={`text-sm font-bold truncate ${
                   isArchived ? 'text-muted line-through' : 'text-ink'
                 }`}
               >
@@ -302,6 +343,95 @@ function HabitCard({
           </Button>
         </div>
       </div>
+
+      {/* 今日打卡快捷操作区（活跃习惯） */}
+      {!isArchived && (
+        <div className="mt-3.5 rounded-control border border-line/80 bg-surface-2/40 p-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              disabled={checkinMutation.isPending || clientToday < habit.startDate}
+              onClick={handleTodayToggle}
+              className={`flex size-6 shrink-0 items-center justify-center rounded-full border transition-all cursor-pointer ${
+                isDoneToday
+                  ? 'bg-good border-good text-white font-bold shadow-xs'
+                  : 'bg-surface border-line hover:border-accent'
+              }`}
+              title={isDoneToday ? '取消今日打卡' : '点击完成今日打卡'}
+            >
+              {isDoneToday && <IconCheck size={14} />}
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-ink">
+                  {isDoneToday ? '今日已完成' : isDueToday ? '今日待完成' : '今日打卡'}
+                </span>
+                <span className="text-[11px] text-muted">
+                  {isDueToday ? '（计划内）' : '（非计划日）'}
+                </span>
+              </div>
+              {habit.targetValue > 1 && (
+                <div className="mt-1 w-full sm:w-48">
+                  <div className="text-[11px] text-secondary mb-0.5">
+                    今日进度：{todayValue} / {habit.targetValue} {habit.unit ?? '次'}
+                  </div>
+                  <ProgressBar
+                    value={Math.min(100, Math.round((todayValue / habit.targetValue) * 100))}
+                    tone={isDoneToday ? 'good' : 'habit'}
+                    size="sm"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            {habit.targetValue > 1 ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={checkinMutation.isPending || todayValue <= 0}
+                  onClick={() => handleTodayStep(-1)}
+                  className="flex size-6 items-center justify-center rounded-control bg-surface border border-line hover:bg-surface-2 disabled:opacity-30 text-ink text-xs font-bold transition-colors cursor-pointer"
+                  title="减少"
+                >
+                  -
+                </button>
+                <span className="tabular-nums text-xs font-bold text-ink px-1 min-w-[36px] text-center">
+                  {todayValue}/{habit.targetValue}
+                </span>
+                <button
+                  type="button"
+                  disabled={checkinMutation.isPending}
+                  onClick={() => handleTodayStep(1)}
+                  className="flex size-6 items-center justify-center rounded-control bg-surface border border-line hover:bg-surface-2 disabled:opacity-30 text-ink text-xs font-bold transition-colors cursor-pointer"
+                  title="增加"
+                >
+                  +
+                </button>
+                <Button
+                  variant={isDoneToday ? 'secondary' : 'primary'}
+                  size="sm"
+                  disabled={checkinMutation.isPending}
+                  onClick={handleTodayToggle}
+                >
+                  {isDoneToday ? '重置' : '一键达标'}
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant={isDoneToday ? 'secondary' : 'primary'}
+                size="sm"
+                disabled={checkinMutation.isPending}
+                onClick={handleTodayToggle}
+                icon={isDoneToday ? <IconCheck size={14} /> : undefined}
+              >
+                {isDoneToday ? '取消打卡' : '完成打卡'}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* KPI 概览指标 */}
       <div className="grid grid-cols-3 gap-2 my-3 rounded-control bg-surface-2/50 p-2.5 text-center">
@@ -356,7 +486,9 @@ function HabitCard({
                   const val = checkinMap.get(date) ?? 0;
                   const isDone = val >= habit.targetValue;
                   const isFuture = date > clientToday;
-                  const isBackfillable = !isFuture && date >= backfillStart && date <= clientToday;
+                  const isBeforeStart = date < habit.startDate;
+                  const isWithin7Days = !isFuture && date >= backfillStart && date <= clientToday;
+                  const isBackfillable = isWithin7Days && !isBeforeStart;
                   const isToday = date === clientToday;
 
                   let bgClass = 'bg-surface-2/60 border-line/40';
@@ -367,10 +499,16 @@ function HabitCard({
                   }
 
                   let cursorClass = 'cursor-pointer hover:scale-125 hover:z-10';
+                  let reason = '';
                   if (isFuture) {
                     cursorClass = 'opacity-20 cursor-not-allowed';
-                  } else if (!isBackfillable) {
+                    reason = '（未来日期不可打卡）';
+                  } else if (isBeforeStart) {
+                    cursorClass = 'cursor-not-allowed opacity-40 hover:ring-0';
+                    reason = '（早于习惯起始日）';
+                  } else if (!isWithin7Days) {
                     cursorClass = 'cursor-not-allowed opacity-60 hover:ring-0';
+                    reason = '（已超出 7 天补卡窗口）';
                   }
 
                   return (
@@ -379,9 +517,7 @@ function HabitCard({
                       type="button"
                       disabled={!isBackfillable}
                       onClick={() => handleCellClick(date)}
-                      title={`${date} ${isDone ? '已达标' : '未打卡'}${
-                        !isBackfillable && !isFuture ? '（已超出 7 天补卡窗口）' : ''
-                      }`}
+                      title={`${date} ${isDone ? `已达标 (${val}/${habit.targetValue})` : '未打卡'}${reason}`}
                       className={`size-3.5 rounded-xs border transition-transform relative ${bgClass} ${cursorClass} ${
                         isToday ? 'ring-1.5 ring-accent' : ''
                       }`}
@@ -734,7 +870,7 @@ export function HabitsPage() {
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
       <PageHeader
         title="习惯管理"
-        subtitle="跟踪每日自律节律，查看 16 周连续打卡热力图与完成率统计。"
+        subtitle="跟踪每日自律节律，完成今日打卡，查看 16 周连续热力图与完成率统计。"
         action={
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 text-xs font-medium text-secondary">
