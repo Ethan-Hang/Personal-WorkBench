@@ -194,6 +194,14 @@ describe('buildApp', () => {
           signal: signalBefore(deadline),
         });
         expect(rollback.status).toBe(409);
+
+        // 本地备份没有「未配置」这个前置门槛，所以它直接跑通——顺带证明组合根
+        // 真的装配了 LocalBackupService，而不只是路由文件写好了没人调。
+        const local = await fetch(`${origin}/api/local-backup/run`, {
+          method: 'POST',
+          signal: signalBefore(deadline),
+        });
+        expect(local.status).toBe(200);
       } finally {
         if (child !== undefined) await stopServer(child);
         await rm(tempDirectory, { recursive: true, force: true });

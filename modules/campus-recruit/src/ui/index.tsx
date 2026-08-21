@@ -15,3 +15,6 @@ export const campusRecruitUiModule: UiModuleDefinition = {
     { path: '/campus/stats', element: <StatsPage /> },
   ],
 };
+
+export { ApplicationsPage, StatsPage };
+export { fetchApplications } from './api.js';

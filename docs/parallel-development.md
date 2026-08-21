@@ -43,7 +43,7 @@
 
 每个业务模块的 `src/contract.ts` 以及系统级同步包的 `packages/sync/src/contract.ts` 里同时放着两样东西，前后端共用同一份：
 
-- **端点路径**（`TODO_API` / `WORKBENCH_API` / `CAMPUS_API` / `SYNC_API` / `RESTORE_API` / `ACCOUNTS_API` / `GITHUB_AUTH_API` / `GIST_SYNC_API`）：传 `ID_PARAM` / `ACCOUNT_ID_PARAM` / `NAME_PARAM` 得到 Fastify 注册模式，传真实参数得到请求路径
+- **端点路径**（`TODO_API` / `WORKBENCH_API` / `CAMPUS_API` / `SYNC_API` / `RESTORE_API` / `LOCAL_BACKUP_API` / `LOCAL_IMPORT_API` / `ACCOUNTS_API` / `GITHUB_AUTH_API` / `GIST_SYNC_API`）：传 `ID_PARAM` / `ACCOUNT_ID_PARAM` / `NAME_PARAM` 得到 Fastify 注册模式，传真实参数得到请求路径
 - **请求 / 响应形状**（Zod schema）：服务端校验入参，客户端 `.parse()` 校验响应
 
 由此得到两条对协作重要的性质：

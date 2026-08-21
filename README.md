@@ -30,7 +30,7 @@ npm run dev
 | `npm run setup`       | 安装依赖（跳过多余的原生编译）并装回 git 钩子；克隆后先跑这个 |
 | `npm run dev`         | 同时启动后端与前端                                            |
 | `npm run check`       | 格式 + 类型 + lint + 测试（提交前跑这个，必须全绿）           |
-| `npm run test`        | 运行全部 Vitest 自动化测试 (680+ tests)                       |
+| `npm run test`        | 运行全部 Vitest 自动化测试 (800+ tests)                       |
 | `npm run format`      | 使用 Prettier 自动格式化代码                                  |
 | `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移                 |
 
@@ -77,6 +77,11 @@ npm run dev
    - **WebDAV 一致性快照与五态恢复机**：基于 SQLite Online Backup API 避免 WAL 遗漏，全服务 503 拦截保护，支持行级差异比对、安全回滚与断电续命；
    - **Gist 设置与凭据零知识加密同步**：使用 `scrypt` + `AES-256-GCM` 派生加密，Secret Gist 明文 Header 用于轻量比对，支持口令解锁与冲突手动决策（从云端拉取覆写 / 本地覆写云端）；
    - **OS 系统凭据保管库优先**：优先使用 Windows Credential Manager / macOS Keychain 安全存储 GitHub Token 与同步口令，无保管库时明确警示并禁用明文口令持久化。
+
+8. **本地快照与双向导入体系 (`LocalBackupPanel` & `LocalImportModal`)**：
+   - **本地离线一致性快照**：独立于云端 WebDAV 的本地快照存储引擎，支持自定义输出目录与滚动清理保留策略；
+   - **双向导入与高低风险隔离**：支持「覆盖当前账号（走带回退点的五态恢复机）」与「导入为独立新账号（零现有文件干扰、自动迁移补齐）」；
+   - **智能路径解析与兼容防呆**：前端自动拼接备份目录，服务端支持纯文件名自动定位，彻底杜绝相对路径预检 404。
 
 ## 要改代码先读什么
 
@@ -128,3 +133,4 @@ npm run dev
 - `docs/adr/0019-accounts-and-per-account-database.md` — 账号体系与每账号独立数据库
 - `docs/adr/0020-backup-snapshot-and-restore-state-machine.md` — 备份快照与恢复五态状态机
 - `docs/adr/0021-zero-knowledge-encryption-for-cloud-credentials.md` — 云端凭据零知识加密与系统保管库优先
+- `docs/adr/0022-local-backup-and-file-import.md` — 本地数据快照、多方向导入与安全路径解析

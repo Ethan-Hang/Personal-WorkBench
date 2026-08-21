@@ -1,5 +1,6 @@
 import { useState, type ElementType, type ReactNode } from 'react';
 import { ThemeSelector } from './ThemeSelector.js';
+import { CommandPalette, type CommandItemDescriptor } from './CommandPalette.js';
 import {
   IconDatabase,
   IconHome,
@@ -31,17 +32,29 @@ export function AppShell({
   activePath,
   LinkComponent = 'a',
   topActions,
+  commandItems,
+  onCommandPaletteOpenChange,
   children,
   dbStatus = '本地 SQLite 已就绪',
+  sidebarFooter,
 }: {
   navGroups: ShellNavGroup[];
   activePath?: string;
   LinkComponent?: ElementType;
   topActions?: ReactNode;
+  commandItems?: CommandItemDescriptor[];
+  onCommandPaletteOpenChange?: (open: boolean) => void;
   children: ReactNode;
   dbStatus?: string;
+  sidebarFooter?: ReactNode | ((props: { isCollapsed: boolean }) => ReactNode);
 }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  const handleSearchOpenChange = (open: boolean) => {
+    setIsSearchOpen(open);
+    onCommandPaletteOpenChange?.(open);
+  };
 
   const Link = LinkComponent;
 
@@ -215,7 +228,11 @@ export function AppShell({
         </div>
 
         {/* 侧边栏底部状态 */}
-        <div className="border-t border-sidebar-line/40 p-3 shrink-0">
+        <div className="border-t border-sidebar-line/40 p-2.5 space-y-2 shrink-0">
+          {typeof sidebarFooter === 'function'
+            ? sidebarFooter({ isCollapsed: isSidebarCollapsed })
+            : sidebarFooter}
+
           <div
             className={`flex items-center gap-2 text-[11px] text-sidebar-muted ${
               isSidebarCollapsed ? 'justify-center' : ''
@@ -251,7 +268,8 @@ export function AppShell({
             {/* 搜索快捷触发按钮 (⌘K) */}
             <button
               type="button"
-              className="hidden items-center gap-2 rounded-control border border-line bg-surface-2/60 px-2.5 py-1.5 text-xs text-muted hover:border-line hover:text-secondary sm:inline-flex"
+              onClick={() => handleSearchOpenChange(true)}
+              className="hidden items-center gap-2 rounded-control border border-line bg-surface-2/60 px-2.5 py-1.5 text-xs text-muted hover:border-line hover:text-secondary sm:inline-flex cursor-pointer transition-all duration-150 hover:scale-[1.02] active:scale-[0.98]"
             >
               <IconSearch size={13} />
               <span>搜索任务或公司…</span>
@@ -275,6 +293,15 @@ export function AppShell({
           </div>
         </main>
       </div>
+
+      {/* 全局命令中枢 (Command Palette ⌘K) */}
+      {commandItems && (
+        <CommandPalette
+          open={isSearchOpen}
+          onOpenChange={handleSearchOpenChange}
+          items={commandItems}
+        />
+      )}
     </div>
   );
 }

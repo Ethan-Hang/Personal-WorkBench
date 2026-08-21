@@ -19,6 +19,10 @@ import { registerAccountsRoutes } from './accounts/routes.js';
 import { registerBackupRoutes } from './backup/routes.js';
 import type { BackupService } from './backup/service.js';
 import type { RestoreService } from './restore/service.js';
+import { registerLocalBackupRoutes } from './local-backup/routes.js';
+import type { LocalBackupService } from './local-backup/service.js';
+import { registerLocalImportRoutes } from './local-import/routes.js';
+import type { LocalImportService } from './local-import/service.js';
 import { registerSyncRoutes } from './sync/routes.js';
 import type { GistSyncService } from './sync/service.js';
 import type { AccountsService } from './accounts/service.js';
@@ -33,8 +37,22 @@ export interface BuildAppOptions {
   accounts?: AccountsService;
   /** 备份与恢复。两者成对出现——恢复的数据源就是备份的那个网盘。 */
   backup?: { backup: BackupService; restore: RestoreService };
+  /**
+   * 本地备份。与 `backup` 刻意分开：它不需要凭据，也不与恢复成对——
+   * 本地导入走的是 TASK-047/048 那条独立链路。
+   */
+  localBackup?: LocalBackupService;
+  /**
+   * 本地文件导入。只需要 RestoreService——导入复用的就是那台五态机。
+   * 与 `backup` 分开传，是因为本地导入不依赖任何云端凭据。
+   */
+  restore?: RestoreService;
+  /** 导入为新账号。不传则不注册那条路由（`WORKBENCH_DB` 逃生舱下没有账号机制）。 */
+  localImport?: LocalImportService;
   /** 设置与凭据的 Gist 同步。 */
   gistSync?: GistSyncService;
+  /** 本地文件选择器处理器（供测试注入 mock 或自定义平台处理）。 */
+  pickFileHandler?: (initialDir?: string) => Promise<string | null>;
   /** 透传给 Fastify。传对象可指定 level 与 file（file 走 pino.destination）。 */
   logger?: FastifyServerOptions['logger'];
 }
@@ -90,6 +108,17 @@ export async function buildApp(opts: BuildAppOptions): Promise<FastifyInstance> 
   if (opts.accounts !== undefined) registerAccountsRoutes(app, opts.accounts);
   if (opts.backup !== undefined) {
     registerBackupRoutes(app, opts.backup.backup, opts.backup.restore);
+  }
+  if (opts.localBackup !== undefined) registerLocalBackupRoutes(app, opts.localBackup);
+  const restoreForImport = opts.restore ?? opts.backup?.restore;
+  if (restoreForImport !== undefined) {
+    registerLocalImportRoutes(
+      app,
+      restoreForImport,
+      opts.localImport,
+      opts.localBackup,
+      opts.pickFileHandler,
+    );
   }
   if (opts.gistSync !== undefined) registerSyncRoutes(app, opts.gistSync);
 

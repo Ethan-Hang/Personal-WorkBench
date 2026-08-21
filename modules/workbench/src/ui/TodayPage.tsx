@@ -24,7 +24,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconTarget,
-  IconFlame,
   IconBookOpen,
   IconTrash,
   IconEdit,
@@ -40,6 +39,7 @@ import {
   IconPlus,
 } from '@workbench/ui';
 import { type WorkbenchItem, type TodayResponse, type ScheduleInput } from '../contract.js';
+import { TodayHabitCard } from '../../../habit/src/ui/components/TodayHabitCard.js';
 import {
   fetchToday,
   fetchUnscheduled,
@@ -1668,44 +1668,7 @@ export function TodayPage() {
         </Panel>
 
         {/* 习惯打卡上下文 */}
-        <Panel
-          className="hover-lift"
-          title={
-            <div className="flex items-center gap-2">
-              <IconFlame size={16} className="text-habit" />
-              <span>今日习惯</span>
-            </div>
-          }
-          hint="2 / 3 完成"
-        >
-          <div className="space-y-2 text-xs">
-            <div className="flex items-center justify-between rounded-control bg-surface-2/60 p-2">
-              <div className="flex items-center gap-2">
-                <span className="flex size-4 items-center justify-center rounded-full bg-good text-white text-[10px]">
-                  ✓
-                </span>
-                <span className="font-medium text-ink">深度阅读 30 分钟</span>
-              </div>
-              <Chip tone="good">已完成</Chip>
-            </div>
-            <div className="flex items-center justify-between rounded-control bg-surface-2/60 p-2">
-              <div className="flex items-center gap-2">
-                <span className="flex size-4 items-center justify-center rounded-full bg-good text-white text-[10px]">
-                  ✓
-                </span>
-                <span className="font-medium text-ink">有氧运动 40 分钟</span>
-              </div>
-              <Chip tone="good">已完成</Chip>
-            </div>
-            <div className="flex items-center justify-between rounded-control bg-surface-2/60 p-2">
-              <div className="flex items-center gap-2">
-                <span className="size-4 rounded-full border border-line bg-surface" />
-                <span className="font-medium text-ink">晚间复盘与明日规划</span>
-              </div>
-              <Chip tone="neutral">待完成</Chip>
-            </div>
-          </div>
-        </Panel>
+        <TodayHabitCard />
 
         {/* 复盘引导卡片 */}
         <div className="rounded-panel border border-warning/20 bg-warning-soft/50 p-4 hover-lift">

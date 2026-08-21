@@ -8,8 +8,8 @@ import {
 } from './settings.js';
 
 describe('DEFAULT_SETTINGS', () => {
-  it('十个键齐全，且与现有 localStorage 时代的默认值一致', () => {
-    expect(SETTING_KEYS).toHaveLength(10);
+  it('十三个键齐全，且与现有 localStorage 时代的默认值一致', () => {
+    expect(SETTING_KEYS).toHaveLength(13);
     expect(DEFAULT_SETTINGS).toEqual({
       'theme.mode': 'system',
       'theme.palette': 'warm',
@@ -21,11 +21,41 @@ describe('DEFAULT_SETTINGS', () => {
       'workbench.showCompletedTasks': true,
       'backup.autoEnabled': false,
       'backup.retentionCount': 10,
+      'localBackup.targetDir': '',
+      'localBackup.autoEnabled': false,
+      'localBackup.retentionCount': 5,
     });
   });
 
   it('自动备份默认关：默认配置下零出站网络请求', () => {
     expect(DEFAULT_SETTINGS['backup.autoEnabled']).toBe(false);
+  });
+});
+
+describe('本地备份设置', () => {
+  it('目标目录默认为空串，表示落在 data/local/backups 而不是某个写死的绝对路径', () => {
+    expect(DEFAULT_SETTINGS['localBackup.targetDir']).toBe('');
+  });
+
+  it('自动本地快照默认关：磁盘占用不该在用户不知情时增长', () => {
+    expect(DEFAULT_SETTINGS['localBackup.autoEnabled']).toBe(false);
+  });
+
+  it('目标目录接受任意路径字符串，并去掉首尾空白', () => {
+    const resolved = resolveSettings({ 'localBackup.targetDir': '  D:/backups  ' });
+    expect(resolved['localBackup.targetDir']).toBe('D:/backups');
+  });
+
+  it('目标目录是非字符串时回落默认，不让脏值变成一个写不进去的路径', () => {
+    for (const dirty of [null, 42, true, {}]) {
+      expect(resolveSettings({ 'localBackup.targetDir': dirty })['localBackup.targetDir']).toBe('');
+    }
+  });
+
+  it('本地保留份数与 WebDAV 那份各自独立，改一个不动另一个', () => {
+    const resolved = resolveSettings({ 'localBackup.retentionCount': 3 });
+    expect(resolved['localBackup.retentionCount']).toBe(3);
+    expect(resolved['backup.retentionCount']).toBe(10);
   });
 });
 
