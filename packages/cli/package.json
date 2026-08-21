@@ -1,0 +1,16 @@
+{
+  "name": "@workbench/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "pwb": "./src/bin.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@workbench/core": "*",
+    "@workbench/sync": "*"
+  }
+}

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   Button,
   Switch,
@@ -20,16 +21,45 @@ import {
   IconSparkles,
   IconBriefcase,
   IconUser,
+  IconCloud,
 } from '@workbench/ui';
 import { AccountsPanel } from '../accounts/AccountsPanel.js';
 import { BackupPanel } from '../sync/BackupPanel.js';
+import { LocalBackupPanel } from '../sync/LocalBackupPanel.js';
 
 type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'accounts' | 'storage' | 'modules';
 
+const VALID_TABS: SettingsTab[] = [
+  'appearance',
+  'timezone',
+  'preferences',
+  'accounts',
+  'storage',
+  'modules',
+];
+
 export function SettingsPage() {
+  const [searchParams] = useSearchParams();
+  const tabFromQuery = searchParams.get('tab') as SettingsTab | null;
+  const subFromQuery = searchParams.get('sub') as 'local' | 'webdav' | null;
+
+  const initialTab: SettingsTab =
+    tabFromQuery && VALID_TABS.includes(tabFromQuery) ? tabFromQuery : 'accounts';
+  const initialSubTab: 'local' | 'webdav' = subFromQuery === 'webdav' ? 'webdav' : 'local';
+
   const { mode, palette, setMode, setPalette } = useTheme();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('accounts');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [storageSubTab, setStorageSubTab] = useState<'local' | 'webdav'>(initialSubTab);
   const [resetToast, setResetToast] = useState(false);
+
+  useEffect(() => {
+    if (tabFromQuery && VALID_TABS.includes(tabFromQuery)) {
+      setActiveTab(tabFromQuery);
+    }
+    if (subFromQuery && (subFromQuery === 'local' || subFromQuery === 'webdav')) {
+      setStorageSubTab(subFromQuery);
+    }
+  }, [tabFromQuery, subFromQuery]);
 
   // 全局持久化工作台偏好
   const { preferences, togglePreference, resetPreferences } = usePreferences();
@@ -405,7 +435,42 @@ export function SettingsPage() {
             <AccountsPanel onNavigateToStorage={() => setActiveTab('storage')} />
           )}
 
-          {activeTab === 'storage' && <BackupPanel />}
+          {activeTab === 'storage' && (
+            <div key="storage" className="space-y-6 animate-slide-right-in">
+              {/* 存储子分类切换器 */}
+              <div className="flex items-center justify-between border-b border-line pb-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStorageSubTab('local')}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-control text-xs font-semibold transition-all ${
+                      storageSubTab === 'local'
+                        ? 'bg-accent text-white shadow-2xs'
+                        : 'bg-surface-2 text-secondary hover:text-ink hover:bg-surface-2/80'
+                    }`}
+                  >
+                    <IconDatabase size={14} />
+                    <span>本地数据与快照</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setStorageSubTab('webdav')}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-control text-xs font-semibold transition-all ${
+                      storageSubTab === 'webdav'
+                        ? 'bg-accent text-white shadow-2xs'
+                        : 'bg-surface-2 text-secondary hover:text-ink hover:bg-surface-2/80'
+                    }`}
+                  >
+                    <IconCloud size={14} />
+                    <span>WebDAV 云端备份</span>
+                  </button>
+                </div>
+              </div>
+
+              {storageSubTab === 'local' ? <LocalBackupPanel /> : <BackupPanel />}
+            </div>
+          )}
 
           {activeTab === 'modules' && (
             <div key="modules" className="space-y-6 animate-slide-right-in">

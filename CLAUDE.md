@@ -416,6 +416,26 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
 前端还有一条必须做的：**切换后要全量 invalidate React Query 缓存**。不清就会看到上一个
 账号的残留数据，症状是「数据串了」，且因为乐观更新会以很难复现的方式间歇出现。
 
+### 本地快照与文件导入：双方向隔离与路径解析
+
+本地快照与导入体系（TASK-044 ~ TASK-048，详见 `ADR-0022`）满足离线防灾与数据迁移：
+
+1. **本地快照与 WebDAV 同形**：产物恒为 `<timestamp>.db.gz` + `<timestamp>.db.gz.meta.json`，
+   统一走 `LocalBackupStore`（同构于 `WebdavBackupStore`），支持配置自定义存储目录与滚动清理。
+2. **导入方向一（覆盖当前账号）走五态恢复机**：
+   - 必须先做预检（`RestoreService.preflightLocalFile`），水位直接读自 SQLite 库本身；
+   - 确认导入（`LOCAL_IMPORT_API.confirm()`）触发全服务 503，强制打出 `rollback.db` 安全快照，
+     显式清理 `-wal` 与 `-shm`，失败可回退。
+3. **导入方向二（导入为独立新账号）零风险隔离**：
+   - 使用 `LocalImportService.importAsNewAccount`，**一个现有文件都不动**，不创建回退点，
+     不进 503 忙碌态；
+   - 解压后做 `integrity_check`，在独立子目录建库并自动运行迁移补齐，最后原子更新 `accounts.json`。
+4. **前后端双重路径解析**：
+   - 列表返回的 `name` 仅为纯文件名，前端在 `LocalBackupPanel` 与 `LocalImportModal` 中结合
+     `config.resolvedDir` 拼接为物理绝对路径；
+   - 服务端路由 `registerLocalImportRoutes` 内置 `resolveFilePath` 兜底：若入参为纯文件名且在
+     当前目录不存在，自动从 `LocalBackupService.resolvedDir` 定位，彻底杜绝相对路径导致的 404。
+
 ## 测试策略
 
 分层投入，**不设覆盖率门槛**：
@@ -437,7 +457,7 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
 
 1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
 2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-3. `docs/adr/` — 十四条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+3. `docs/adr/` — 二十二条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 

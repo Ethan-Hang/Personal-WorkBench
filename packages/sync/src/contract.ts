@@ -26,6 +26,11 @@ export const backupMetaSchema = z.object({
   counts: z.record(z.string(), z.number()),
   bytes: z.number().int().nonnegative(),
   sha256: z.string(),
+  /**
+   * 这份备份为什么存在（「恢复前」「导入前」…）。**可选**：旧的 meta 没有这个字段，
+   * 加成必填会让所有既有备份一夜之间变成「不完整」。手动备份不带它。
+   */
+  reason: z.string().optional(),
 });
 export type BackupMeta = z.infer<typeof backupMetaSchema>;
 
@@ -55,6 +60,38 @@ export const backupConfigPatchSchema = z.object({
   retentionCount: z.number().int().min(1).max(100).optional(),
 });
 export type BackupConfigPatch = z.infer<typeof backupConfigPatchSchema>;
+
+/**
+ * 本地备份的前后端接缝（TASK-044）。与 `SYNC_API` 并列而不是并入：本地与云端的
+ * 配置模型不同（目录 vs 凭据），共用一组端点会得到一个装不下任何一方的形状。
+ * 列表项复用 `backupListItemSchema`——产物本来就完全同形。
+ */
+export const LOCAL_BACKUP_API = {
+  config: () => '/api/local-backup/config',
+  run: () => '/api/local-backup/run',
+  list: () => '/api/local-backup/list',
+  item: (name: string) =>
+    name === NAME_PARAM
+      ? `/api/local-backup/${NAME_PARAM}`
+      : `/api/local-backup/${encodeURIComponent(name)}`,
+} as const;
+
+export const localBackupConfigSchema = z.object({
+  /** 用户设的落点。空串 = 用默认目录。 */
+  targetDir: z.string(),
+  /** 实际落点的绝对路径。界面必须显示它——否则用户无从知道备份到底在哪。 */
+  resolvedDir: z.string(),
+  autoEnabled: z.boolean(),
+  retentionCount: z.number().int().min(1).max(100),
+});
+export type LocalBackupConfig = z.infer<typeof localBackupConfigSchema>;
+
+export const localBackupConfigPatchSchema = z.object({
+  targetDir: z.string().optional(),
+  autoEnabled: z.boolean().optional(),
+  retentionCount: z.number().int().min(1).max(100).optional(),
+});
+export type LocalBackupConfigPatch = z.infer<typeof localBackupConfigPatchSchema>;
 
 export const GITHUB_AUTH_API = {
   device: '/api/auth/github/device',
@@ -268,6 +305,78 @@ export type RestorePreflightBody = z.infer<typeof restorePreflightBodySchema>;
 export type RestorePreflightResponse = z.infer<typeof restorePreflightResponseSchema>;
 export type RestoreConfirmBody = z.infer<typeof restoreConfirmBodySchema>;
 export type RestoreState = z.infer<typeof restoreStateSchema>;
+
+/**
+ * 本地文件导入的前后端接缝（TASK-046）。与 `RESTORE_API` 分开是因为入参不同：
+ * 云端认的是备份**名字**，本地认的是一个**文件路径**——用户可能从 U 盘里挑一份
+ * 从没出现在任何列表里的备份。
+ */
+export const LOCAL_IMPORT_API = {
+  preflight: () => '/api/local-import/preflight',
+  confirm: () => '/api/local-import/confirm',
+  asNewAccount: () => '/api/local-import/as-new-account',
+  pickFile: () => '/api/local-import/pick-file',
+  upload: () => '/api/local-import/upload',
+} as const;
+
+export const localImportPickFileBodySchema = z.object({
+  initialDir: z.string().optional(),
+});
+export type LocalImportPickFileBody = z.infer<typeof localImportPickFileBodySchema>;
+
+export const localImportPickFileResponseSchema = z.object({
+  filePath: z.string().nullable(),
+  cancelled: z.boolean(),
+});
+export type LocalImportPickFileResponse = z.infer<typeof localImportPickFileResponseSchema>;
+
+export const localImportUploadResponseSchema = z.object({
+  filePath: z.string().min(1),
+  fileName: z.string().min(1),
+  bytes: z.number().int().nonnegative(),
+});
+export type LocalImportUploadResponse = z.infer<typeof localImportUploadResponseSchema>;
+
+export const localImportPreflightBodySchema = z.object({
+  filePath: z.string().min(1),
+});
+export type LocalImportPreflightBody = z.infer<typeof localImportPreflightBodySchema>;
+
+/** 确认导入。`filePath` 必须与刚才预检的那一个相同，否则 409。 */
+export const localImportConfirmBodySchema = z.object({
+  filePath: z.string().min(1),
+});
+export type LocalImportConfirmBody = z.infer<typeof localImportConfirmBodySchema>;
+
+/**
+ * 导入为新账号。**不需要先预检**——它一个现有文件都不动，没有「会覆盖什么」
+ * 可给用户看；兼容性由服务端在导入时自己判。
+ */
+export const localImportAsNewAccountBodySchema = z.object({
+  filePath: z.string().min(1),
+  displayName: z.string().min(1),
+});
+export type LocalImportAsNewAccountBody = z.infer<typeof localImportAsNewAccountBodySchema>;
+
+export const localImportAsNewAccountResponseSchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string(),
+});
+export type LocalImportAsNewAccountResponse = z.infer<typeof localImportAsNewAccountResponseSchema>;
+
+export const localImportPreflightResponseSchema = z.object({
+  /** 这里的 name 是文件的绝对路径——confirm 用它认领刚才那次预检。 */
+  name: z.string().min(1),
+  compatible: z.boolean(),
+  reason: z.string().optional(),
+  /**
+   * **可空**，这是与云端预检最大的不同：旁挂的 `.meta.json` 可能根本不存在
+   * （用户只拷了 `.db.gz`）。兼容性判断因此不依赖它，改为读库里的真实水位。
+   */
+  meta: backupMetaSchema.nullable(),
+  diff: restoreDiffSchema,
+});
+export type LocalImportPreflightResponse = z.infer<typeof localImportPreflightResponseSchema>;
 
 /**
  * Gist 设置同步的前后端接缝（设计 §8）。

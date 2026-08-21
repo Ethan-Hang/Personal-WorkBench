@@ -5,6 +5,7 @@ export {
   userTables,
   type SnapshotContext,
 } from './snapshot.js';
+export { LocalBackupStore } from './local-store.js';
 export { WebdavBackupStore, type WebdavCredentials } from './webdav-client.js';
 export { SyncError, toSyncError } from './errors.js';
 export {

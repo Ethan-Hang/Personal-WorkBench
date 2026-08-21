@@ -22,6 +22,7 @@ import {
   IconAlertCircle,
 } from '@workbench/ui';
 import { type WorkbenchItem, type ScheduleInput } from '../contract.js';
+import { TodayHabitCard } from '../../../habit/src/ui/components/TodayHabitCard.js';
 import {
   fetchCalendar,
   fetchUnscheduled,
@@ -554,7 +555,7 @@ export function CalendarPage() {
   return (
     <div className="flex flex-col flex-1 h-[calc(100vh-92px)] max-h-[calc(100vh-92px)] min-h-0 gap-3 overflow-hidden">
       {/* 顶部周历控制条 (高度固定，不参与滚动) */}
-      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-2.5 animate-slide-down-in">
+      <div className="relative z-30 shrink-0 flex flex-wrap items-center justify-between gap-3 border-b border-line pb-2.5 animate-slide-down-in">
         {/* 左侧：周导航与标题 */}
         <div className="flex flex-wrap items-center gap-3">
           {/* 上下周切换按钮组 */}
@@ -597,7 +598,10 @@ export function CalendarPage() {
         {/* 右侧：快速选周、特定日期锁定与抽屉切换 */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* 1. 快速切换年份与周次 Popover 触发器 */}
-          <div ref={yearWeekPopoverRef} className="relative">
+          <div
+            ref={yearWeekPopoverRef}
+            className={`relative ${isYearWeekPickerOpen ? 'z-50' : ''}`}
+          >
             <Button
               variant="secondary"
               size="sm"
@@ -701,7 +705,10 @@ export function CalendarPage() {
           </div>
 
           {/* 2. 特定日期锁定周 Popover 触发器 */}
-          <div ref={dateLockPopoverRef} className="relative">
+          <div
+            ref={dateLockPopoverRef}
+            className={`relative ${isDateLockPickerOpen ? 'z-50' : ''}`}
+          >
             <Button
               variant="secondary"
               size="sm"
@@ -1186,36 +1193,7 @@ export function CalendarPage() {
             </div>
 
             {/* 3. 今日习惯打卡预览 (对齐方案 A 设计) */}
-            <div className="rounded-panel border border-line bg-surface p-3.5 shadow-xs space-y-2 animate-slide-right-in stagger-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-muted">今日习惯</h3>
-                <Chip tone="good">2 / 3 完成</Chip>
-              </div>
-
-              <div className="space-y-1.5 text-xs">
-                <div className="flex items-center justify-between rounded-control bg-surface-2/60 px-2.5 py-1.5 text-ink">
-                  <div className="flex items-center gap-2">
-                    <span className="text-good font-bold">✓</span>
-                    <span>阅读 30 分钟</span>
-                  </div>
-                  <Chip tone="good">完成</Chip>
-                </div>
-                <div className="flex items-center justify-between rounded-control bg-surface-2/60 px-2.5 py-1.5 text-ink">
-                  <div className="flex items-center gap-2">
-                    <span className="text-good font-bold">✓</span>
-                    <span>运动锻炼</span>
-                  </div>
-                  <Chip tone="good">完成</Chip>
-                </div>
-                <div className="flex items-center justify-between rounded-control bg-surface-2/60 px-2.5 py-1.5 text-secondary">
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted">○</span>
-                    <span>晚间复盘</span>
-                  </div>
-                  <Chip tone="neutral">待完成</Chip>
-                </div>
-              </div>
-            </div>
+            <TodayHabitCard variant="calendar" />
           </aside>
         )}
       </div>
