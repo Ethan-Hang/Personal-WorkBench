@@ -9,12 +9,15 @@
     ".": "./src/server/index.ts",
     "./contract": "./src/contract.ts",
     "./storage": "./src/storage/sqlite-repository.ts",
+    "./ui": "./src/ui/index.tsx",
     "./ui/api": "./src/ui/api.ts"
   },
   "dependencies": {
     "@workbench/core": "*",
+    "@workbench/ui": "*",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
+    "react": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
