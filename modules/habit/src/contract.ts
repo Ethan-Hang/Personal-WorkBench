@@ -78,7 +78,7 @@ const habitFieldsSchema = z.object({
 });
 
 export const createHabitInputSchema = habitFieldsSchema.superRefine(refineFrequency);
-export type CreateHabitInput = z.infer<typeof createHabitInputSchema>;
+export type CreateHabitInput = z.input<typeof createHabitInputSchema>;
 
 export const updateHabitInputSchema = habitFieldsSchema
   .partial()

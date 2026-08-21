@@ -131,7 +131,7 @@ export async function createHabit(
     id: randomUUID(),
     name: input.name,
     notes: input.notes ?? null,
-    targetValue: input.targetValue,
+    targetValue: input.targetValue ?? 1,
     unit: input.unit ?? null,
     freqKind: input.freqKind,
     weekdays: input.weekdays ?? null,
