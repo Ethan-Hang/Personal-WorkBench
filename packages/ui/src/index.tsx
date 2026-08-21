@@ -42,4 +42,5 @@ export type {
 } from './CommandPalette.js';
 export { Avatar, resolveAvatarUrl } from './Avatar.js';
 export type { AvatarProps, AvatarSize, AvatarAccountInfo } from './Avatar.js';
+export { formatRelativeBackupTime, type RelativeTimeOptions } from './timeRelative.js';
 export * from './icons.js';

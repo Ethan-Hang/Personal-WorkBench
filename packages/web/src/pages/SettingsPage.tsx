@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   Button,
   Switch,
@@ -28,11 +29,37 @@ import { LocalBackupPanel } from '../sync/LocalBackupPanel.js';
 
 type SettingsTab = 'appearance' | 'timezone' | 'preferences' | 'accounts' | 'storage' | 'modules';
 
+const VALID_TABS: SettingsTab[] = [
+  'appearance',
+  'timezone',
+  'preferences',
+  'accounts',
+  'storage',
+  'modules',
+];
+
 export function SettingsPage() {
+  const [searchParams] = useSearchParams();
+  const tabFromQuery = searchParams.get('tab') as SettingsTab | null;
+  const subFromQuery = searchParams.get('sub') as 'local' | 'webdav' | null;
+
+  const initialTab: SettingsTab =
+    tabFromQuery && VALID_TABS.includes(tabFromQuery) ? tabFromQuery : 'accounts';
+  const initialSubTab: 'local' | 'webdav' = subFromQuery === 'webdav' ? 'webdav' : 'local';
+
   const { mode, palette, setMode, setPalette } = useTheme();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('accounts');
-  const [storageSubTab, setStorageSubTab] = useState<'local' | 'webdav'>('local');
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [storageSubTab, setStorageSubTab] = useState<'local' | 'webdav'>(initialSubTab);
   const [resetToast, setResetToast] = useState(false);
+
+  useEffect(() => {
+    if (tabFromQuery && VALID_TABS.includes(tabFromQuery)) {
+      setActiveTab(tabFromQuery);
+    }
+    if (subFromQuery && (subFromQuery === 'local' || subFromQuery === 'webdav')) {
+      setStorageSubTab(subFromQuery);
+    }
+  }, [tabFromQuery, subFromQuery]);
 
   // 全局持久化工作台偏好
   const { preferences, togglePreference, resetPreferences } = usePreferences();

@@ -29,6 +29,7 @@ import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { createHttpSettingsStore } from './settingsStore.js';
 import { RestoreOverlay } from './sync/RestoreOverlay.js';
+import { SidebarBackupStatus } from './sync/SidebarBackupStatus.js';
 import { fetchToday, fetchUnscheduled } from '@workbench/module-workbench/ui';
 import { fetchApplications } from '@workbench/module-campus-recruit/ui';
 import type { WorkbenchItem } from '@workbench/module-workbench/contract';
@@ -332,6 +333,7 @@ function AppContent() {
       LinkComponent={NavLink}
       commandItems={commandItems}
       dbStatus="本地 SQLite 已就绪 · 零延迟"
+      sidebarFooter={({ isCollapsed }) => <SidebarBackupStatus isCollapsed={isCollapsed} />}
     >
       <Routes>
         {firstPath !== undefined && (
