@@ -1,6 +1,7 @@
 import type { UiModuleDefinition } from '@workbench/core';
 import { campusRecruitUiModule } from '@workbench/module-campus-recruit/ui';
 import { habitUiModule } from '@workbench/module-habit/ui';
+import { notesUiModule } from '@workbench/module-notes/ui';
 import { workbenchUiModule } from '@workbench/module-workbench/ui';
 
 /**
@@ -11,4 +12,5 @@ export const uiModules: UiModuleDefinition[] = [
   workbenchUiModule,
   habitUiModule,
   campusRecruitUiModule,
+  notesUiModule,
 ];

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  notesUiModule,
   NotesPage,
   NoteSidebar,
   NoteCard,
@@ -47,5 +48,15 @@ describe('NotesPage & UI Components Suite', () => {
 
     expect(NoteOutlineToc).toBeDefined();
     expect(typeof NoteOutlineToc).toBe('function');
+  });
+
+  it('notesUiModule 契约与路由声明完整合法', () => {
+    expect(notesUiModule).toBeDefined();
+    expect(notesUiModule.id).toBe('notes');
+    expect(notesUiModule.title).toBe('便签');
+    expect(notesUiModule.nav).toEqual([{ path: '/notes', label: '便签' }]);
+    expect(notesUiModule.routes).toHaveLength(1);
+    expect(notesUiModule.routes[0]?.path).toBe('/notes');
+    expect(notesUiModule.routes[0]?.element).toBeDefined();
   });
 });
