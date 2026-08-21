@@ -16,6 +16,8 @@ import { createCampusRecruitServerModule } from '@workbench/module-campus-recrui
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
 import { createHabitServerModule } from '@workbench/module-habit';
 import { SqliteHabitRepository } from '@workbench/module-habit/storage';
+import { createNotesServerModule } from '@workbench/module-notes';
+import { SqliteNoteRepository } from '@workbench/module-notes/storage';
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
@@ -51,11 +53,13 @@ async function main() {
       new SqliteCampusRecruitRepository(getSqlite),
     );
     const habitServerModule = createHabitServerModule(new SqliteHabitRepository(getSqlite));
+    const notesServerModule = createNotesServerModule(new SqliteNoteRepository(getSqlite));
     const modules = [
       todoServerModule,
       workbenchServerModule,
       campusRecruitServerModule,
       habitServerModule,
+      notesServerModule,
     ];
 
     // 切换账号要在新库上跑同一套迁移。「哪些模块有迁移」只有组合根知道，
