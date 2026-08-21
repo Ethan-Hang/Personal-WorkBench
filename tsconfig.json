@@ -35,6 +35,9 @@
       "@workbench/module-habit/contract": ["modules/habit/src/contract.ts"],
       "@workbench/module-habit/storage": ["modules/habit/src/storage/sqlite-repository.ts"],
       "@workbench/module-habit/ui": ["modules/habit/src/ui/index.tsx"],
+      "@workbench/module-notes": ["modules/notes/src/server/index.ts"],
+      "@workbench/module-notes/contract": ["modules/notes/src/contract.ts"],
+      "@workbench/module-notes/storage": ["modules/notes/src/storage/sqlite-repository.ts"],
       "@workbench/module-campus-recruit": ["modules/campus-recruit/src/server/index.ts"],
       "@workbench/module-campus-recruit/contract": ["modules/campus-recruit/src/contract.ts"],
       "@workbench/module-campus-recruit/storage": [
