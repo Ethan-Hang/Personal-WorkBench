@@ -177,6 +177,7 @@ Fastify 注册模式，传真实 id 得到转义后的请求路径）+ Zod 形�
 | ---------------------------------------------------------- | ------------------------------------------------------------- |
 | `GET /api/habit/today?date=`                               | 今日卡片：每个启用中习惯的 `dueToday` / `progress` / `streak` |
 | `GET /api/habit/habits?includeArchived=`                   | 习惯页管理列表                                                |
+| `GET /api/habit/habits/:id`                                | 单个习惯                                                      |
 | `POST /api/habit/habits`                                   | 创建                                                          |
 | `PATCH /api/habit/habits/:id`                              | 编辑（含改频率）                                              |
 | `POST /api/habit/habits/:id/archive`                       | 归档                                                          |
@@ -250,7 +251,7 @@ service 的重点用例：
 - 同一天重复打卡幂等，只有一行
 - 归档后不出现在 `GET /today`，但历史仍可查
 - 彻底删除连带清空该习惯的全部打卡
-- 重名创建落成 400 而不是 500
+- 重名创建落成 409 而不是 500（`conflict` 比 `invalid` 更准；关键性质是 4xx 不是 500）
 
 ## 8. 已知限制
 
