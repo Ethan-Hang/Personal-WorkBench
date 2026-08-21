@@ -22,6 +22,7 @@ interface Harness {
   holder: ConnectionHolder;
   state: ServiceState;
   service: AccountsService;
+  beforeRemoved: { calls: Array<{ accountId: string; dbPath: string }>; fail: boolean };
 }
 
 function createHarness(): Harness {
@@ -34,12 +35,26 @@ function createHarness(): Harness {
   migrate(holder.current());
   const store = new AccountsStore(dataDir);
   const state = new ServiceState();
+  const beforeRemoved: { calls: Array<{ accountId: string; dbPath: string }>; fail: boolean } = {
+    calls: [],
+    fail: false,
+  };
   return {
     dataDir,
     store,
     holder,
     state,
-    service: new AccountsService({ store, holder, state, migrate }),
+    beforeRemoved,
+    service: new AccountsService({
+      store,
+      holder,
+      state,
+      migrate,
+      onBeforeAccountRemoved: async (accountId, dbPath) => {
+        if (beforeRemoved.fail) throw new Error('磁盘满了');
+        beforeRemoved.calls.push({ accountId, dbPath });
+      },
+    }),
   };
 }
 
@@ -185,23 +200,48 @@ describe('AccountsService.switchTo', () => {
 });
 
 describe('AccountsService.remove', () => {
-  it('删账号连同它的数据目录一起删', () => {
+  it('删账号连同它的数据目录一起删', async () => {
     const workId = createAccount(harness, '工作');
     harness.service.switchTo(workId);
     const accountDir = accountDirOf(harness, workId);
     expect(existsSync(accountDir)).toBe(true);
     harness.service.switchTo('local-default');
 
-    const response = harness.service.remove(workId);
+    const response = await harness.service.remove(workId);
 
     expect(response.accounts.map((account) => account.id)).toEqual(['local-default']);
     expect(existsSync(accountDir)).toBe(false);
   });
 
-  it('拒绝删除当前账号', () => {
-    expect(() => harness.service.remove('local-default')).toThrow(
-      expect.objectContaining({ statusCode: 409 }),
+  it('拒绝删除当前账号', async () => {
+    await expect(harness.service.remove('local-default')).rejects.toMatchObject({
+      statusCode: 409,
+    });
+  });
+
+  it('删之前先给被删账号打一份安全快照，带上它自己的库路径', async () => {
+    const workId = createAccount(harness, '工作');
+    const dbPath = harness.store.dbPathOf(
+      harness.store.read().accounts.find((account) => account.id === workId)!,
     );
+
+    await harness.service.remove(workId);
+
+    expect(harness.beforeRemoved.calls).toEqual([{ accountId: workId, dbPath }]);
+  });
+
+  it('安全快照失败就拒绝删除：rm -rf 之后没有后悔药', async () => {
+    const workId = createAccount(harness, '工作');
+    // 切过去再切回来，让库文件真的存在——新建的账号只是元数据，此刻还没建库。
+    harness.service.switchTo(workId);
+    harness.service.switchTo('local-default');
+    const accountDir = accountDirOf(harness, workId);
+    harness.beforeRemoved.fail = true;
+
+    await expect(harness.service.remove(workId)).rejects.toThrow(/安全快照/);
+
+    expect(existsSync(accountDir)).toBe(true);
+    expect(harness.store.read().accounts.map((account) => account.id)).toContain(workId);
   });
 });
 

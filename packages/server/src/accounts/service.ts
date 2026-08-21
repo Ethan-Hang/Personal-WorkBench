@@ -11,7 +11,7 @@ import type {
   GitHubCredential,
 } from '@workbench/sync/contract';
 import type { ServiceState } from '../service-state.js';
-import { conflict, notFound } from './errors.js';
+import { AccountError, conflict, notFound } from './errors.js';
 
 export interface AccountsServiceDeps {
   store: AccountsStore;
@@ -38,6 +38,14 @@ export interface AccountsServiceDeps {
     credential?: GitHubCredential,
   ) => void;
   onGithubUnbound?: (accountId: string) => void;
+  /**
+   * 删账号**之前**的强制安全快照（TASK-045）。拿到的是被删账号自己的库路径——
+   * 它不是当前连接，快照必须单独打开那个文件。
+   *
+   * 失败则拒绝删除：`rm -rf` 之后没有后悔药。这与恢复的「没有回退点就不动手」
+   * 是同一条原则。不传则跳过（`WORKBENCH_DB` 逃生舱下没有本地备份服务）。
+   */
+  onBeforeAccountRemoved?: (accountId: string, dbPath: string) => Promise<unknown>;
   onAccountRemoved?: (accountId: string) => void;
   now?: () => Date;
 }
@@ -106,11 +114,22 @@ export class AccountsService {
     return this.list();
   }
 
-  remove(id: string): AccountsResponse {
+  async remove(id: string): Promise<AccountsResponse> {
     const registry = this.deps.store.read();
     const target = this.require(registry, id);
     if (registry.activeId === id) {
       throw conflict('不能删除当前账号，请先切换到其他账号');
+    }
+
+    // 安全快照在动注册表之前打。这一刻账号还完好无损，失败了就当无事发生。
+    if (this.deps.onBeforeAccountRemoved !== undefined) {
+      try {
+        await this.deps.onBeforeAccountRemoved(id, this.deps.store.dbPathOf(target));
+      } catch (cause) {
+        const error = new AccountError(500, '删除前的安全快照失败，删除拒绝执行');
+        error.cause = cause;
+        throw error;
+      }
     }
 
     // 先改注册表再删目录：反过来一旦写注册表失败，就留下一个指向空目录的账号。
