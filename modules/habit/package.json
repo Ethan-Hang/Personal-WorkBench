@@ -1,0 +1,23 @@
+{
+  "name": "@workbench/module-habit",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/server/index.ts",
+  "types": "./src/server/index.ts",
+  "exports": {
+    ".": "./src/server/index.ts",
+    "./contract": "./src/contract.ts",
+    "./storage": "./src/storage/sqlite-repository.ts"
+  },
+  "dependencies": {
+    "@workbench/core": "*",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@workbench/data": "*"
+  }
+}
