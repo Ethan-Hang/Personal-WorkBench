@@ -23,6 +23,7 @@ import {
   patchFolder,
   deleteFolder,
 } from './api.js';
+import { isModifierPressed } from './keyboard.js';
 import { NoteSidebar } from './components/NoteSidebar.js';
 import { NotesToolbar } from './components/NotesToolbar.js';
 import { NoteMasonryView } from './components/NoteMasonryView.js';
@@ -280,9 +281,7 @@ export function NotesPage() {
       // 若当前正处于便签编辑器全屏/专注编辑状态，由 NoteEditor 内部快捷键处理
       if (activeNoteForEdit) return;
 
-      const isMac =
-        typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      const modKey = isModifierPressed(e);
 
       const activeEl = document.activeElement;
       const isTyping =

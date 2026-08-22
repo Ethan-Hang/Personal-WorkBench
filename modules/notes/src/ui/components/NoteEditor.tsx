@@ -9,6 +9,8 @@ import {
   deleteTodoLink,
   deleteNote,
 } from '../api.js';
+import { createAutosave, type Autosave, type SaveStatus } from '../autosave.js';
+import { isModifierPressed } from '../keyboard.js';
 import { NoteMarkdownViewer } from '../markdown/renderer.js';
 import { NoteFormatToolbar, applyMarkdownFormat, type FormatType } from './NoteFormatToolbar.js';
 import { NoteOutlineToc } from './NoteOutlineToc.js';
@@ -117,8 +119,53 @@ export interface NoteEditorProps {
   className?: string;
 }
 
-export type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'conflict' | 'error';
+/** 保存状态的定义已上移至 ui/autosave.ts；此处再导出以免破坏既有 import 点。 */
+export type { SaveStatus };
 export type ViewMode = 'edit' | 'split' | 'preview';
+
+/**
+ * 编辑器退出时该做什么。
+ *
+ * 这段取舍原先在 `handleSafeClose` 与 `handleSafeBack` 里各写一遍——两个函数
+ * 除了最后调 `onClose` 还是 `onBack` 之外逐字相同，共约 70 行。抽成纯函数后
+ * 既能直接测，两个入口也真正共用同一份判断。
+ *
+ * 两条不显然的规则：
+ *
+ * - **空内容 + 已入库 → 删除。** 把便签清空再退出，意思是「不要它了」，
+ *   留一条空记录在列表里是噪音。
+ * - **空内容 + 未入库草稿 → 什么都不做。** 对一个后端根本不存在的
+ *   `draft-` id 发 DELETE 只会拿到 404。
+ */
+export type ExitAction = 'delete' | 'save' | 'none';
+
+export function decideExitAction(input: {
+  title: string;
+  content: string;
+  hasPendingChanges: boolean;
+  isDraft: boolean;
+}): { action: ExitAction; delayMs: number } {
+  const isEmpty = !input.title.trim() && !input.content.trim();
+
+  if (isEmpty) {
+    return { action: input.isDraft ? 'none' : 'delete', delayMs: 220 };
+  }
+  // 未入库草稿即使「没有改动」也要存：它的内容还一个字都没落库过。
+  return {
+    action: input.hasPendingChanges || input.isDraft ? 'save' : 'none',
+    delayMs: 200,
+  };
+}
+
+/** 交给 autosave 的草稿快照。**刻意不含 revision**——版本号由状态机持有。 */
+export interface NoteDraft {
+  title: string;
+  content: string;
+  color: NoteColor;
+  folderId: string | null;
+  isPinned: boolean;
+  tags: string[];
+}
 
 export function NoteEditor({
   note,
@@ -142,21 +189,64 @@ export function NoteEditor({
 
   // 内部版本控制与保存状态
   const [revision, setRevision] = useState(note.revision);
-  const revisionRef = useRef(note.revision);
-  const isSavingRef = useRef(false);
-  const pendingSaveRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [lastSavedTime, setLastSavedTime] = useState<Date>(new Date(note.updatedAt));
   const currentNoteIdRef = useRef(note.id);
 
+  // 保存的并发与版本语义全部交给 autosave 状态机（见 ui/autosave.ts）。
+  // 它不认识 React，因此那四条不变量——单一在途请求、补发带最新 revision、
+  // pending 是标记不是队列、失败也释放在途标记——都由 autosave.test.ts 直接守着，
+  // 不必挂载组件。094e103 修的竞态就活在这里。
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
+  const autosaveRef = useRef<Autosave<NoteDraft> | null>(null);
+  if (autosaveRef.current === null) {
+    autosaveRef.current = createAutosave<NoteDraft, NoteView>({
+      initialRevision: note.revision,
+      save: (draft, revisionAtSave) =>
+        currentNoteIdRef.current.startsWith('draft-')
+          ? // 首次落库创建真实便签：没有版本号可带
+            postNote({
+              title: draft.title,
+              content: draft.content,
+              color: draft.color,
+              folderId: draft.folderId,
+              isPinned: draft.isPinned,
+              tags: draft.tags,
+            })
+          : // 增量更新：revision 由状态机给，不取草稿里的快照
+            patchNote(currentNoteIdRef.current, {
+              title: draft.title,
+              content: draft.content,
+              color: draft.color,
+              folderId: draft.folderId,
+              isPinned: draft.isPinned,
+              tags: draft.tags,
+              revision: revisionAtSave,
+            }),
+      revisionOf: (updated) => updated.revision,
+      onStatus: setSaveStatus,
+      onSaved: (updated) => {
+        currentNoteIdRef.current = updated.id;
+        setRevision(updated.revision);
+        setLastSavedTime(new Date(updated.updatedAt));
+        onUpdateRef.current?.(updated);
+      },
+      isConflict: (err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        return msg.includes('409') || msg.includes('版本冲突');
+      },
+    });
+  }
+  const autosave = autosaveRef.current;
+
   // 监听外部 note 更新
   useEffect(() => {
     currentNoteIdRef.current = note.id;
-    if (note.revision > revisionRef.current) {
-      revisionRef.current = note.revision;
-      setRevision(note.revision);
-    }
-  }, [note.id, note.revision]);
+    autosave.adoptRevision(note.revision);
+    setRevision(autosave.revision);
+  }, [note.id, note.revision, autosave]);
 
   // 交互视图控制
   const [viewMode, setViewMode] = useState<ViewMode>('split');
@@ -185,7 +275,6 @@ export function NoteEditor({
     folderId,
     isPinned,
     tags,
-    revision,
     hasPendingChanges: false,
   });
 
@@ -196,7 +285,6 @@ export function NoteEditor({
     folderId,
     isPinned,
     tags,
-    revision: revisionRef.current,
     hasPendingChanges:
       title !== note.title ||
       content !== note.content ||
@@ -209,74 +297,22 @@ export function NoteEditor({
   // 统计数据
   const stats = useMemo(() => computeNoteStats(content), [content]);
 
-  // 执行落库保存
+  // 执行落库保存。并发与版本语义都在 autosave 里，这里只剩「该不该存」这一个判断。
   const executeSave = useCallback(
     async (immediateDraft?: typeof draftRef.current) => {
       const currentDraft = immediateDraft || draftRef.current;
       const isBlank = !currentDraft.title.trim() && !currentDraft.content.trim();
 
-      // 如果是全新未入库草稿且内容完全空白，暂不向后端写入空数据
+      // 全新未入库草稿且内容完全空白时不向后端写入空数据。
+      // 这条留在组件里而不进 autosave：它是便签的领域判断，不是保存的并发语义。
       if (currentNoteIdRef.current.startsWith('draft-') && isBlank) {
         setSaveStatus('saved');
         return;
       }
 
-      // 如果当前已有保存请求在进行中，标记 pending 并在请求完成后重试最新草稿
-      if (isSavingRef.current) {
-        pendingSaveRef.current = true;
-        return;
-      }
-
-      isSavingRef.current = true;
-      setSaveStatus('saving');
-
-      try {
-        let updated: NoteView;
-        if (currentNoteIdRef.current.startsWith('draft-')) {
-          // 首次落库创建真实便签
-          updated = await postNote({
-            title: currentDraft.title,
-            content: currentDraft.content,
-            color: currentDraft.color,
-            folderId: currentDraft.folderId,
-            isPinned: currentDraft.isPinned,
-            tags: currentDraft.tags,
-          });
-          currentNoteIdRef.current = updated.id;
-        } else {
-          // 增量更新已存在的便签
-          updated = await patchNote(currentNoteIdRef.current, {
-            title: currentDraft.title,
-            content: currentDraft.content,
-            color: currentDraft.color,
-            folderId: currentDraft.folderId,
-            isPinned: currentDraft.isPinned,
-            tags: currentDraft.tags,
-            revision: revisionRef.current,
-          });
-        }
-
-        revisionRef.current = updated.revision;
-        setRevision(updated.revision);
-        setLastSavedTime(new Date(updated.updatedAt));
-        setSaveStatus('saved');
-        onUpdate?.(updated);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes('409') || msg.includes('版本冲突')) {
-          setSaveStatus('conflict');
-        } else {
-          setSaveStatus('error');
-        }
-      } finally {
-        isSavingRef.current = false;
-        if (pendingSaveRef.current) {
-          pendingSaveRef.current = false;
-          executeSave();
-        }
-      }
+      await autosave.save(currentDraft);
     },
-    [onUpdate],
+    [autosave],
   );
 
   // 触发 500ms 防抖保存
@@ -398,77 +434,53 @@ export function NoteEditor({
   };
 
   // 安全退出与返回：如果便签未输入任何标题或内容（空便签），自动在退出时平滑清理删除并带淡出折叠过渡
-  const handleSafeClose = useCallback(async () => {
-    if (isExiting) return;
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    const currentTitle = draftRef.current.title;
-    const currentContent = draftRef.current.content;
-    const isEmpty = !currentTitle.trim() && !currentContent.trim();
-    const isDraft = currentNoteIdRef.current.startsWith('draft-');
+  /**
+   * 安全退出：关闭与返回共用同一份判断（见 decideExitAction），只有「去哪」不同。
+   * 此前这两个流程是两段近乎逐字相同的代码。
+   */
+  const exitSafely = useCallback(
+    async (leave: () => void) => {
+      if (isExiting) return;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
 
-    setIsExiting(true);
+      const isDraft = currentNoteIdRef.current.startsWith('draft-');
+      const { action, delayMs } = decideExitAction({
+        title: draftRef.current.title,
+        content: draftRef.current.content,
+        hasPendingChanges: draftRef.current.hasPendingChanges,
+        isDraft,
+      });
 
-    if (isEmpty) {
-      if (!isDraft) {
+      setIsExiting(true);
+
+      if (action === 'delete') {
         try {
           await deleteNote(currentNoteIdRef.current);
           onDelete?.(currentNoteIdRef.current);
         } catch {
-          // ignore
+          // 删不掉就算了：用户要走的是这一步，不该被它挡住。
         }
+      } else if (action === 'save') {
+        await executeSave();
       }
-      setTimeout(() => {
-        onClose?.();
-      }, 220);
-      return;
-    }
 
-    if (draftRef.current.hasPendingChanges || isDraft) {
-      await executeSave();
-    }
-    setTimeout(() => {
-      onClose?.();
-    }, 200);
-  }, [isExiting, onDelete, onClose, executeSave]);
+      setTimeout(leave, delayMs);
+    },
+    [isExiting, onDelete, executeSave],
+  );
 
-  const handleSafeBack = useCallback(async () => {
-    if (isExiting) return;
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    const currentTitle = draftRef.current.title;
-    const currentContent = draftRef.current.content;
-    const isEmpty = !currentTitle.trim() && !currentContent.trim();
-    const isDraft = currentNoteIdRef.current.startsWith('draft-');
+  const handleSafeClose = useCallback(() => exitSafely(() => onClose?.()), [exitSafely, onClose]);
 
-    setIsExiting(true);
-
-    if (isEmpty) {
-      if (!isDraft) {
-        try {
-          await deleteNote(currentNoteIdRef.current);
-          onDelete?.(currentNoteIdRef.current);
-        } catch {
-          // ignore
-        }
-      }
-      setTimeout(() => {
+  const handleSafeBack = useCallback(
+    () =>
+      exitSafely(() => {
         if (onBack) onBack();
         else if (onClose) onClose();
-      }, 220);
-      return;
-    }
-
-    if (draftRef.current.hasPendingChanges || isDraft) {
-      await executeSave();
-    }
-    setTimeout(() => {
-      if (onBack) onBack();
-      else if (onClose) onClose();
-    }, 200);
-  }, [isExiting, onDelete, onBack, onClose, executeSave]);
+      }),
+    [exitSafely, onBack, onClose],
+  );
 
   // 富文本快捷格式化辅助函数
   const applyFormatToTextarea = useCallback(
@@ -496,9 +508,7 @@ export function NoteEditor({
   // 全局快捷键监听（Ctrl+S 立即保存, Ctrl+Enter 完成, Esc 层级退出/关闭, Ctrl+E 视图切换, F11 全屏）
   useEffect(() => {
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
-      const isMac =
-        typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
+      const modKey = isModifierPressed(e);
 
       // 1. Ctrl+S / Cmd+S 立即手动落库保存
       if (modKey && (e.key === 's' || e.key === 'S')) {
@@ -568,9 +578,7 @@ export function NoteEditor({
 
   // 编辑器文本框内快捷键（Ctrl+B/I/K/Shift+X/Shift+C, Tab 缩进）
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    const isMac =
-      typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-    const modKey = isMac ? e.metaKey : e.ctrlKey;
+    const modKey = isModifierPressed(e);
 
     // 常用格式化快捷键
     if (modKey && !e.shiftKey && (e.key === 'b' || e.key === 'B')) {

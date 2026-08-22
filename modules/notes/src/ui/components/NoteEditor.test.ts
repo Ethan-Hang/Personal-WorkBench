@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeNoteStats,
+  decideExitAction,
   formatReadingTime,
   getNoteColorBgClass,
   getNoteColorDotClass,
@@ -76,5 +77,46 @@ describe('NoteEditor - computeNoteStats', () => {
     expect(typeof NoteFormatToolbar).toBe('function');
     expect(NoteOutlineToc).toBeDefined();
     expect(typeof NoteOutlineToc).toBe('function');
+  });
+});
+
+describe('decideExitAction — 编辑器退出时的取舍', () => {
+  const base = { title: '会议纪要', content: '正文', hasPendingChanges: false, isDraft: false };
+
+  it('已入库便签被清空 → 删除它再离开', () => {
+    expect(decideExitAction({ ...base, title: '  ', content: '' })).toEqual({
+      action: 'delete',
+      delayMs: 220,
+    });
+  });
+
+  it('从未入库的空草稿 → 直接离开，不发删除请求', () => {
+    // 对一个后端根本不存在的 draft- id 发 DELETE 只会拿到 404。
+    expect(decideExitAction({ ...base, title: '', content: '', isDraft: true })).toEqual({
+      action: 'none',
+      delayMs: 220,
+    });
+  });
+
+  it('有未保存改动 → 先存再离开', () => {
+    expect(decideExitAction({ ...base, hasPendingChanges: true })).toEqual({
+      action: 'save',
+      delayMs: 200,
+    });
+  });
+
+  it('未入库草稿即使没有"改动" 也要先存——否则内容随离开一起丢掉', () => {
+    expect(decideExitAction({ ...base, isDraft: true })).toEqual({
+      action: 'save',
+      delayMs: 200,
+    });
+  });
+
+  it('已保存且无改动 → 什么都不做，直接离开', () => {
+    expect(decideExitAction(base)).toEqual({ action: 'none', delayMs: 200 });
+  });
+
+  it('只有空白字符也算空', () => {
+    expect(decideExitAction({ ...base, title: '   ', content: '\n\t ' }).action).toBe('delete');
   });
 });
