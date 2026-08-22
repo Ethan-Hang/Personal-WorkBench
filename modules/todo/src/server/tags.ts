@@ -1,6 +1,6 @@
 import { nowIso, type ModuleContext } from '@workbench/core';
 import type { CreateTagInput, TagView, UpdateTagInput } from '../contract.js';
-import { conflict, notFound } from './errors.js';
+import { conflict, notFound } from '@workbench/http-kit';
 import type { TodoRepository } from './repository.js';
 import { toTagView } from './views.js';
 

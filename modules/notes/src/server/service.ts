@@ -15,7 +15,7 @@ import {
   type UpdateFolderInput,
   type UpdateNoteInput,
 } from '../contract.js';
-import { conflict, invalid, notFound } from './errors.js';
+import { conflict, invalid, notFound } from '@workbench/http-kit';
 import { deriveExcerpt } from './excerpt.js';
 import type {
   FolderRecord,

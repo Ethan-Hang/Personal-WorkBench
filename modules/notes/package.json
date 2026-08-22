@@ -15,6 +15,7 @@
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
     "@workbench/core": "*",
+    "@workbench/http-kit": "*",
     "@workbench/ui": "*",
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",

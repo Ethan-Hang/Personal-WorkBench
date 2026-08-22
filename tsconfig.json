@@ -20,6 +20,7 @@
       "@workbench/core/testing": ["packages/core/src/testing/index.ts"],
       "@workbench/core/testing/*": ["packages/core/src/testing/*"],
       "@workbench/data": ["packages/data/src/index.ts"],
+      "@workbench/http-kit": ["packages/http-kit/src/index.ts"],
       "@workbench/server": ["packages/server/src/app.ts"],
       "@workbench/sync": ["packages/sync/src/contract.ts"],
       "@workbench/sync/contract": ["packages/sync/src/contract.ts"],
