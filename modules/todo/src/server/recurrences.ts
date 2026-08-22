@@ -5,7 +5,7 @@ import {
   type RecurrenceView,
   type UpdateRecurrenceInput,
 } from '../contract.js';
-import { notFound } from './errors.js';
+import { notFound } from '@workbench/http-kit';
 import { addDays, expandOccurrences, type RecurrenceRule } from './recurrence.js';
 import type { RecurrenceRecord, TodoRepository } from './repository.js';
 

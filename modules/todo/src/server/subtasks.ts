@@ -1,6 +1,6 @@
 import { nowIso, type ModuleContext } from '@workbench/core';
 import type { CreateSubtaskInput, SubtaskView, UpdateSubtaskInput } from '../contract.js';
-import { invalid, notFound } from './errors.js';
+import { invalid, notFound } from '@workbench/http-kit';
 import type { TodoRepository } from './repository.js';
 import { toSubtaskView } from './views.js';
 

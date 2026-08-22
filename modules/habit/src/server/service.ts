@@ -8,7 +8,7 @@ import {
   type TodayHabit,
   type UpdateHabitInput,
 } from '../contract.js';
-import { conflict, invalid, notFound } from './errors.js';
+import { conflict, invalid, notFound } from '@workbench/http-kit';
 import { addDays, isDueOn, progressFor, streakOf, type FrequencyOf } from './frequency.js';
 import type { CheckinRecord, HabitRecord, HabitRepository } from './repository.js';
 

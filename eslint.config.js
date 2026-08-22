@@ -9,6 +9,7 @@ const CORE_FORBIDDEN = [
   '@workbench/server/*',
   '@workbench/web',
   '@workbench/web/*',
+  '@workbench/http-kit',
   '@workbench/module-*',
 ];
 
@@ -116,10 +117,46 @@ export default tseslint.config(
                 '@workbench/server/*',
                 '@workbench/web',
                 '@workbench/web/*',
+                '@workbench/http-kit',
                 '@workbench/module-*',
               ],
               message:
-                '违反 packages/ui 的边界：ui 只能依赖 react 与 @workbench/core。数据、服务与模块不得渗入。',
+                '违反 packages/ui 的边界：ui 只能依赖 react 与 @workbench/core。数据、服务与模块不得渗入；' +
+                'http-kit 是服务端路由胶水，同样不该进浏览器产物。',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // packages/http-kit 是模块服务端的路由胶水，也是铁律 1 放行的第二个包
+  // （模块可依赖 core 与 http-kit，见 ADR-0024）。
+  //
+  // 它必须比模块更内层：组合根 packages/server 已经 import 了全部模块，
+  // 若 http-kit 反过来依赖模块或 server，就会形成 server → modules → http-kit → server
+  // 的包级循环。这条规则就是那个环的守卫。
+  {
+    files: ['packages/http-kit/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@workbench/data',
+                '@workbench/data/*',
+                '@workbench/server',
+                '@workbench/server/*',
+                '@workbench/web',
+                '@workbench/web/*',
+                '@workbench/ui',
+                '@workbench/module-*',
+              ],
+              message:
+                '违反 packages/http-kit 的边界：它只能依赖 zod 与 @workbench/core。' +
+                '依赖模块或组合根会形成 server → modules → http-kit 的包级循环。',
             },
           ],
         },

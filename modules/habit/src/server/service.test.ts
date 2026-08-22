@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeHabitHarness } from '../testing/harness.js';
-import { DomainError } from './errors.js';
+import { DomainError } from '@workbench/http-kit';
 import {
   archiveHabit,
   createHabit,

@@ -108,11 +108,12 @@ packages/data     SQLite + Drizzle + 迁移 + 仓储实现 + 连接持有层 + �
 packages/sync     WebDAV 备份恢复、账号/Device Flow 契约、Gist 设置同步与加密（/contract 与 /node）
 packages/server   Fastify，装配 core + data + sync + 已注册模块
 packages/ui       共享设计基座与壳层 Context，依赖 @workbench/core
+packages/http-kit 模块服务端的路由胶水：DomainError / toHttp / defineRoute（ADR-0024）
 packages/web      React 外壳、导航、页面、SettingsStore HTTP 实现
 modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
 ```
 
-项目内依赖箭头**恒指向内层**：`data → core`，`sync → core/data`，`server → core/data/sync`，`ui → core`，`modules → core`，`web → core/ui/sync`。
+项目内依赖箭头**恒指向内层**：`data → core`，`sync → core/data`，`server → core/data/sync`，`ui → core`，`http-kit → core`，`modules → core/http-kit`，`web → core/ui/sync`。
 模块可依赖 React、Zod、Drizzle 等外部库，但不得依赖其他模块或 `@workbench/data`。
 core 定义 `ItemRepository` 与 `SettingsRepository` 接口，data 提供实现（DIP）。
 
@@ -123,9 +124,18 @@ core 定义 `ItemRepository` 与 `SettingsRepository` 接口，data 提供实现
 
 ### 三条铁律
 
-1. **模块只能依赖 core，模块之间零依赖**
+1. **模块只能依赖 core 与 http-kit，模块之间零依赖**
 2. **core 永不感知模块**——加十个模块，core 一行不改
 3. **模块自带迁移与注册项**——删模块 = 删一个目录 + 删一行注册
+
+`http-kit` 是铁律 1 唯一的例外，2026-08-22 由 ADR-0024 开的口子：它装的是四个模块
+原先各写一份的 `DomainError` / `toHttp` 与吃掉 72 处 `safeParse` 样板的 `defineRoute`。
+**这个口子有明确的收口条件**——`packages/http-kit` 由专门的 lint 块禁止依赖模块、
+data、server、web 与 ui（否则 `server → modules → http-kit` 成环），且**包内不得出现
+任何领域词汇**。一旦那里出现「便签」「习惯」，它就从胶水变成了第二个 core。
+
+**新增包命名前先对着 `eslint.config.js` 的 glob 过一遍**：本包最初叫 `module-kit`，
+正好被禁止模块间依赖的 `@workbench/module-*` 命中，报错信息还会指向完全错误的方向。
 
 **前两条由 `eslint.config.js` 的 `no-restricted-imports` 强制**，违反即 CI 失败，且有回归测试（`packages/core/src/eslint.boundaries.test.ts` 用 ESLint 的 Node API 对真实配置断言，包括「测试文件豁免不会波及生产文件」这一条）。
 
