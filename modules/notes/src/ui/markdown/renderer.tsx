@@ -513,22 +513,35 @@ function ContainerRenderer({
   // 6. Timeline
   if (directive === 'timeline') {
     return (
-      <div className="my-4 pl-4 border-l-2 border-line space-y-3.5">
+      <div className="my-4 pl-4 border-l-2 border-line/80 space-y-4">
         {timelineItems?.map((item, idx) => (
-          <div key={idx} className="relative pl-3.5">
-            <div className="absolute -left-[21px] top-1 size-2.5 rounded-full bg-accent border-2 border-surface" />
-            {item.date && (
-              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded-control bg-surface-2 border border-line text-secondary mr-2">
-                {item.date}
-              </span>
+          <div key={idx} className="relative pl-4">
+            <div className="absolute -left-[22px] top-1.5 size-3 rounded-full bg-accent border-2 border-surface shadow-xs" />
+            <div className="flex items-baseline gap-2 flex-wrap">
+              {item.date && (
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-accent-soft text-accent font-semibold border border-accent/20">
+                  {item.date}
+                </span>
+              )}
+              {item.title && (
+                <span className="text-xs font-bold text-ink">
+                  <InlineRenderer
+                    inlines={item.inlines}
+                    onWikiLinkClick={onWikiLinkClick}
+                    onTodoLinkClick={onTodoLinkClick}
+                  />
+                </span>
+              )}
+            </div>
+            {item.descriptionInlines && item.descriptionInlines.length > 0 && (
+              <div className="text-xs text-secondary mt-1 leading-relaxed pl-0.5">
+                <InlineRenderer
+                  inlines={item.descriptionInlines}
+                  onWikiLinkClick={onWikiLinkClick}
+                  onTodoLinkClick={onTodoLinkClick}
+                />
+              </div>
             )}
-            <span className="text-xs font-semibold text-ink">
-              <InlineRenderer
-                inlines={item.inlines}
-                onWikiLinkClick={onWikiLinkClick}
-                onTodoLinkClick={onTodoLinkClick}
-              />
-            </span>
           </div>
         ))}
       </div>
@@ -538,29 +551,38 @@ function ContainerRenderer({
   // 7. Chat
   if (directive === 'chat') {
     return (
-      <div className="my-4 space-y-3 p-4 rounded-panel bg-surface-2/60 border border-line">
+      <div className="my-4 space-y-3.5 p-4 rounded-panel bg-surface-2/60 border border-line">
         {chatItems?.map((chat, idx) => {
           const isUser = chat.role === 'user' || chat.role === 'right';
+          const avatar = isUser ? '🧑' : '🤖';
           return (
             <div
               key={idx}
-              className={`flex items-start gap-2 ${isUser ? 'justify-end' : 'justify-start'}`}
+              className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
             >
-              {!isUser && <span className="text-base flex-shrink-0">🤖</span>}
-              <div
-                className={`max-w-[80%] px-3.5 py-2 rounded-2xl text-xs leading-relaxed shadow-2xs ${
-                  isUser
-                    ? 'bg-accent text-white rounded-tr-none'
-                    : 'bg-surface text-ink border border-line rounded-tl-none'
-                }`}
-              >
-                <InlineRenderer
-                  inlines={chat.inlines}
-                  onWikiLinkClick={onWikiLinkClick}
-                  onTodoLinkClick={onTodoLinkClick}
-                />
+              <div className="size-7 rounded-full bg-surface border border-line flex items-center justify-center text-sm shadow-xs flex-shrink-0 select-none">
+                {avatar}
               </div>
-              {isUser && <span className="text-base flex-shrink-0">🧑</span>}
+              <div className={`max-w-[82%] flex flex-col ${isUser ? 'items-end' : 'items-start'}`}>
+                {chat.author && (
+                  <span className="text-[10px] text-muted font-medium mb-1 px-1">
+                    {chat.author}
+                  </span>
+                )}
+                <div
+                  className={`px-3.5 py-2 rounded-2xl text-xs leading-relaxed shadow-xs ${
+                    isUser
+                      ? 'bg-accent text-white rounded-tr-none'
+                      : 'bg-surface text-ink border border-line rounded-tl-none'
+                  }`}
+                >
+                  <InlineRenderer
+                    inlines={chat.inlines}
+                    onWikiLinkClick={onWikiLinkClick}
+                    onTodoLinkClick={onTodoLinkClick}
+                  />
+                </div>
+              </div>
             </div>
           );
         })}

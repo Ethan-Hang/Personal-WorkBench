@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PageHeader, Button, IconChevronLeft } from '@workbench/ui';
+import { PageHeader } from '@workbench/ui';
 import type {
   BatchInput,
   CreateFolderInput,
@@ -523,69 +523,61 @@ export function NotesPage() {
   }, [selectedStatus, selectedFolderId, selectedTag, foldersMap]);
 
   return (
-    <div className="flex flex-col h-full w-full bg-page text-ink" data-testid="notes-page">
-      {/* 主页面顶栏 */}
-      <div className="px-6 py-3.5 border-b border-line bg-surface shrink-0">
-        <PageHeader
-          eyebrow={activeNoteForEdit ? '正在编辑便签' : 'Notes & Ideas'}
-          title={activeNoteForEdit ? activeNoteForEdit.title.trim() || '无标题便签' : '便签笔记'}
-          subtitle={
-            activeNoteForEdit
-              ? `主题色：${activeNoteForEdit.color} · 最后保存于 ${new Date(activeNoteForEdit.updatedAt).toLocaleTimeString()}`
-              : 'Typora 级富 Markdown 写作、自适应多尺寸瀑布流、双视图体系与无限级树状文件夹管理'
-          }
-          action={
-            activeNoteForEdit ? (
-              <Button
-                variant="secondary"
-                onClick={handleCloseEditor}
-                className="gap-1.5 px-3.5 text-xs font-semibold"
-              >
-                <IconChevronLeft size={14} />
-                <span>返回便签列表</span>
-              </Button>
-            ) : null
-          }
-        />
-      </div>
+    <div
+      className="flex flex-col h-full w-full bg-page text-ink overflow-hidden"
+      data-testid="notes-page"
+    >
+      {/* 主页面顶栏（仅在列表视图显示，编辑便签时隐藏以让编辑器撑满整屏高度） */}
+      {!activeNoteForEdit && (
+        <div className="px-6 py-3.5 border-b border-line bg-surface shrink-0 animate-fade-in">
+          <PageHeader
+            eyebrow="Notes & Ideas"
+            title="便签笔记"
+            subtitle="Typora 级富 Markdown 写作、自适应多尺寸瀑布流、双视图体系与无限级树状文件夹管理"
+          />
+        </div>
+      )}
 
-      {/* 主体两栏布局：左侧树状侧栏 + 右侧便签流 / 便签编辑工作台 */}
-      <div className="flex-1 flex overflow-hidden">
+      {/* 主体布局：仅在列表视图显示左侧树状侧栏，编辑时让编辑器占据全部宽度 */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* 左侧侧边栏 */}
-        <NoteSidebar
-          folders={foldersTree}
-          selectedFolderId={selectedFolderId}
-          selectedStatus={selectedStatus}
-          selectedTag={selectedTag}
-          stats={statsQuery.data}
-          tags={tagsQuery.data}
-          onSelectFolder={(fId) => {
-            setSelectedFolderId(fId);
-            setSelectedTag(null);
-            if (activeNoteForEdit) handleCloseEditor();
-          }}
-          onSelectStatus={(st) => {
-            setSelectedStatus(st);
-            setSelectedFolderId(null);
-            setSelectedTag(null);
-            if (activeNoteForEdit) handleCloseEditor();
-          }}
-          onSelectTag={(t) => {
-            setSelectedTag(t);
-            setSelectedFolderId(null);
-            if (activeNoteForEdit) handleCloseEditor();
-          }}
-          onCreateFolder={handleOpenCreateFolder}
-          onEditFolder={handleOpenEditFolder}
-          onDeleteFolder={handleDeleteFolder}
-          onEmptyTrash={handleEmptyTrash}
-        />
+        {!activeNoteForEdit && (
+          <NoteSidebar
+            folders={foldersTree}
+            selectedFolderId={selectedFolderId}
+            selectedStatus={selectedStatus}
+            selectedTag={selectedTag}
+            stats={statsQuery.data}
+            tags={tagsQuery.data}
+            onSelectFolder={(fId) => {
+              setSelectedFolderId(fId);
+              setSelectedTag(null);
+            }}
+            onSelectStatus={(st) => {
+              setSelectedStatus(st);
+              setSelectedFolderId(null);
+              setSelectedTag(null);
+            }}
+            onSelectTag={(t) => {
+              setSelectedTag(t);
+              setSelectedFolderId(null);
+            }}
+            onCreateFolder={handleOpenCreateFolder}
+            onEditFolder={handleOpenEditFolder}
+            onDeleteFolder={handleDeleteFolder}
+            onEmptyTrash={handleEmptyTrash}
+          />
+        )}
 
         {/* 右侧主内容流 / 工作台 */}
-        <main className="flex-1 flex flex-col min-w-0 bg-page overflow-y-auto p-4 sm:p-6">
+        <main
+          className={`flex-1 flex flex-col min-w-0 min-h-0 bg-page ${
+            activeNoteForEdit ? 'overflow-hidden p-2 sm:p-3' : 'overflow-y-auto p-4 sm:p-6'
+          }`}
+        >
           {activeNoteForEdit ? (
             /* 沉浸式原位便签工作区过渡 (In-place Note Workspace) */
-            <div className="flex-1 flex flex-col h-full min-h-[600px] animate-editor-enter">
+            <div className="flex-1 flex flex-col h-full min-h-0 max-h-full overflow-hidden animate-editor-enter">
               <NoteEditor
                 note={activeNoteForEdit}
                 folders={foldersTree}

@@ -423,43 +423,196 @@ function parseFileTreeItems(content: string): FileTreeItem[] {
 function parseTimelineItems(content: string): TimelineItem[] {
   const items: TimelineItem[] = [];
   const lines = content.split('\n');
+  let currentItem: TimelineItem | null = null;
+  let currentDescLines: string[] = [];
+
+  const flushCurrent = () => {
+    if (currentItem) {
+      if (currentDescLines.length > 0) {
+        const descText = currentDescLines.join('\n').trim();
+        if (descText) {
+          currentItem.description = descText;
+          currentItem.descriptionInlines = parseInline(descText);
+        }
+      }
+      items.push(currentItem);
+      currentItem = null;
+      currentDescLines = [];
+    }
+  };
 
   for (const line of lines) {
-    if (!line.trim()) continue;
-    const match = line.match(
-      /^[-*]\s+(?:(\d{4}-\d{2}-\d{2}|\d{4}\/\d{2}\/\d{2}|[a-zA-Z0-9_\s]+):)?\s*(.*)$/,
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // 匹配 @ 2026-08-21 标题 或 @ 标题
+    const atMatch = line.match(
+      /^@\s+(?:(\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?(?:\s+\d{1,2}:\d{2})?|[0-9a-zA-Z_\s-]+?)(?::|\s+))\s*(.*)$/,
     );
-    if (match) {
-      const date = match[1]?.trim();
-      const rawTitle = match[2]?.trim() ?? '';
-      items.push({
+    // 匹配 - 2026-08-21: 标题 或 - 2026-08-21 标题 或 - 标题
+    const listMatch = line.match(
+      /^[-*•]\s+(?:(\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?(?:\s+\d{1,2}:\d{2})?|[0-9a-zA-Z_\s-]+?):)?\s*(.*)$/,
+    );
+    // 匹配 ### 2026-08-21 标题
+    const headingMatch = line.match(
+      /^#{1,4}\s+(?:(\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?(?:\s+\d{1,2}:\d{2})?|[0-9a-zA-Z_\s-]+?)(?::|\s+))\s*(.*)$/,
+    );
+    // 匹配 2026-08-21: 标题
+    const dateColonMatch = line.match(
+      /^(\d{4}[-/.]\d{1,2}(?:[-/.]\d{1,2})?(?:\s+\d{1,2}:\d{2})?):\s*(.*)$/,
+    );
+
+    if (atMatch) {
+      flushCurrent();
+      const date = atMatch[1]?.trim();
+      const rawTitle = atMatch[2]?.trim() || '';
+      currentItem = {
         date,
         title: rawTitle,
         inlines: parseInline(rawTitle),
-      });
+      };
+    } else if (listMatch) {
+      flushCurrent();
+      const date = listMatch[1]?.trim();
+      const rawTitle = listMatch[2]?.trim() || '';
+      currentItem = {
+        date,
+        title: rawTitle,
+        inlines: parseInline(rawTitle),
+      };
+    } else if (headingMatch) {
+      flushCurrent();
+      const date = headingMatch[1]?.trim();
+      const rawTitle = headingMatch[2]?.trim() || '';
+      currentItem = {
+        date,
+        title: rawTitle,
+        inlines: parseInline(rawTitle),
+      };
+    } else if (dateColonMatch) {
+      flushCurrent();
+      const date = dateColonMatch[1]?.trim();
+      const rawTitle = dateColonMatch[2]?.trim() || '';
+      currentItem = {
+        date,
+        title: rawTitle,
+        inlines: parseInline(rawTitle),
+      };
+    } else {
+      if (currentItem) {
+        currentDescLines.push(trimmed);
+      } else {
+        currentItem = {
+          title: trimmed,
+          inlines: parseInline(trimmed),
+        };
+      }
     }
   }
 
+  flushCurrent();
   return items;
 }
 
 function parseChatItems(content: string): ChatItem[] {
   const items: ChatItem[] = [];
   const lines = content.split('\n');
+  let currentChat: ChatItem | null = null;
+  let currentLines: string[] = [];
+
+  const flushCurrent = () => {
+    if (currentChat) {
+      const fullText = currentLines.join('\n').trim();
+      currentChat.inlines = parseInline(fullText);
+      currentChat.rawText = fullText;
+      items.push(currentChat);
+      currentChat = null;
+      currentLines = [];
+    }
+  };
 
   for (const line of lines) {
-    if (!line.trim()) continue;
-    const match = line.match(/^(user|bot|left|right):\s*(.*)$/i);
-    if (match && match[1] && match[2] !== undefined) {
-      const role = match[1].toLowerCase() as 'user' | 'bot' | 'left' | 'right';
-      const text = match[2].trim();
-      items.push({
-        role,
-        inlines: parseInline(text),
-      });
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Pattern 1: (left: User) message / (right: Bot) message
+    const parenMatch = line.match(/^\(([a-zA-Z]+)(?::\s*([^)]+))?\)\s*(.*)$/);
+    // Pattern 2: [left: User] message / [User]: message
+    const bracketMatch = line.match(
+      /^\[([a-zA-Z0-9_\u4e00-\u9fa5]+)(?::\s*([^\]]+))?\]\s*:?\s*(.*)$/,
+    );
+    // Pattern 3: role: message (user:, bot:, left:, right:, ai:, assistant:, system:, me:)
+    const colonMatch = line.match(
+      /^(user|bot|left|right|ai|assistant|system|me|client|server):\s*(.*)$/i,
+    );
+    // Pattern 4: Name: message
+    const nameColonMatch = line.match(/^([a-zA-Z0-9_\u4e00-\u9fa5]{1,16}):\s*(.*)$/);
+
+    if (parenMatch) {
+      flushCurrent();
+      const rawRole = parenMatch[1]?.toLowerCase() ?? '';
+      const author = parenMatch[2]?.trim();
+      const text = parenMatch[3]?.trim() ?? '';
+      const isRight = rawRole === 'right' || rawRole === 'user' || rawRole === 'me';
+      currentChat = {
+        role: isRight ? 'user' : 'bot',
+        author: author || (isRight ? 'User' : 'Assistant'),
+        inlines: [],
+      };
+      if (text) currentLines.push(text);
+    } else if (bracketMatch) {
+      flushCurrent();
+      const rawRole = bracketMatch[1]?.toLowerCase() ?? '';
+      const author = bracketMatch[2]?.trim();
+      const text = bracketMatch[3]?.trim() ?? '';
+      const isRight = rawRole === 'right' || rawRole === 'user' || rawRole === 'me';
+      currentChat = {
+        role: isRight ? 'user' : 'bot',
+        author: author || bracketMatch[1]?.trim() || (isRight ? 'User' : 'Assistant'),
+        inlines: [],
+      };
+      if (text) currentLines.push(text);
+    } else if (colonMatch) {
+      flushCurrent();
+      const rawRole = colonMatch[1]?.toLowerCase() ?? '';
+      const text = colonMatch[2]?.trim() ?? '';
+      const isRight = rawRole === 'user' || rawRole === 'right' || rawRole === 'me';
+      currentChat = {
+        role: isRight ? 'user' : 'bot',
+        author: isRight
+          ? 'User'
+          : rawRole === 'ai' || rawRole === 'bot' || rawRole === 'assistant'
+            ? 'Assistant'
+            : rawRole,
+        inlines: [],
+      };
+      if (text) currentLines.push(text);
+    } else if (nameColonMatch) {
+      flushCurrent();
+      const name = nameColonMatch[1]?.trim() ?? '';
+      const text = nameColonMatch[2]?.trim() ?? '';
+      const lower = name.toLowerCase();
+      const isRight = lower === 'user' || lower === 'me' || lower === '我' || lower === 'right';
+      currentChat = {
+        role: isRight ? 'user' : 'bot',
+        author: name,
+        inlines: [],
+      };
+      if (text) currentLines.push(text);
+    } else {
+      if (currentChat) {
+        currentLines.push(trimmed);
+      } else {
+        currentChat = {
+          role: 'user',
+          inlines: [],
+        };
+        currentLines.push(trimmed);
+      }
     }
   }
 
+  flushCurrent();
   return items;
 }
 

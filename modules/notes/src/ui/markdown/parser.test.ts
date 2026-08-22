@@ -168,6 +168,21 @@ describe('parser (Block & Container Parser)', () => {
     }
   });
 
+  it('解析 @ 语法与多行描述的 ::: timeline 容器', () => {
+    const md =
+      '::: timeline\n@ 2026-08-21 项目立项\n完成便签模块架构设计\n@ 2026-08-22 功能交付\n全流程端到端上线验证\n:::';
+    const blocks = parseMarkdown(md);
+    expect(blocks).toHaveLength(1);
+    const container = blocks[0];
+    if (container?.type === 'container') {
+      expect(container.directive).toBe('timeline');
+      expect(container.timelineItems).toHaveLength(2);
+      expect(container.timelineItems?.[0]?.date).toBe('2026-08-21');
+      expect(container.timelineItems?.[0]?.title).toBe('项目立项');
+      expect(container.timelineItems?.[0]?.description).toBe('完成便签模块架构设计');
+    }
+  });
+
   it('解析 ::: chat 双向对话气泡容器', () => {
     const md =
       '::: chat\nuser: 你好，请帮我规划一下便签功能。\nbot: 没问题，已为你拆解 TASK-060 至 TASK-067。\n:::';
@@ -180,6 +195,22 @@ describe('parser (Block & Container Parser)', () => {
       expect(container.chatItems).toHaveLength(2);
       expect(container.chatItems?.[0]?.role).toBe('user');
       expect(container.chatItems?.[1]?.role).toBe('bot');
+    }
+  });
+
+  it('解析带角色名与括号语法的 ::: chat 容器', () => {
+    const md =
+      '::: chat\n(left: Ethan) 你好，请帮我整理这份便签！\n(right: Antigravity) 没问题，已为您提取大纲。\n:::';
+    const blocks = parseMarkdown(md);
+    expect(blocks).toHaveLength(1);
+    const container = blocks[0];
+    if (container?.type === 'container') {
+      expect(container.directive).toBe('chat');
+      expect(container.chatItems).toHaveLength(2);
+      expect(container.chatItems?.[0]?.author).toBe('Ethan');
+      expect(container.chatItems?.[1]?.author).toBe('Antigravity');
+      expect(container.chatItems?.[0]?.role).toBe('bot');
+      expect(container.chatItems?.[1]?.role).toBe('user');
     }
   });
 

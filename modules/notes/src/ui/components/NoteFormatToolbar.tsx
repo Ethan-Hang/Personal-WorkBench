@@ -319,6 +319,39 @@ export function NoteFormatToolbar({
 }: NoteFormatToolbarProps) {
   const [activeDropdown, setActiveDropdown] = useState<'heading' | 'container' | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const headingTriggerRef = useRef<HTMLDivElement>(null);
+  const containerTriggerRef = useRef<HTMLDivElement>(null);
+  const [headingAlign, setHeadingAlign] = useState<'left' | 'right'>('left');
+  const [containerAlign, setContainerAlign] = useState<'left' | 'right'>('left');
+
+  // 根据按钮在工具栏中的动态换行位置自适应对齐，避免在最左侧或最右侧时弹窗被屏幕/容器裁剪
+  useEffect(() => {
+    if (activeDropdown === 'heading' && headingTriggerRef.current) {
+      const rect = headingTriggerRef.current.getBoundingClientRect();
+      const toolbarRect = dropdownRef.current?.getBoundingClientRect();
+      const rightSpace = toolbarRect
+        ? toolbarRect.right - rect.left
+        : window.innerWidth - rect.left;
+      const leftSpace = toolbarRect ? rect.right - toolbarRect.left : rect.right;
+      if (rightSpace < 160 && leftSpace >= 150) {
+        setHeadingAlign('right');
+      } else {
+        setHeadingAlign('left');
+      }
+    } else if (activeDropdown === 'container' && containerTriggerRef.current) {
+      const rect = containerTriggerRef.current.getBoundingClientRect();
+      const toolbarRect = dropdownRef.current?.getBoundingClientRect();
+      const rightSpace = toolbarRect
+        ? toolbarRect.right - rect.left
+        : window.innerWidth - rect.left;
+      const leftSpace = toolbarRect ? rect.right - toolbarRect.left : rect.right;
+      if (rightSpace < 210 && leftSpace >= 195) {
+        setContainerAlign('right');
+      } else {
+        setContainerAlign('left');
+      }
+    }
+  }, [activeDropdown]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -361,7 +394,7 @@ export function NoteFormatToolbar({
       className={`flex items-center flex-wrap gap-1 px-3 py-1.5 border-b border-line/60 bg-surface-2/60 backdrop-blur text-xs select-none ${className}`}
     >
       {/* 标题下拉菜单 */}
-      <div className="relative inline-block">
+      <div className="relative inline-block" ref={headingTriggerRef}>
         <button
           type="button"
           onClick={() => setActiveDropdown(activeDropdown === 'heading' ? null : 'heading')}
@@ -374,7 +407,11 @@ export function NoteFormatToolbar({
         </button>
 
         {activeDropdown === 'heading' && (
-          <div className="absolute left-0 top-full mt-1 z-30 w-36 rounded-panel border border-line bg-surface p-1 shadow-xl backdrop-blur animate-popover-enter">
+          <div
+            className={`absolute top-full mt-1 z-30 w-36 rounded-panel border border-line bg-surface p-1 shadow-xl backdrop-blur animate-popover-enter ${
+              headingAlign === 'right' ? 'right-0' : 'left-0'
+            }`}
+          >
             <button
               type="button"
               onClick={() => handleApplyFormat('h1')}
@@ -586,7 +623,7 @@ export function NoteFormatToolbar({
       <div className="h-4 w-px bg-line/80 mx-0.5" />
 
       {/* 容器组件下拉 */}
-      <div className="relative inline-block">
+      <div className="relative inline-block" ref={containerTriggerRef}>
         <button
           type="button"
           onClick={() => setActiveDropdown(activeDropdown === 'container' ? null : 'container')}
@@ -599,7 +636,11 @@ export function NoteFormatToolbar({
         </button>
 
         {activeDropdown === 'container' && (
-          <div className="absolute right-0 top-full mt-1.5 z-40 w-48 max-h-72 overflow-y-auto rounded-panel border border-line bg-surface p-1 shadow-xl backdrop-blur animate-popover-enter text-xs">
+          <div
+            className={`absolute top-full mt-1.5 z-40 w-48 max-h-72 overflow-y-auto rounded-panel border border-line bg-surface p-1 shadow-xl backdrop-blur animate-popover-enter text-xs ${
+              containerAlign === 'right' ? 'right-0' : 'left-0'
+            }`}
+          >
             <button
               type="button"
               onClick={() => handleApplyFormat('container-tip')}

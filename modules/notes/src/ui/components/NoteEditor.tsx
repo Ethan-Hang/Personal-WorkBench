@@ -661,14 +661,14 @@ export function NoteEditor({
 
   return (
     <div
-      className={`flex flex-col h-full bg-surface text-ink border border-line/80 shadow-2xl rounded-panel overflow-hidden transition-all duration-260 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`flex flex-1 flex-col h-full min-h-0 bg-surface text-ink border border-line/80 shadow-2xl rounded-panel overflow-hidden transition-all duration-260 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         isExiting
           ? 'opacity-0 scale-[0.98] -translate-y-2 pointer-events-none'
           : 'opacity-100 scale-100 translate-y-0'
       } ${isFullscreen ? 'fixed inset-0 z-50 rounded-none border-none' : ''} ${className}`}
     >
       {/* 顶部主控制导航条 */}
-      <header className="flex items-center justify-between px-4 py-2.5 border-b border-line bg-surface/90 backdrop-blur z-20 select-none">
+      <header className="flex items-center justify-between px-4 py-2.5 border-b border-line bg-surface/90 backdrop-blur z-20 select-none shrink-0">
         {/* 左侧：返回按钮、色彩选择器、文件夹归属、置顶状态与保存状态指示 */}
         <div className="flex items-center gap-2">
           {onBack && (
@@ -932,12 +932,12 @@ export function NoteEditor({
       </header>
 
       {/* 主体编辑区与右侧大纲容器 */}
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="flex-1 flex min-h-0 overflow-hidden relative">
         {/* 左侧核心编辑内容 */}
-        <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
           {/* 标题输入区与标签条 */}
           <div
-            className={`px-6 pt-5 pb-2 border-b border-line/40 ${colorBgClass} transition-colors`}
+            className={`px-6 pt-5 pb-2 border-b border-line/40 ${colorBgClass} transition-colors shrink-0`}
           >
             <input
               ref={titleInputRef}
@@ -1002,11 +1002,11 @@ export function NoteEditor({
           )}
 
           {/* 双栏 / 单栏编辑器与渲染预览区 */}
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex min-h-0 overflow-hidden">
             {/* Markdown 源码输入框 */}
             {viewMode !== 'preview' && (
               <div
-                className={`h-full flex flex-col ${
+                className={`h-full flex flex-col min-h-0 ${
                   viewMode === 'split' ? 'w-1/2 border-r border-line' : 'w-full'
                 }`}
               >
@@ -1025,7 +1025,7 @@ export function NoteEditor({
             {viewMode !== 'edit' && (
               <div
                 ref={previewContainerRef}
-                className={`h-full overflow-y-auto p-6 bg-surface/50 ${
+                className={`h-full min-h-0 overflow-y-auto p-6 bg-surface/50 ${
                   viewMode === 'split' ? 'w-1/2' : 'w-full max-w-4xl mx-auto'
                 } custom-scrollbar`}
               >
@@ -1160,7 +1160,7 @@ export function NoteEditor({
       </div>
 
       {/* 底部状态信息栏 */}
-      <footer className="flex items-center justify-between px-4 py-1.5 border-t border-line bg-surface-2/80 text-[11px] text-secondary select-none">
+      <footer className="flex items-center justify-between px-4 py-1.5 border-t border-line bg-surface-2/80 text-[11px] text-secondary select-none shrink-0">
         <div className="flex items-center gap-3">
           <span>
             字数: <strong className="text-ink font-mono">{stats.words}</strong>

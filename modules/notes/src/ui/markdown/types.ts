@@ -214,6 +214,8 @@ export interface TimelineItem {
   date?: string;
   title?: string;
   inlines: InlineNode[];
+  description?: string;
+  descriptionInlines?: InlineNode[];
   children?: BlockNode[];
 }
 
@@ -223,6 +225,7 @@ export interface ChatItem {
   avatar?: string;
   time?: string;
   inlines: InlineNode[];
+  rawText?: string;
 }
 
 export interface StepItem {
