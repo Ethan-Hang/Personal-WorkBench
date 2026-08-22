@@ -67,8 +67,21 @@ function renderInlinesToHtml(inlines: InlineNode[]): string {
           return `<abbr title="${escapeHtml(node.explanation)}" class="underline decoration-dotted cursor-help">${escapeHtml(
             node.term,
           )}</abbr>`;
-        default:
-          return '';
+        case 'kbd':
+          return `<kbd>${escapeHtml(node.text)}</kbd>`;
+        case 'sub':
+          return `<sub>${renderInlinesToHtml(node.children)}</sub>`;
+        case 'sup':
+          return `<sup>${renderInlinesToHtml(node.children)}</sup>`;
+        default: {
+          // **不要把这里改回 `return ''`。**
+          // 那正是 kbd / sub / sup 被导出静默丢掉而无人发现的原因：
+          // 编辑器渲染正常，导出少一段，没有任何报错。
+          // 保持穷尽检查，新增 inline 节点类型时这里会**编译报错**，
+          // 与 core 处理 ScheduledTime 的 switch 不加 default 是同一条道理。
+          const exhaustive: never = node;
+          return exhaustive;
+        }
       }
     })
     .join('');
@@ -154,8 +167,11 @@ function renderBlocksToHtml(blocks: BlockNode[]): string {
             block.directive,
           )}">${title}<div class="container-body">${children}</div></div>`;
         }
-        default:
-          return '';
+        default: {
+          // 同上：宁可编译不过，也不要在导出里静默少一整块内容。
+          const exhaustive: never = block;
+          return exhaustive;
+        }
       }
     })
     .join('\n');
@@ -271,6 +287,23 @@ export function renderNoteToStandaloneHtml(note: NoteView, options: ExportOption
       font-style: italic;
       color: var(--text-muted);
     }
+    kbd {
+      display: inline-block;
+      padding: 2px 6px;
+      font-size: 11px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-weight: 600;
+      line-height: 1.4;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--bg-color);
+      color: var(--text-main);
+      box-shadow: 0 1px 0 var(--border-color);
+      vertical-align: middle;
+    }
+    sub, sup { font-size: 10px; line-height: 0; }
+    sub { color: var(--text-muted); }
+    sup { color: var(--accent-color); }
     .code-block {
       background: #1e1e24;
       color: #f8f8f2;

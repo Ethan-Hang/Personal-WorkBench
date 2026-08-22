@@ -67,6 +67,25 @@ describe('Note Export Engine', () => {
     expect(html).toContain('Personal Workbench · 便签导出系统');
   });
 
+  it('导出保留 kbd / sub / sup——它们在编辑器里渲染正常，此前却被导出静默丢弃', () => {
+    // 缺陷来源：exportEngine 是 renderer.tsx 之外的第二台 AST 走树机，
+    // 它的 inline switch 少了这三个分支，而 default 分支 `return ''` 会静默吞掉节点。
+    // 这条测试钉住的是「两台走树机不许再漂移」，不只是这一次的三个标签。
+    const note: NoteView = {
+      ...mockNote,
+      content: '按 <kbd>Ctrl</kbd> 保存。化学式 H~2~O，数学式 x^2^。',
+    };
+
+    const html = renderNoteToStandaloneHtml(note);
+
+    expect(html).toContain('<kbd');
+    expect(html).toContain('Ctrl');
+    expect(html).toContain('<sub');
+    expect(html).toContain('<sup');
+    expect(html).toContain('H');
+    expect(html).toContain('O');
+  });
+
   it('支持关闭水印的 HTML 渲染', () => {
     const htmlWithoutWatermark = renderNoteToStandaloneHtml(mockNote, {
       includeWatermark: false,

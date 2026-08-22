@@ -9,8 +9,11 @@ export const notesUiModule: UiModuleDefinition = {
   routes: [{ path: '/notes', element: <NotesPage /> }],
 };
 
+// 刻意不再整份再导出 './markdown/*'：那会把约 30 个 AST 节点接口与四个内部函数
+// 一并抬成模块 UI 的公开接口，而外部实际只消费 notesUiModule。
+// markdown 的消费方（NoteEditor / NoteOutlineToc / exportEngine）一律直接
+// import 内部文件，与此前的行为一致。
 export * from './NotesPage.js';
-export * from './markdown/index.js';
 export * from './api.js';
 export * from './exportEngine.js';
 export * from './components/NoteFormatToolbar.js';
