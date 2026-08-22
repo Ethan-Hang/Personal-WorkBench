@@ -37,7 +37,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
 
   const totalCount = dueTodayHabits.length;
   const completedCount = useMemo(() => {
-    return dueTodayHabits.filter((h) => h.progress.current >= h.progress.target).length;
+    return dueTodayHabits.filter((h) => h.todayValue >= h.habit.targetValue).length;
   }, [dueTodayHabits]);
 
   const checkinMutation = useMutation({
@@ -66,17 +66,27 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
         return {
           habits: old.habits.map((item) => {
             if (item.habit.id !== habitId) return item;
-            const newCurrent = Math.max(0, value);
-            const target = item.progress.target;
-            const wasDone = item.progress.current >= target;
-            const isNowDone = newCurrent >= target;
+            const newTodayValue = Math.max(0, value);
+            const target = item.habit.targetValue;
+            const wasDone = item.todayValue >= target;
+            const isNowDone = newTodayValue >= target;
             let streakDelta = 0;
             if (isNowDone && !wasDone) streakDelta = 1;
             else if (!isNowDone && wasDone) streakDelta = -1;
 
+            let newProgressCurrent = item.progress.current;
+            if (item.habit.freqKind === 'weekly-count') {
+              if (isNowDone && !wasDone) newProgressCurrent += 1;
+              else if (!isNowDone && wasDone)
+                newProgressCurrent = Math.max(0, newProgressCurrent - 1);
+            } else {
+              newProgressCurrent = newTodayValue;
+            }
+
             return {
               ...item,
-              progress: { ...item.progress, current: newCurrent },
+              todayValue: newTodayValue,
+              progress: { ...item.progress, current: newProgressCurrent },
               streak: Math.max(0, item.streak + streakDelta),
             };
           }),
@@ -99,8 +109,8 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
 
   const handleToggleBoolean = (item: TodayHabit) => {
     if (clientToday < item.habit.startDate) return;
-    const isCompleted = item.progress.current >= item.progress.target;
-    const nextValue = isCompleted ? 0 : item.progress.target;
+    const isCompleted = item.todayValue >= item.habit.targetValue;
+    const nextValue = isCompleted ? 0 : item.habit.targetValue;
     checkinMutation.mutate({
       habitId: item.habit.id,
       date: clientToday,
@@ -110,7 +120,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
 
   const handleStep = (item: TodayHabit, delta: number) => {
     if (clientToday < item.habit.startDate) return;
-    const nextValue = Math.max(0, item.progress.current + delta);
+    const nextValue = Math.max(0, item.todayValue + delta);
     checkinMutation.mutate({
       habitId: item.habit.id,
       date: clientToday,
@@ -153,7 +163,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
       {!isLoading &&
         !error &&
         dueTodayHabits.map((item) => {
-          const isDone = item.progress.current >= item.progress.target;
+          const isDone = item.todayValue >= item.habit.targetValue;
           const isBoolean = item.habit.targetValue === 1;
 
           return (
@@ -182,10 +192,22 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                   >
                     {item.habit.name}
                   </span>
+                  {item.habit.freqKind === 'weekly-count' && (
+                    <span
+                      className="text-[10px] text-muted shrink-0"
+                      title={`本周达标天数：${item.progress.current} / ${item.progress.target} 天`}
+                    >
+                      (周{item.progress.current}/{item.progress.target})
+                    </span>
+                  )}
                   {item.streak > 0 && (
                     <span
                       className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-habit shrink-0"
-                      title={`连续 ${item.streak} 天达标`}
+                      title={
+                        item.habit.freqKind === 'weekly-count'
+                          ? `连续 ${item.streak} 周达标`
+                          : `连续 ${item.streak} 天达标`
+                      }
                     >
                       <IconFlame size={11} className="text-habit" />
                       {item.streak}
@@ -206,7 +228,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        disabled={item.progress.current <= 0}
+                        disabled={item.todayValue <= 0}
                         onClick={(e) => {
                           e.stopPropagation();
                           handleStep(item, -1);
@@ -217,7 +239,7 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                         -
                       </button>
                       <span className="tabular-nums text-xs font-semibold text-ink px-1 min-w-[32px] text-center">
-                        {item.progress.current}/{item.progress.target}
+                        {item.todayValue}/{item.habit.targetValue}
                         {item.habit.unit ? (
                           <span className="text-[10px] text-muted ml-0.5">{item.habit.unit}</span>
                         ) : null}
@@ -245,11 +267,11 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                 </div>
               </div>
 
-              {!isBoolean && item.progress.target > 1 && (
+              {!isBoolean && item.habit.targetValue > 1 && (
                 <ProgressBar
                   value={Math.min(
                     100,
-                    Math.round((item.progress.current / item.progress.target) * 100),
+                    Math.round((item.todayValue / item.habit.targetValue) * 100),
                   )}
                   tone={isDone ? 'good' : 'habit'}
                   size="sm"

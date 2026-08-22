@@ -110,9 +110,11 @@ export async function listToday(
     habits: records.map((record) => {
       const checkins = grouped.get(record.id) ?? [];
       const frequency = frequencyOf(record);
+      const todayCheckin = checkins.find((c) => c.date === date);
       return {
         habit: toView(record),
         dueToday: isDueOn(frequency, date),
+        todayValue: todayCheckin?.value ?? 0,
         progress: progressFor(frequency, date, checkins),
         streak: streakOf(frequency, checkins, date),
       };
