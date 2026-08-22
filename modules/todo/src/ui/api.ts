@@ -10,25 +10,7 @@ import {
   type TrashResponse,
   type UpdateTaskInput,
 } from '../contract.js';
-
-async function request(url: string, init: RequestInit = {}): Promise<unknown> {
-  const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
-
-  const res = await fetch(url, { ...init, headers });
-  if (res.status === 204) {
-    return null;
-  }
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const payload = body as { error?: string; requestId?: string };
-    const message = payload.error ?? `请求失败（${res.status}）`;
-    throw new Error(
-      payload.requestId === undefined ? message : `${message}（编号 ${payload.requestId}）`,
-    );
-  }
-  return body;
-}
+import { apiRequest as request } from '@workbench/ui';
 
 export async function fetchToday(): Promise<TodayResponse> {
   return todayResponseSchema.parse(await request(TODO_API.today));
