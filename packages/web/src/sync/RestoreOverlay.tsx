@@ -11,6 +11,7 @@ import {
   IconRefreshCw,
 } from '@workbench/ui';
 import { fetchRestoreState, rollbackRestore } from './backupApi.js';
+import { invalidateFor } from './workspaceCache.js';
 
 export function RestoreOverlay({
   externalState,
@@ -80,8 +81,8 @@ export function RestoreOverlay({
         if (isCancelled) return;
 
         if (current.state === 'idle') {
-          // 恢复完成：全量清除所有 React Query 缓存，防止数据串门
-          await queryClient.invalidateQueries();
+          // 恢复完成：库文件已被换掉
+          await invalidateFor(queryClient, 'active-database-changed');
           setActiveState(null);
           if (onClearExternalState) onClearExternalState();
         } else {
@@ -109,7 +110,8 @@ export function RestoreOverlay({
     setIsRollingBack(true);
     try {
       const res = await rollbackRestore();
-      await queryClient.invalidateQueries();
+      // 回退把库换回了快照
+      await invalidateFor(queryClient, 'active-database-changed');
       if (res.state === 'idle') {
         setActiveState(null);
         if (onClearExternalState) onClearExternalState();

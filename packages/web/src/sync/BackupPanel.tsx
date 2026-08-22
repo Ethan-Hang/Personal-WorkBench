@@ -28,6 +28,7 @@ import {
   updateBackupConfig,
 } from './backupApi.js';
 import { RestoreDiffModal } from './RestoreDiffModal.js';
+import { invalidateFor } from './workspaceCache.js';
 
 export function BackupPanel() {
   const queryClient = useQueryClient();
@@ -61,7 +62,7 @@ export function BackupPanel() {
   // 缓存刷新状态
   const [cacheCleared, setCacheCleared] = useState(false);
   function handleClearCache() {
-    void queryClient.invalidateQueries();
+    void invalidateFor(queryClient, 'manual-cache-clear');
     setCacheCleared(true);
     setTimeout(() => setCacheCleared(false), 2500);
   }
@@ -157,8 +158,8 @@ export function BackupPanel() {
     mutationFn: (name: string) => confirmRestore(name),
     onSuccess: async () => {
       setDiffTargetName(null);
-      // 触发全量缓存失效
-      await queryClient.invalidateQueries();
+      // 恢复换掉了库文件
+      await invalidateFor(queryClient, 'active-database-changed');
       showToast('数据恢复成功，工作区已更新');
     },
     onError: (err: Error) => {
