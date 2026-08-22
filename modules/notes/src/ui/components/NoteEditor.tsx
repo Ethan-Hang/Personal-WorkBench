@@ -44,37 +44,40 @@ export const NOTE_COLOR_CONFIG: Record<
   yellow: {
     label: '暖阳黄',
     bgClass:
-      'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/60 text-ink shadow-xs',
-    dotClass: 'bg-amber-400 border-amber-500 shadow-2xs',
+      'bg-amber-50 border-amber-200 dark:bg-amber-950/70 dark:border-amber-500/50 text-ink shadow-xs',
+    dotClass: 'bg-amber-400 border-amber-500 dark:bg-amber-300 dark:border-amber-400 shadow-2xs',
   },
   green: {
     label: '薄荷绿',
     bgClass:
-      'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800/60 text-ink shadow-xs',
-    dotClass: 'bg-emerald-400 border-emerald-500 shadow-2xs',
+      'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/70 dark:border-emerald-500/50 text-ink shadow-xs',
+    dotClass:
+      'bg-emerald-400 border-emerald-500 dark:bg-emerald-300 dark:border-emerald-400 shadow-2xs',
   },
   blue: {
     label: '清泉蓝',
     bgClass:
-      'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800/60 text-ink shadow-xs',
-    dotClass: 'bg-sky-400 border-sky-500 shadow-2xs',
+      'bg-sky-50 border-sky-200 dark:bg-sky-950/70 dark:border-sky-500/50 text-ink shadow-xs',
+    dotClass: 'bg-sky-400 border-sky-500 dark:bg-sky-300 dark:border-sky-400 shadow-2xs',
   },
   purple: {
     label: '薰衣草',
     bgClass:
-      'bg-purple-50 border-purple-200 dark:bg-purple-950/30 dark:border-purple-800/60 text-ink shadow-xs',
-    dotClass: 'bg-purple-400 border-purple-500 shadow-2xs',
+      'bg-purple-50 border-purple-200 dark:bg-purple-950/70 dark:border-purple-500/50 text-ink shadow-xs',
+    dotClass:
+      'bg-purple-400 border-purple-500 dark:bg-purple-300 dark:border-purple-400 shadow-2xs',
   },
   pink: {
     label: '樱花粉',
     bgClass:
-      'bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-800/60 text-ink shadow-xs',
-    dotClass: 'bg-rose-400 border-rose-500 shadow-2xs',
+      'bg-rose-50 border-rose-200 dark:bg-rose-950/70 dark:border-rose-400/50 text-ink shadow-xs',
+    dotClass: 'bg-rose-400 border-rose-500 dark:bg-rose-300 dark:border-rose-400 shadow-2xs',
   },
   gray: {
     label: '极简灰',
-    bgClass: 'bg-surface border-zinc-200 dark:bg-surface-2 dark:border-zinc-700 text-ink shadow-xs',
-    dotClass: 'bg-zinc-400 border-zinc-500 shadow-2xs',
+    bgClass:
+      'bg-surface border-zinc-200 dark:bg-surface-2 dark:border-zinc-700/80 text-ink shadow-xs',
+    dotClass: 'bg-zinc-400 border-zinc-500 dark:bg-zinc-300 dark:border-zinc-400 shadow-2xs',
   },
 };
 
