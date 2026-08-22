@@ -130,9 +130,19 @@ export function NoteEditor({
 
   // 内部版本控制与保存状态
   const [revision, setRevision] = useState(note.revision);
+  const revisionRef = useRef(note.revision);
+  const isSavingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastSavedTime, setLastSavedTime] = useState<Date>(new Date(note.updatedAt));
+
+  // 监听外部 note.revision 更新
+  useEffect(() => {
+    if (note.revision > revisionRef.current) {
+      revisionRef.current = note.revision;
+      setRevision(note.revision);
+    }
+  }, [note.revision]);
 
   // 交互视图控制
   const [viewMode, setViewMode] = useState<ViewMode>('split');
@@ -144,6 +154,7 @@ export function NoteEditor({
   const [newTagInput, setNewTagInput] = useState('');
   const [newTodoTitle, setNewTodoTitle] = useState('');
   const [linkTodoIdInput, setLinkTodoIdInput] = useState('');
+  const [todoActionError, setTodoActionError] = useState<string | null>(null);
 
   // 元素引用
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -170,7 +181,7 @@ export function NoteEditor({
     folderId,
     isPinned,
     tags,
-    revision,
+    revision: revisionRef.current,
     hasPendingChanges:
       title !== note.title ||
       content !== note.content ||
@@ -187,8 +198,15 @@ export function NoteEditor({
   const executeSave = useCallback(
     async (immediateDraft?: typeof draftRef.current) => {
       const currentDraft = immediateDraft || draftRef.current;
+
+      // 如果当前已有保存请求在进行中，标记 pending 并在请求完成后重试最新草稿
+      if (isSavingRef.current) {
+        pendingSaveRef.current = true;
+        return;
+      }
+
+      isSavingRef.current = true;
       setSaveStatus('saving');
-      setErrorMessage(null);
 
       try {
         const updated = await patchNote(note.id, {
@@ -198,9 +216,10 @@ export function NoteEditor({
           folderId: currentDraft.folderId,
           isPinned: currentDraft.isPinned,
           tags: currentDraft.tags,
-          revision: currentDraft.revision,
+          revision: revisionRef.current,
         });
 
+        revisionRef.current = updated.revision;
         setRevision(updated.revision);
         setLastSavedTime(new Date(updated.updatedAt));
         setSaveStatus('saved');
@@ -209,10 +228,14 @@ export function NoteEditor({
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('409') || msg.includes('版本冲突')) {
           setSaveStatus('conflict');
-          setErrorMessage('检测到其他端写入冲突 (409)，已保留当前本地草稿');
         } else {
           setSaveStatus('error');
-          setErrorMessage(msg);
+        }
+      } finally {
+        isSavingRef.current = false;
+        if (pendingSaveRef.current) {
+          pendingSaveRef.current = false;
+          executeSave();
         }
       }
     },
@@ -275,6 +298,7 @@ export function NoteEditor({
 
   // 一键派发待办
   const handleCreateTodo = async () => {
+    setTodoActionError(null);
     try {
       const res = await postCreateTodo(note.id, {
         title: newTodoTitle.trim() || undefined,
@@ -283,29 +307,31 @@ export function NoteEditor({
       setNewTodoTitle('');
       onUpdate?.(res.note);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : '创建待办失败');
+      setTodoActionError(err instanceof Error ? err.message : '创建待办失败');
     }
   };
 
   // 关联已有待办
   const handleLinkExistingTodo = async () => {
     if (!linkTodoIdInput.trim()) return;
+    setTodoActionError(null);
     try {
       const res = await postLinkTodo(note.id, { todoItemId: linkTodoIdInput.trim() });
       setTodoLinks(res.links);
       setLinkTodoIdInput('');
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : '关联待办失败');
+      setTodoActionError(err instanceof Error ? err.message : '关联待办失败');
     }
   };
 
   // 解除待办关联
   const handleRemoveTodoLink = async (todoItemId: string) => {
+    setTodoActionError(null);
     try {
       await deleteTodoLink(note.id, todoItemId);
       setTodoLinks((prev) => prev.filter((l) => l.todoItemId !== todoItemId));
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : '解除关联失败');
+      setTodoActionError(err instanceof Error ? err.message : '解除关联失败');
     }
   };
 
@@ -317,7 +343,7 @@ export function NoteEditor({
         onDelete?.(note.id);
         onClose?.();
       } catch (err) {
-        setErrorMessage(err instanceof Error ? err.message : '删除便签失败');
+        window.alert(err instanceof Error ? err.message : '删除便签失败');
       }
     }
   };
@@ -663,32 +689,6 @@ export function NoteEditor({
         </div>
       </header>
 
-      {/* 错误或冲突提示条 */}
-      {errorMessage && (
-        <div className="flex items-center justify-between px-4 py-2 bg-rose-100 dark:bg-rose-950/60 border-b border-rose-200 dark:border-rose-900 text-rose-800 dark:text-rose-200 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span>⚠️</span>
-            <span>{errorMessage}</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => executeSave()}
-              className="underline font-semibold hover:text-rose-950 dark:hover:text-white"
-            >
-              立即重试保存
-            </button>
-            <button
-              type="button"
-              onClick={() => setErrorMessage(null)}
-              className="text-muted hover:text-ink"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 主体编辑区与右侧大纲容器 */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* 左侧核心编辑内容 */}
@@ -812,11 +812,24 @@ export function NoteEditor({
               <button
                 type="button"
                 onClick={() => setIsTodoDrawerOpen(false)}
-                className="size-6 flex items-center justify-center rounded hover:bg-surface-2 text-muted hover:text-ink"
+                className="size-6 flex items-center justify-center rounded hover:bg-surface-2 text-muted hover:text-ink cursor-pointer"
               >
                 ✕
               </button>
             </div>
+
+            {todoActionError && (
+              <div className="p-2 rounded bg-critical-soft text-critical border border-critical/30 text-xs font-medium flex items-center justify-between">
+                <span>{todoActionError}</span>
+                <button
+                  type="button"
+                  onClick={() => setTodoActionError(null)}
+                  className="text-critical hover:opacity-80 ml-1 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {/* 一键派发新待办 */}
             <div className="py-3 border-b border-line space-y-2">
