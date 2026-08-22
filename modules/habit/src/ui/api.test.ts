@@ -35,6 +35,7 @@ const HABIT_VIEW = {
 const TODAY_HABIT = {
   habit: HABIT_VIEW,
   dueToday: true,
+  todayValue: 0,
   progress: { current: 0, target: 1 },
   streak: 5,
 };

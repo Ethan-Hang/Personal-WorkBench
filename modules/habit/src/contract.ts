@@ -123,9 +123,11 @@ export type HabitView = z.infer<typeof habitViewSchema>;
 export const todayHabitSchema = z.object({
   habit: habitViewSchema,
   dueToday: z.boolean(),
+  todayValue: z.number().int().min(0).default(0),
   progress: z.object({ current: z.number().int(), target: z.number().int() }),
   streak: z.number().int().min(0),
 });
+
 export type TodayHabit = z.infer<typeof todayHabitSchema>;
 
 export const todayResponseSchema = z.object({ habits: z.array(todayHabitSchema) });
