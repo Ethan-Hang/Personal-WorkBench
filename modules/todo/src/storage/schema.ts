@@ -14,7 +14,7 @@ import { RECURRENCE_FREQS } from '../contract.js';
  *
  * **刻意不是 core Item。** 子任务不能单独排程、不上日历、不进回收站——
  * 它只是一条待办内部的检查清单。做成 Item 需要 core 长出 `parentId`，
- * 那是改 core，代价远大于收益（ADR-0014）。
+ * 那是改 core，代价远大于收益（ADR-0025）。
  */
 export const todoSubtasks = sqliteTable(
   'todo_subtasks',
@@ -43,7 +43,7 @@ export const todoSubtasks = sqliteTable(
 /**
  * 标签：**todo 内部概念**，不跨模块。
  *
- * 这条是刻意选的（ADR-0014）：跨模块标签需要标签成为 core 级概念，
+ * 这条是刻意选的（ADR-0025）：跨模块标签需要标签成为 core 级概念，
  * 秋招的 Item 也要能打标签。代价是工作台今日页看不见也筛不了 todo 的标签——
  * 那需要 workbench 感知 todo 的标签，破铁律 1。
  */
@@ -80,7 +80,7 @@ export const todoTaskTags = sqliteTable(
 /**
  * 重复规则。**物化策略**：规则本身不是待办，它按需生成真正的 core Item。
  *
- * 选物化而非「1 条 Item + 规则」的理由（ADR-0014）：日历、排程、完成、回收站
+ * 选物化而非「1 条 Item + 规则」的理由（ADR-0025）：日历、排程、完成、回收站
  * 全部零改动，core 一行不改。代价是改规则要回写未来实例，以及需要一个物化水位。
  */
 export const todoRecurrences = sqliteTable(

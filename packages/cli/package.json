@@ -8,9 +8,5 @@
   },
   "scripts": {
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@workbench/core": "*",
-    "@workbench/sync": "*"
   }
 }
