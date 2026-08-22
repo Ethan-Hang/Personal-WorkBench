@@ -27,6 +27,7 @@ import {
   updateLocalBackupConfig,
 } from './localBackupApi.js';
 import { LocalImportModal, joinBackupFilePath } from './LocalImportModal.js';
+import { parseRetentionCount } from './backupForm.js';
 
 export function LocalBackupPanel() {
   const queryClient = useQueryClient();
@@ -93,10 +94,16 @@ export function LocalBackupPanel() {
 
   function handleSaveConfig(e: React.FormEvent) {
     e.preventDefault();
+    // 留空才回退默认值；0 / 非数字一律报错而不是被静默改写（见 backupForm.ts）
+    const retention = parseRetentionCount(formRetention, 5);
+    if (!retention.ok) {
+      setConfigSaveError(retention.error);
+      return;
+    }
     const patch: LocalBackupConfigPatch = {
       targetDir: formTargetDir.trim(),
       autoEnabled: formAutoEnabled,
-      retentionCount: Number(formRetention) || 5,
+      retentionCount: retention.value,
     };
     configMutation.mutate(patch);
   }
