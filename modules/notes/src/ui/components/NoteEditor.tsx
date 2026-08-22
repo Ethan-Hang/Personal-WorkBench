@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type { FolderNode, FolderView, NoteColor, NoteView, TodoLinkView } from '../../contract.js';
 import { NOTE_COLORS } from '../../contract.js';
-import { patchNote, postCreateTodo, postLinkTodo, deleteTodoLink, deleteNote } from '../api.js';
+import {
+  postNote,
+  patchNote,
+  postCreateTodo,
+  postLinkTodo,
+  deleteTodoLink,
+  deleteNote,
+} from '../api.js';
 import { NoteMarkdownViewer } from '../markdown/renderer.js';
-import { NoteFormatToolbar } from './NoteFormatToolbar.js';
+import { NoteFormatToolbar, applyMarkdownFormat, type FormatType } from './NoteFormatToolbar.js';
 import { NoteOutlineToc } from './NoteOutlineToc.js';
 import { NoteExportModal } from './NoteExportModal.js';
+import { IconCheckSquare, IconChevronDown, IconFolder } from '@workbench/ui';
+import { IconFileText, IconMaximize2, IconMinimize2, IconPin, IconShare } from './icons.js';
 
 export interface NoteStats {
   words: number;
@@ -138,14 +147,16 @@ export function NoteEditor({
   const pendingSaveRef = useRef(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
   const [lastSavedTime, setLastSavedTime] = useState<Date>(new Date(note.updatedAt));
+  const currentNoteIdRef = useRef(note.id);
 
-  // 监听外部 note.revision 更新
+  // 监听外部 note 更新
   useEffect(() => {
+    currentNoteIdRef.current = note.id;
     if (note.revision > revisionRef.current) {
       revisionRef.current = note.revision;
       setRevision(note.revision);
     }
-  }, [note.revision]);
+  }, [note.id, note.revision]);
 
   // 交互视图控制
   const [viewMode, setViewMode] = useState<ViewMode>('split');
@@ -154,6 +165,7 @@ export function NoteEditor({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isColorPickerOpen, setIsColorPickerOpen] = useState(false);
   const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [newTodoTitle, setNewTodoTitle] = useState('');
   const [linkTodoIdInput, setLinkTodoIdInput] = useState('');
@@ -201,6 +213,13 @@ export function NoteEditor({
   const executeSave = useCallback(
     async (immediateDraft?: typeof draftRef.current) => {
       const currentDraft = immediateDraft || draftRef.current;
+      const isBlank = !currentDraft.title.trim() && !currentDraft.content.trim();
+
+      // 如果是全新未入库草稿且内容完全空白，暂不向后端写入空数据
+      if (currentNoteIdRef.current.startsWith('draft-') && isBlank) {
+        setSaveStatus('saved');
+        return;
+      }
 
       // 如果当前已有保存请求在进行中，标记 pending 并在请求完成后重试最新草稿
       if (isSavingRef.current) {
@@ -212,15 +231,30 @@ export function NoteEditor({
       setSaveStatus('saving');
 
       try {
-        const updated = await patchNote(note.id, {
-          title: currentDraft.title,
-          content: currentDraft.content,
-          color: currentDraft.color,
-          folderId: currentDraft.folderId,
-          isPinned: currentDraft.isPinned,
-          tags: currentDraft.tags,
-          revision: revisionRef.current,
-        });
+        let updated: NoteView;
+        if (currentNoteIdRef.current.startsWith('draft-')) {
+          // 首次落库创建真实便签
+          updated = await postNote({
+            title: currentDraft.title,
+            content: currentDraft.content,
+            color: currentDraft.color,
+            folderId: currentDraft.folderId,
+            isPinned: currentDraft.isPinned,
+            tags: currentDraft.tags,
+          });
+          currentNoteIdRef.current = updated.id;
+        } else {
+          // 增量更新已存在的便签
+          updated = await patchNote(currentNoteIdRef.current, {
+            title: currentDraft.title,
+            content: currentDraft.content,
+            color: currentDraft.color,
+            folderId: currentDraft.folderId,
+            isPinned: currentDraft.isPinned,
+            tags: currentDraft.tags,
+            revision: revisionRef.current,
+          });
+        }
 
         revisionRef.current = updated.revision;
         setRevision(updated.revision);
@@ -242,7 +276,7 @@ export function NoteEditor({
         }
       }
     },
-    [note.id, onUpdate],
+    [onUpdate],
   );
 
   // 触发 500ms 防抖保存
@@ -302,8 +336,11 @@ export function NoteEditor({
   // 一键派发待办
   const handleCreateTodo = async () => {
     setTodoActionError(null);
+    if (currentNoteIdRef.current.startsWith('draft-')) {
+      await executeSave();
+    }
     try {
-      const res = await postCreateTodo(note.id, {
+      const res = await postCreateTodo(currentNoteIdRef.current, {
         title: newTodoTitle.trim() || undefined,
       });
       setTodoLinks((prev) => [...prev, res.link]);
@@ -318,8 +355,13 @@ export function NoteEditor({
   const handleLinkExistingTodo = async () => {
     if (!linkTodoIdInput.trim()) return;
     setTodoActionError(null);
+    if (currentNoteIdRef.current.startsWith('draft-')) {
+      await executeSave();
+    }
     try {
-      const res = await postLinkTodo(note.id, { todoItemId: linkTodoIdInput.trim() });
+      const res = await postLinkTodo(currentNoteIdRef.current, {
+        todoItemId: linkTodoIdInput.trim(),
+      });
       setTodoLinks(res.links);
       setLinkTodoIdInput('');
     } catch (err) {
@@ -331,7 +373,7 @@ export function NoteEditor({
   const handleRemoveTodoLink = async (todoItemId: string) => {
     setTodoActionError(null);
     try {
-      await deleteTodoLink(note.id, todoItemId);
+      await deleteTodoLink(currentNoteIdRef.current, todoItemId);
       setTodoLinks((prev) => prev.filter((l) => l.todoItemId !== todoItemId));
     } catch (err) {
       setTodoActionError(err instanceof Error ? err.message : '解除关联失败');
@@ -341,9 +383,13 @@ export function NoteEditor({
   // 删除当前便签
   const handleDeleteNote = async () => {
     if (window.confirm('确定要彻底删除该便签吗？此操作无法撤销。')) {
+      if (currentNoteIdRef.current.startsWith('draft-')) {
+        handleSafeClose();
+        return;
+      }
       try {
-        await deleteNote(note.id);
-        onDelete?.(note.id);
+        await deleteNote(currentNoteIdRef.current);
+        onDelete?.(currentNoteIdRef.current);
         onClose?.();
       } catch (err) {
         window.alert(err instanceof Error ? err.message : '删除便签失败');
@@ -351,17 +397,205 @@ export function NoteEditor({
     }
   };
 
-  // 快捷键支持（Ctrl+B, Ctrl+I, Ctrl+S, Tab 缩进）
+  // 安全退出与返回：如果便签未输入任何标题或内容（空便签），自动在退出时平滑清理删除并带淡出折叠过渡
+  const handleSafeClose = useCallback(async () => {
+    if (isExiting) return;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    const currentTitle = draftRef.current.title;
+    const currentContent = draftRef.current.content;
+    const isEmpty = !currentTitle.trim() && !currentContent.trim();
+    const isDraft = currentNoteIdRef.current.startsWith('draft-');
+
+    setIsExiting(true);
+
+    if (isEmpty) {
+      if (!isDraft) {
+        try {
+          await deleteNote(currentNoteIdRef.current);
+          onDelete?.(currentNoteIdRef.current);
+        } catch {
+          // ignore
+        }
+      }
+      setTimeout(() => {
+        onClose?.();
+      }, 220);
+      return;
+    }
+
+    if (draftRef.current.hasPendingChanges || isDraft) {
+      await executeSave();
+    }
+    setTimeout(() => {
+      onClose?.();
+    }, 200);
+  }, [isExiting, onDelete, onClose, executeSave]);
+
+  const handleSafeBack = useCallback(async () => {
+    if (isExiting) return;
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    const currentTitle = draftRef.current.title;
+    const currentContent = draftRef.current.content;
+    const isEmpty = !currentTitle.trim() && !currentContent.trim();
+    const isDraft = currentNoteIdRef.current.startsWith('draft-');
+
+    setIsExiting(true);
+
+    if (isEmpty) {
+      if (!isDraft) {
+        try {
+          await deleteNote(currentNoteIdRef.current);
+          onDelete?.(currentNoteIdRef.current);
+        } catch {
+          // ignore
+        }
+      }
+      setTimeout(() => {
+        if (onBack) onBack();
+        else if (onClose) onClose();
+      }, 220);
+      return;
+    }
+
+    if (draftRef.current.hasPendingChanges || isDraft) {
+      await executeSave();
+    }
+    setTimeout(() => {
+      if (onBack) onBack();
+      else if (onClose) onClose();
+    }, 200);
+  }, [isExiting, onDelete, onBack, onClose, executeSave]);
+
+  // 富文本快捷格式化辅助函数
+  const applyFormatToTextarea = useCallback(
+    (format: FormatType) => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const result = applyMarkdownFormat({
+        text: content,
+        selectionStart: start,
+        selectionEnd: end,
+        format,
+      });
+      setContent(result.text);
+      triggerDebouncedSave();
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(result.newSelectionStart, result.newSelectionEnd);
+      }, 0);
+    },
+    [content, triggerDebouncedSave],
+  );
+
+  // 全局快捷键监听（Ctrl+S 立即保存, Ctrl+Enter 完成, Esc 层级退出/关闭, Ctrl+E 视图切换, F11 全屏）
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const isMac =
+        typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      // 1. Ctrl+S / Cmd+S 立即手动落库保存
+      if (modKey && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+        executeSave();
+        return;
+      }
+
+      // 2. Ctrl+Enter / Cmd+Enter 完成并退出
+      if (modKey && e.key === 'Enter') {
+        e.preventDefault();
+        handleSafeClose();
+        return;
+      }
+
+      // 3. Esc 键层级退出
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (isExportModalOpen) {
+          setIsExportModalOpen(false);
+        } else if (isColorPickerOpen) {
+          setIsColorPickerOpen(false);
+        } else if (isFolderPickerOpen) {
+          setIsFolderPickerOpen(false);
+        } else if (isTodoDrawerOpen) {
+          setIsTodoDrawerOpen(false);
+        } else {
+          handleSafeClose();
+        }
+        return;
+      }
+
+      // 4. Ctrl+E: 循环切换编辑器视图 (edit -> split -> preview -> edit)
+      if (modKey && (e.key === 'e' || e.key === 'E')) {
+        e.preventDefault();
+        setViewMode((prev) => {
+          if (prev === 'edit') return 'split';
+          if (prev === 'split') return 'preview';
+          return 'edit';
+        });
+        return;
+      }
+
+      // 5. F11 或 Alt+Enter: 切换全屏沉浸模式
+      if (e.key === 'F11' || (e.altKey && e.key === 'Enter')) {
+        if (onToggleFullscreen) {
+          e.preventDefault();
+          onToggleFullscreen();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, [
+    executeSave,
+    handleSafeClose,
+    isColorPickerOpen,
+    isFolderPickerOpen,
+    isExportModalOpen,
+    isTodoDrawerOpen,
+    onToggleFullscreen,
+  ]);
+
+  // 编辑器文本框内快捷键（Ctrl+B/I/K/Shift+X/Shift+C, Tab 缩进）
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const isMac =
       typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
     const modKey = isMac ? e.metaKey : e.ctrlKey;
 
-    // Ctrl+S / Cmd+S 立即手动落库保存
-    if (modKey && e.key === 's') {
+    // 常用格式化快捷键
+    if (modKey && !e.shiftKey && (e.key === 'b' || e.key === 'B')) {
       e.preventDefault();
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-      executeSave();
+      applyFormatToTextarea('bold');
+      return;
+    }
+    if (modKey && !e.shiftKey && (e.key === 'i' || e.key === 'I')) {
+      e.preventDefault();
+      applyFormatToTextarea('italic');
+      return;
+    }
+    if (modKey && !e.shiftKey && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      applyFormatToTextarea('link');
+      return;
+    }
+    if (modKey && e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+      e.preventDefault();
+      applyFormatToTextarea('strike');
+      return;
+    }
+    if (modKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+      e.preventDefault();
+      applyFormatToTextarea('code');
       return;
     }
 
@@ -402,8 +636,10 @@ export function NoteEditor({
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
-      if (draftRef.current.hasPendingChanges) {
-        executeSave(draftRef.current);
+      const currentDraft = draftRef.current;
+      const isEmpty = !currentDraft.title.trim() && !currentDraft.content.trim();
+      if (!isEmpty && currentDraft.hasPendingChanges) {
+        executeSave(currentDraft);
       }
     };
   }, [executeSave]);
@@ -425,9 +661,11 @@ export function NoteEditor({
 
   return (
     <div
-      className={`flex flex-col h-full bg-surface text-ink border border-line/80 shadow-2xl rounded-panel overflow-hidden transition-all duration-200 ${
-        isFullscreen ? 'fixed inset-0 z-50 rounded-none border-none' : ''
-      } ${className}`}
+      className={`flex flex-col h-full bg-surface text-ink border border-line/80 shadow-2xl rounded-panel overflow-hidden transition-all duration-260 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        isExiting
+          ? 'opacity-0 scale-[0.98] -translate-y-2 pointer-events-none'
+          : 'opacity-100 scale-100 translate-y-0'
+      } ${isFullscreen ? 'fixed inset-0 z-50 rounded-none border-none' : ''} ${className}`}
     >
       {/* 顶部主控制导航条 */}
       <header className="flex items-center justify-between px-4 py-2.5 border-b border-line bg-surface/90 backdrop-blur z-20 select-none">
@@ -436,9 +674,9 @@ export function NoteEditor({
           {onBack && (
             <button
               type="button"
-              onClick={onBack}
+              onClick={handleSafeBack}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-control border border-line bg-surface-2/80 hover:bg-surface-3 text-ink font-semibold text-xs transition active:scale-95 cursor-pointer shadow-2xs mr-1"
-              title="返回便签列表"
+              title="返回便签列表 (Esc)"
             >
               <svg
                 width="14"
@@ -459,14 +697,14 @@ export function NoteEditor({
             <button
               type="button"
               onClick={() => setIsColorPickerOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-control border border-line bg-surface-2/60 hover:bg-surface-3 transition cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-control border border-line bg-surface hover:bg-surface-2 transition-all cursor-pointer shadow-2xs"
               title="切换便签主题色"
             >
               <span
-                className={`size-3 rounded-full border border-black/10 ${getNoteColorDotClass(color)}`}
+                className={`size-2.5 rounded-full border border-black/15 ${getNoteColorDotClass(color)}`}
               />
               <span className="text-xs text-secondary font-medium">{getNoteColorLabel(color)}</span>
-              <span className="text-[10px] text-muted">▼</span>
+              <IconChevronDown size={11} className="text-muted" />
             </button>
 
             {isColorPickerOpen && (
@@ -476,9 +714,9 @@ export function NoteEditor({
                     key={c}
                     type="button"
                     onClick={() => handleColorChange(c)}
-                    className={`size-6 rounded-full border border-black/15 transition cursor-pointer ${getNoteColorDotClass(
+                    className={`size-5 rounded-full border border-black/15 transition-transform cursor-pointer ${getNoteColorDotClass(
                       c,
-                    )} ${color === c ? 'ring-2 ring-accent scale-115' : 'hover:scale-110'}`}
+                    )} ${color === c ? 'ring-2 ring-accent scale-115' : 'hover:scale-115'}`}
                     title={`主题色：${getNoteColorLabel(c)}`}
                   />
                 ))}
@@ -491,14 +729,14 @@ export function NoteEditor({
             <button
               type="button"
               onClick={() => setIsFolderPickerOpen((prev) => !prev)}
-              className="flex items-center gap-1 px-2 py-1 rounded-control border border-line bg-surface-2/60 hover:bg-surface-3 text-xs text-secondary hover:text-ink transition"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-control border border-line bg-surface hover:bg-surface-2 text-xs text-secondary hover:text-ink transition-all cursor-pointer shadow-2xs"
               title="移动到文件夹"
             >
-              <span>📁</span>
+              <IconFolder size={13} className="text-muted" />
               <span className="max-w-[100px] truncate">
                 {folderId ? folders.find((f) => f.id === folderId)?.name || '未知文件夹' : '未分类'}
               </span>
-              <span className="text-[10px] text-muted">▼</span>
+              <IconChevronDown size={11} className="text-muted" />
             </button>
 
             {isFolderPickerOpen && (
@@ -506,22 +744,24 @@ export function NoteEditor({
                 <button
                   type="button"
                   onClick={() => handleFolderChange(null)}
-                  className={`w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2 transition ${
-                    folderId === null ? 'font-semibold text-amber-600 dark:text-amber-400' : ''
+                  className={`w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2 transition flex items-center gap-1.5 ${
+                    folderId === null ? 'font-semibold text-accent' : 'text-secondary'
                   }`}
                 >
-                  📁 未分类 (根目录)
+                  <IconFolder size={13} className="text-muted" />
+                  <span>未分类 (根目录)</span>
                 </button>
                 {folders.map((f) => (
                   <button
                     key={f.id}
                     type="button"
                     onClick={() => handleFolderChange(f.id)}
-                    className={`w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2 transition truncate ${
-                      folderId === f.id ? 'font-semibold text-amber-600 dark:text-amber-400' : ''
+                    className={`w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2 transition truncate flex items-center gap-1.5 ${
+                      folderId === f.id ? 'font-semibold text-accent' : 'text-secondary'
                     }`}
                   >
-                    {f.icon || '📁'} {f.name}
+                    <IconFolder size={13} className="text-muted" />
+                    <span className="truncate">{f.name}</span>
                   </button>
                 ))}
               </div>
@@ -532,49 +772,47 @@ export function NoteEditor({
           <button
             type="button"
             onClick={handleTogglePin}
-            className={`flex items-center gap-1 px-2 py-1 rounded-control border text-xs transition ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control border text-xs font-medium transition-all shadow-2xs cursor-pointer ${
               isPinned
-                ? 'border-amber-400 bg-amber-100/60 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 font-semibold'
-                : 'border-line bg-surface-2/60 text-muted hover:text-ink hover:bg-surface-3'
+                ? 'border-warning/50 bg-warning-soft text-warning font-semibold'
+                : 'border-line bg-surface text-secondary hover:text-ink hover:bg-surface-2'
             }`}
             title={isPinned ? '取消置顶' : '置顶该便签'}
           >
-            <span>📌</span>
+            <IconPin size={13} className={isPinned ? 'text-warning' : 'text-muted'} />
             <span>{isPinned ? '已置顶' : '置顶'}</span>
           </button>
 
           {/* 实时保存状态指示 */}
-          <div className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-surface-2 text-secondary">
+          <div className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-surface-2/80 text-secondary border border-line/40">
             {saveStatus === 'saved' && (
               <>
-                <span className="text-emerald-500 font-bold">✓</span>
+                <span className="text-good font-bold text-[11px]">✓</span>
                 <span className="text-muted text-[11px]">已保存</span>
               </>
             )}
             {saveStatus === 'saving' && (
               <>
-                <span className="inline-block size-2 rounded-full bg-amber-500 animate-ping" />
-                <span className="text-amber-600 dark:text-amber-400 text-[11px]">保存中...</span>
+                <span className="inline-block size-2 rounded-full bg-accent animate-ping" />
+                <span className="text-accent text-[11px]">保存中...</span>
               </>
             )}
             {saveStatus === 'unsaved' && (
               <>
-                <span className="size-2 rounded-full bg-amber-400" />
-                <span className="text-muted text-[11px]">未保存更改</span>
+                <span className="size-2 rounded-full bg-warning" />
+                <span className="text-muted text-[11px]">未保存</span>
               </>
             )}
             {saveStatus === 'conflict' && (
               <>
-                <span className="text-rose-500 font-bold">⚠️</span>
-                <span className="text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
-                  版本冲突 (409)
-                </span>
+                <span className="text-warning font-bold">⚠️</span>
+                <span className="text-warning text-[11px] font-medium">版本冲突已保留</span>
               </>
             )}
             {saveStatus === 'error' && (
               <>
-                <span className="text-rose-500 font-bold">✕</span>
-                <span className="text-rose-600 dark:text-rose-400 text-[11px]">保存失败</span>
+                <span className="text-critical font-bold">✕</span>
+                <span className="text-critical text-[11px]">保存失败</span>
               </>
             )}
           </div>
@@ -582,14 +820,14 @@ export function NoteEditor({
 
         {/* 右侧：视图切换器、待办联动、全屏切换与关闭按钮 */}
         <div className="flex items-center gap-2">
-          {/* 视图切换 (edit / split / preview) */}
-          <div className="flex items-center rounded-control border border-line bg-surface-2/70 p-0.5 text-xs">
+          {/* 视图切换 (Apple / Linear 分段控制) */}
+          <div className="flex items-center rounded-control border border-line bg-surface-2/80 p-0.5 text-xs shadow-2xs">
             <button
               type="button"
               onClick={() => setViewMode('edit')}
-              className={`px-2 py-0.5 rounded transition ${
+              className={`px-2.5 py-0.5 rounded-[7px] transition-all cursor-pointer ${
                 viewMode === 'edit'
-                  ? 'bg-surface shadow text-ink font-semibold'
+                  ? 'bg-surface shadow-2xs text-ink font-semibold'
                   : 'text-secondary hover:text-ink'
               }`}
               title="纯编辑模式"
@@ -599,9 +837,9 @@ export function NoteEditor({
             <button
               type="button"
               onClick={() => setViewMode('split')}
-              className={`px-2 py-0.5 rounded transition ${
+              className={`px-2.5 py-0.5 rounded-[7px] transition-all cursor-pointer ${
                 viewMode === 'split'
-                  ? 'bg-surface shadow text-ink font-semibold'
+                  ? 'bg-surface shadow-2xs text-ink font-semibold'
                   : 'text-secondary hover:text-ink'
               }`}
               title="双栏分栏预览模式"
@@ -611,9 +849,9 @@ export function NoteEditor({
             <button
               type="button"
               onClick={() => setViewMode('preview')}
-              className={`px-2 py-0.5 rounded transition ${
+              className={`px-2.5 py-0.5 rounded-[7px] transition-all cursor-pointer ${
                 viewMode === 'preview'
-                  ? 'bg-surface shadow text-ink font-semibold'
+                  ? 'bg-surface shadow-2xs text-ink font-semibold'
                   : 'text-secondary hover:text-ink'
               }`}
               title="纯阅读阅读模式"
@@ -626,17 +864,17 @@ export function NoteEditor({
           <button
             type="button"
             onClick={() => setIsTodoDrawerOpen((prev) => !prev)}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-control border text-xs transition ${
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-control border text-xs font-medium transition-all shadow-2xs cursor-pointer ${
               isTodoDrawerOpen || todoLinks.length > 0
-                ? 'border-indigo-400 bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold'
-                : 'border-line bg-surface-2 hover:bg-surface-3 text-secondary hover:text-ink'
+                ? 'border-accent/40 bg-accent-soft text-accent font-semibold'
+                : 'border-line bg-surface text-secondary hover:text-ink hover:bg-surface-2'
             }`}
             title="查看或派发关联待办"
           >
-            <span>☑</span>
+            <IconCheckSquare size={13} />
             <span>待办</span>
             {todoLinks.length > 0 && (
-              <span className="size-4 flex items-center justify-center rounded-full bg-indigo-500 text-white text-[10px] font-mono">
+              <span className="size-4 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-mono">
                 {todoLinks.length}
               </span>
             )}
@@ -646,24 +884,24 @@ export function NoteEditor({
           <button
             type="button"
             onClick={() => setIsTocCollapsed((prev) => !prev)}
-            className={`p-1.5 rounded-control border border-line text-xs transition ${
+            className={`p-1.5 rounded-control border text-xs transition-all shadow-2xs cursor-pointer ${
               !isTocCollapsed
-                ? 'bg-surface-3 text-ink font-semibold'
-                : 'bg-surface-2 text-secondary hover:text-ink'
+                ? 'border-line bg-surface text-ink font-semibold shadow-2xs'
+                : 'border-line bg-surface-2 text-muted hover:text-ink'
             }`}
             title={isTocCollapsed ? '展开大纲目录' : '收起大纲目录'}
           >
-            📑
+            <IconFileText size={14} />
           </button>
 
           {/* 导出中心 */}
           <button
             type="button"
             onClick={() => setIsExportModalOpen(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-control border border-line bg-surface-2 hover:bg-surface-3 text-secondary hover:text-ink text-xs transition"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-control border border-line bg-surface hover:bg-surface-2 text-secondary hover:text-ink text-xs font-medium transition-all shadow-2xs cursor-pointer"
             title="导出便签 (Markdown / HTML / PNG / PDF)"
           >
-            <span>📤</span>
+            <IconShare size={13} />
             <span>导出</span>
           </button>
 
@@ -672,19 +910,20 @@ export function NoteEditor({
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className="p-1.5 rounded-control border border-line bg-surface-2 hover:bg-surface-3 text-secondary hover:text-ink text-xs transition"
+              className="p-1.5 rounded-control border border-line bg-surface hover:bg-surface-2 text-secondary hover:text-ink text-xs transition-all shadow-2xs cursor-pointer"
               title={isFullscreen ? '退出全屏沉浸模式' : '进入全屏沉浸模式'}
             >
-              {isFullscreen ? '⤓' : '⤢'}
+              {isFullscreen ? <IconMinimize2 size={13} /> : <IconMaximize2 size={13} />}
             </button>
           )}
 
-          {/* 关闭/完成 */}
+          {/* 完成按钮 */}
           {onClose && (
             <button
               type="button"
-              onClick={onClose}
-              className="px-3 py-1 rounded-control bg-amber-500 hover:bg-amber-600 text-white font-semibold text-xs shadow transition"
+              onClick={handleSafeClose}
+              className="px-3.5 py-1 rounded-control bg-ink text-surface hover:opacity-90 active:scale-[0.98] font-medium text-xs shadow-xs transition-all cursor-pointer"
+              title="完成并保存 (Ctrl+Enter / Esc)"
             >
               完成
             </button>

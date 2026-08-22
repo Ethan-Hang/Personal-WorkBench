@@ -9,7 +9,7 @@ export const notesUiModule: UiModuleDefinition = {
   routes: [{ path: '/notes', element: <NotesPage /> }],
 };
 
-export { NotesPage };
+export * from './NotesPage.js';
 export * from './markdown/index.js';
 export * from './api.js';
 export * from './exportEngine.js';

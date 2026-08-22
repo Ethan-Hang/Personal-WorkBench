@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PageHeader, Button, IconPlus } from '@workbench/ui';
+import { PageHeader, Button, IconChevronLeft } from '@workbench/ui';
 import type {
   BatchInput,
   CreateFolderInput,
-  CreateNoteInput,
   FolderNode,
   FolderView,
   NoteColor,
@@ -17,7 +16,6 @@ import {
   fetchFolders,
   fetchTags,
   fetchStats,
-  postNote,
   deleteNote,
   postBatch,
   deleteTrash,
@@ -34,6 +32,13 @@ import { FolderModal } from './components/FolderModal.js';
 import { NoteExportModal } from './components/NoteExportModal.js';
 
 const NOTES_VIEW_MODE_STORAGE_KEY = 'notes_workbench_view_mode';
+
+export const NOTE_COLOR_LIST: NoteColor[] = ['yellow', 'green', 'blue', 'purple', 'pink', 'gray'];
+
+export function getRandomNoteColor(): NoteColor {
+  const index = Math.floor(Math.random() * NOTE_COLOR_LIST.length);
+  return NOTE_COLOR_LIST[index] ?? 'yellow';
+}
 
 function flattenTree(nodes: FolderNode[]): FolderView[] {
   const list: FolderView[] = [];
@@ -66,6 +71,7 @@ export function NotesPage() {
   const [selectedColor, setSelectedColor] = useState<NoteColor | 'all'>('all');
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 2. 视图持久化模式（瀑布流 / 经典列表）
   const [viewMode, setViewMode] = useState<'masonry' | 'list'>(() => {
@@ -185,14 +191,6 @@ export function NotesPage() {
     queryClient.invalidateQueries({ queryKey: ['notes'] });
   }, [queryClient]);
 
-  const createNoteMutation = useMutation({
-    mutationFn: (input: CreateNoteInput) => postNote(input),
-    onSuccess: (newNote) => {
-      invalidateAll();
-      setActiveNoteForEdit(newNote);
-    },
-  });
-
   const deleteNoteMutation = useMutation({
     mutationFn: (id: string) => deleteNote(id),
     onSuccess: () => {
@@ -236,25 +234,116 @@ export function NotesPage() {
     },
   });
 
-  // 8. 交互操作处理器
-  const handleCreateNote = (initialColor?: NoteColor) => {
-    const currentFolder =
-      selectedFolderId && selectedFolderId !== 'unfiled' ? selectedFolderId : null;
-    createNoteMutation.mutate({
-      title: '',
-      content: '',
-      color: initialColor ?? (selectedColor !== 'all' ? selectedColor : 'yellow'),
-      folderId: currentFolder,
-    });
-  };
+  // 8. 交互操作处理器 (本地草稿优先机制，只有真正输入并保存后才落库出现在瀑布流中)
+  const handleCreateNote = useCallback(
+    (initialColor?: NoteColor) => {
+      const currentFolder =
+        selectedFolderId && selectedFolderId !== 'unfiled' ? selectedFolderId : null;
+      const noteColor =
+        initialColor ?? (selectedColor !== 'all' ? selectedColor : getRandomNoteColor());
+
+      const draftNote: NoteView = {
+        id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        folderId: currentFolder,
+        revision: 1,
+        title: '',
+        content: '',
+        excerpt: '',
+        color: noteColor,
+        isPinned: false,
+        status: 'active',
+        metadata: {},
+        tags: selectedTag ? [selectedTag] : [],
+        todoLinks: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        trashedAt: null,
+      };
+
+      setActiveNoteForEdit(draftNote);
+    },
+    [selectedFolderId, selectedColor, selectedTag],
+  );
 
   const handleOpenEditor = (note: NoteView) => {
     setActiveNoteForEdit(note);
   };
 
-  const handleCloseEditor = () => {
+  const handleCloseEditor = useCallback(() => {
     setActiveNoteForEdit(null);
-  };
+    invalidateAll();
+  }, [invalidateAll]);
+
+  // 页面级快捷键监听 (Ctrl+N 新建, Ctrl+F 聚焦搜索, Esc 清除筛选/多选, 1/2 视图切换)
+  useEffect(() => {
+    const handlePageKeyDown = (e: KeyboardEvent) => {
+      // 若当前正处于便签编辑器全屏/专注编辑状态，由 NoteEditor 内部快捷键处理
+      if (activeNoteForEdit) return;
+
+      const isMac =
+        typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      const activeEl = document.activeElement;
+      const isTyping =
+        activeEl instanceof HTMLInputElement ||
+        activeEl instanceof HTMLTextAreaElement ||
+        activeEl?.getAttribute('contenteditable') === 'true';
+
+      // 1. Ctrl+N / Cmd+N / Alt+N: 快速新建随机配色便签
+      if ((modKey || e.altKey) && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        handleCreateNote();
+        return;
+      }
+
+      // 2. Ctrl+F / Cmd+F: 聚焦搜索输入框
+      if (modKey && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+        return;
+      }
+
+      // 3. Esc: 清除多选状态 / 清除搜索框 / 清除标签筛选 / 关闭文件夹弹窗
+      if (e.key === 'Escape') {
+        if (isFolderModalOpen) {
+          setIsFolderModalOpen(false);
+        } else if (isExportModalOpen) {
+          setIsExportModalOpen(false);
+        } else if (selectedNoteIds.size > 0) {
+          setSelectedNoteIds(new Set());
+        } else if (searchKeyword) {
+          setSearchKeyword('');
+        } else if (selectedTag) {
+          setSelectedTag(null);
+        }
+        return;
+      }
+
+      // 4. 当用户未在搜索输入框中打字时，支持 1 / 2 快捷切换瀑布流与列表视图
+      if (!isTyping) {
+        if (e.key === '1') {
+          handleViewModeChange('masonry');
+        } else if (e.key === '2') {
+          handleViewModeChange('list');
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handlePageKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handlePageKeyDown);
+    };
+  }, [
+    activeNoteForEdit,
+    isFolderModalOpen,
+    isExportModalOpen,
+    selectedNoteIds,
+    searchKeyword,
+    selectedTag,
+    handleCreateNote,
+  ]);
 
   const handleTogglePin = (note: NoteView) => {
     batchMutation.mutate({
@@ -407,6 +496,19 @@ export function NotesPage() {
     }
   };
 
+  const handleNoteUpdate = useCallback(
+    (updated: NoteView) => {
+      setActiveNoteForEdit(updated);
+      invalidateAll();
+    },
+    [invalidateAll],
+  );
+
+  const handleNoteDeleted = useCallback(() => {
+    handleCloseEditor();
+    invalidateAll();
+  }, [handleCloseEditor, invalidateAll]);
+
   // 面包屑 / 筛选标题
   const currentViewTitle = useMemo(() => {
     if (selectedStatus === 'archived') return '已归档便签';
@@ -439,17 +541,8 @@ export function NotesPage() {
                 onClick={handleCloseEditor}
                 className="gap-1.5 px-3.5 text-xs font-semibold"
               >
-                <span>← 返回便签列表</span>
-              </Button>
-            ) : selectedStatus !== 'trashed' ? (
-              <Button
-                variant="primary"
-                onClick={() => handleCreateNote()}
-                className="gap-1.5 px-4"
-                data-testid="create-note-header-btn"
-              >
-                <IconPlus size={16} />
-                <span>新建便签</span>
+                <IconChevronLeft size={14} />
+                <span>返回便签列表</span>
               </Button>
             ) : null
           }
@@ -492,29 +585,24 @@ export function NotesPage() {
         <main className="flex-1 flex flex-col min-w-0 bg-page overflow-y-auto p-4 sm:p-6">
           {activeNoteForEdit ? (
             /* 沉浸式原位便签工作区过渡 (In-place Note Workspace) */
-            <div className="flex-1 flex flex-col h-full min-h-[600px] animate-scale-in">
+            <div className="flex-1 flex flex-col h-full min-h-[600px] animate-editor-enter">
               <NoteEditor
                 note={activeNoteForEdit}
                 folders={foldersTree}
                 onClose={handleCloseEditor}
                 onBack={handleCloseEditor}
-                onUpdate={(updated) => {
-                  setActiveNoteForEdit(updated);
-                  invalidateAll();
-                }}
-                onDelete={() => {
-                  handleCloseEditor();
-                  invalidateAll();
-                }}
+                onUpdate={handleNoteUpdate}
+                onDelete={handleNoteDeleted}
                 className="h-full"
               />
             </div>
           ) : (
-            <>
+            <div className="flex-1 flex flex-col min-w-0 animate-view-fade-in">
               {/* 工具栏 */}
               <NotesToolbar
                 searchKeyword={searchKeyword}
                 onSearchChange={setSearchKeyword}
+                searchInputRef={searchInputRef}
                 viewMode={viewMode}
                 onViewModeChange={handleViewModeChange}
                 selectedColor={selectedColor}
@@ -628,7 +716,7 @@ export function NotesPage() {
                   onTagClick={(tag) => setSelectedTag(tag)}
                 />
               )}
-            </>
+            </div>
           )}
         </main>
       </div>

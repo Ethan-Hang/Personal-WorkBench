@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { IconCode, IconHeading, IconLink, IconQuote, IconTable, IconTerminal } from './icons.js';
+import { IconCheckSquare, IconChevronDown, IconImage, IconSparkles } from '@workbench/ui';
 
 export type FormatType =
   | 'bold'
@@ -363,56 +365,57 @@ export function NoteFormatToolbar({
         <button
           type="button"
           onClick={() => setActiveDropdown(activeDropdown === 'heading' ? null : 'heading')}
-          className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink font-semibold transition"
+          className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink font-semibold transition cursor-pointer"
           title="标题层级 (H1 ~ H6)"
         >
+          <IconHeading size={13} />
           <span>标题</span>
-          <span className="text-[10px] text-muted">▼</span>
+          <IconChevronDown size={10} className="text-muted" />
         </button>
 
         {activeDropdown === 'heading' && (
-          <div className="absolute left-0 top-full mt-1 z-30 w-36 rounded-md border border-line bg-surface p-1 shadow-lg backdrop-blur">
+          <div className="absolute left-0 top-full mt-1 z-30 w-36 rounded-panel border border-line bg-surface p-1 shadow-xl backdrop-blur animate-popover-enter">
             <button
               type="button"
               onClick={() => handleApplyFormat('h1')}
-              className="w-full text-left px-2.5 py-1.5 text-base font-bold rounded hover:bg-surface-2 text-ink"
+              className="w-full text-left px-2.5 py-1.5 text-base font-bold rounded hover:bg-surface-2 text-ink cursor-pointer"
             >
-              # 一级标题 (H1)
+              H1 一级标题
             </button>
             <button
               type="button"
               onClick={() => handleApplyFormat('h2')}
-              className="w-full text-left px-2.5 py-1.5 text-sm font-semibold rounded hover:bg-surface-2 text-ink"
+              className="w-full text-left px-2.5 py-1.5 text-sm font-semibold rounded hover:bg-surface-2 text-ink cursor-pointer"
             >
-              ## 二级标题 (H2)
+              H2 二级标题
             </button>
             <button
               type="button"
               onClick={() => handleApplyFormat('h3')}
-              className="w-full text-left px-2.5 py-1.5 text-xs font-semibold rounded hover:bg-surface-2 text-ink"
+              className="w-full text-left px-2.5 py-1.5 text-xs font-semibold rounded hover:bg-surface-2 text-ink cursor-pointer"
             >
-              ### 三级标题 (H3)
+              H3 三级标题
             </button>
             <button
               type="button"
               onClick={() => handleApplyFormat('h4')}
-              className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-surface-2 text-secondary"
+              className="w-full text-left px-2.5 py-1.5 text-xs rounded hover:bg-surface-2 text-secondary cursor-pointer"
             >
-              #### 四级标题 (H4)
+              H4 四级标题
             </button>
             <button
               type="button"
               onClick={() => handleApplyFormat('h5')}
-              className="w-full text-left px-2.5 py-1.5 text-[11px] rounded hover:bg-surface-2 text-secondary"
+              className="w-full text-left px-2.5 py-1.5 text-[11px] rounded hover:bg-surface-2 text-secondary cursor-pointer"
             >
-              ##### 五级标题 (H5)
+              H5 五级标题
             </button>
             <button
               type="button"
               onClick={() => handleApplyFormat('h6')}
-              className="w-full text-left px-2.5 py-1.5 text-[10px] rounded hover:bg-surface-2 text-muted"
+              className="w-full text-left px-2.5 py-1.5 text-[10px] rounded hover:bg-surface-2 text-muted cursor-pointer"
             >
-              ###### 六级标题 (H6)
+              H6 六级标题
             </button>
           </div>
         )}
@@ -424,7 +427,7 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('bold')}
-        className="px-2 py-1 rounded hover:bg-surface-3 font-bold text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 font-bold text-ink transition cursor-pointer"
         title="加粗 (Ctrl+B)"
       >
         B
@@ -432,7 +435,7 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('italic')}
-        className="px-2 py-1 rounded hover:bg-surface-3 italic text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 italic text-ink transition cursor-pointer"
         title="斜体 (Ctrl+I)"
       >
         I
@@ -440,7 +443,7 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('strike')}
-        className="px-2 py-1 rounded hover:bg-surface-3 line-through text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 line-through text-ink transition cursor-pointer"
         title="删除线"
       >
         S
@@ -448,7 +451,7 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('underline')}
-        className="px-2 py-1 rounded hover:bg-surface-3 underline text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 underline text-ink transition cursor-pointer"
         title="下划线"
       >
         U
@@ -456,26 +459,18 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('highlight')}
-        className="px-2 py-1 rounded hover:bg-surface-3 bg-amber-200/40 dark:bg-amber-800/40 text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 bg-amber-200/40 dark:bg-amber-800/40 text-ink transition cursor-pointer"
         title="高亮 (==高亮==)"
       >
         HL
       </button>
       <button
         type="button"
-        onClick={() => handleApplyFormat('spoiler')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-secondary transition"
-        title="刮刮乐隐私文本 (!!保密!!)"
-      >
-        !!
-      </button>
-      <button
-        type="button"
         onClick={() => handleApplyFormat('code')}
-        className="px-2 py-1 rounded hover:bg-surface-3 font-mono text-amber-600 dark:text-amber-400 transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 font-mono text-amber-600 dark:text-amber-400 transition cursor-pointer"
         title="行内代码 (`code`)"
       >
-        &lt;/&gt;
+        <IconCode size={13} />
       </button>
 
       <div className="h-4 w-px bg-line/80 mx-0.5" />
@@ -484,7 +479,7 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('ul')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="无序列表"
       >
         • 列表
@@ -492,7 +487,7 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('ol')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="有序列表"
       >
         1. 列表
@@ -500,26 +495,28 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('task')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="待办清单 (- [ ])"
       >
-        ☑ 清单
+        <IconCheckSquare size={13} />
+        <span>清单</span>
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('quote')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="引用段落 (>)"
       >
-        ❝ 引用
+        <IconQuote size={13} />
+        <span>引用</span>
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('hr')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="分割线 (---)"
       >
-        ― 分割
+        分割线
       </button>
 
       <div className="h-4 w-px bg-line/80 mx-0.5" />
@@ -528,15 +525,16 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('link')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="超链接 (Ctrl+K)"
       >
-        🔗 链接
+        <IconLink size={13} />
+        <span>链接</span>
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('wikilink')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-purple-600 dark:text-purple-400 font-medium transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 text-purple-600 dark:text-purple-400 font-medium transition cursor-pointer"
         title="便签双向链接 ([[便签]])"
       >
         [[双链]]
@@ -544,60 +542,64 @@ export function NoteFormatToolbar({
       <button
         type="button"
         onClick={() => handleApplyFormat('image')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="插入图片 (![描述](url))"
       >
-        🖼 图片
+        <IconImage size={13} />
+        <span>图片</span>
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('table')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="插入表格"
       >
-        ⊞ 表格
+        <IconTable size={13} />
+        <span>表格</span>
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('codeblock')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-ink transition cursor-pointer"
         title="代码块"
       >
-        ⌨ 代码块
+        <IconTerminal size={13} />
+        <span>代码块</span>
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('math-block')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-ink transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 text-ink font-serif italic font-bold transition cursor-pointer"
         title="KaTeX 数学公式 ($$)"
       >
-        ∑ 公式
+        f(x)
       </button>
       <button
         type="button"
         onClick={() => handleApplyFormat('mermaid')}
-        className="px-2 py-1 rounded hover:bg-surface-3 text-teal-600 dark:text-teal-400 transition"
+        className="px-2 py-1 rounded hover:bg-surface-3 text-teal-600 dark:text-teal-400 font-mono text-[11px] transition cursor-pointer"
         title="Mermaid 流程图 / 图表"
       >
-        📊 图表
+        Mermaid
       </button>
 
       <div className="h-4 w-px bg-line/80 mx-0.5" />
 
-      {/* Plume 容器扩展下拉 */}
+      {/* 容器组件下拉 */}
       <div className="relative inline-block">
         <button
           type="button"
           onClick={() => setActiveDropdown(activeDropdown === 'container' ? null : 'container')}
-          className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface-3 text-blue-600 dark:text-blue-400 font-medium transition"
-          title="Plume 扩展容器组件 (tip, steps, tabs, card...)"
+          className="flex items-center gap-1 px-2.5 py-1 rounded-control border border-accent/30 bg-accent-soft text-accent font-medium text-xs transition cursor-pointer shadow-2xs"
+          title="扩展容器组件 (tip, steps, tabs, card...)"
         >
-          <span>📦 扩展容器</span>
-          <span className="text-[10px]">▼</span>
+          <IconSparkles size={13} />
+          <span>容器组件</span>
+          <IconChevronDown size={10} />
         </button>
 
         {activeDropdown === 'container' && (
-          <div className="absolute right-0 top-full mt-1 z-30 w-52 max-h-72 overflow-y-auto rounded-md border border-line bg-surface p-1 shadow-lg backdrop-blur">
+          <div className="absolute right-0 top-full mt-1.5 z-40 w-48 max-h-72 overflow-y-auto rounded-panel border border-line bg-surface p-1 shadow-xl backdrop-blur animate-popover-enter text-xs">
             <button
               type="button"
               onClick={() => handleApplyFormat('container-tip')}

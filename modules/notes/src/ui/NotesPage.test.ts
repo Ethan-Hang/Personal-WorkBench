@@ -12,6 +12,8 @@ import {
   NoteEditorModal,
   NoteFormatToolbar,
   NoteOutlineToc,
+  getRandomNoteColor,
+  NOTE_COLOR_LIST,
 } from './index.js';
 
 describe('NotesPage & UI Components Suite', () => {
@@ -58,5 +60,15 @@ describe('NotesPage & UI Components Suite', () => {
     expect(notesUiModule.routes).toHaveLength(1);
     expect(notesUiModule.routes[0]?.path).toBe('/notes');
     expect(notesUiModule.routes[0]?.element).toBeDefined();
+  });
+
+  it('getRandomNoteColor 随机挑选合法的便签色彩', () => {
+    expect(NOTE_COLOR_LIST).toHaveLength(6);
+    expect(NOTE_COLOR_LIST).toEqual(['yellow', 'green', 'blue', 'purple', 'pink', 'gray']);
+
+    for (let i = 0; i < 50; i++) {
+      const color = getRandomNoteColor();
+      expect(NOTE_COLOR_LIST).toContain(color);
+    }
   });
 });

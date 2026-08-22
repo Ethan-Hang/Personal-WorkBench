@@ -12,7 +12,7 @@ import {
   IconX,
 } from '@workbench/ui';
 import { getNoteColorDotClass, getNoteColorLabel } from './NoteEditor.js';
-import { IconPin } from './icons.js';
+import { IconLayoutGrid, IconLayoutList, IconPin } from './icons.js';
 
 export interface NotesToolbarProps {
   searchKeyword: string;
@@ -34,6 +34,7 @@ export interface NotesToolbarProps {
   onCreateNote: (initialColor?: NoteColor) => void;
   allFoldersFlat: FolderView[];
   selectedStatus: NoteStatus;
+  searchInputRef?: React.RefObject<HTMLInputElement | null>;
   className?: string;
 }
 
@@ -57,6 +58,7 @@ export function NotesToolbar({
   onCreateNote,
   allFoldersFlat,
   selectedStatus,
+  searchInputRef,
   className = '',
 }: NotesToolbarProps) {
   const [showColorDropdown, setShowColorDropdown] = useState(false);
@@ -74,15 +76,16 @@ export function NotesToolbar({
         {/* 左侧：搜索框 */}
         <div className="relative flex-1 min-w-[200px] max-w-md">
           <IconSearch
-            size={16}
+            size={15}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
           />
           <input
+            ref={searchInputRef}
             type="text"
             value={searchKeyword}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="搜索便签标题、内容或标签..."
-            className="w-full pl-9 pr-8 py-1.5 text-xs rounded-control border border-line bg-surface text-ink placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent/40 focus:border-accent transition-all shadow-2xs"
+            placeholder="搜索便签标题、内容或标签 (Ctrl+F)..."
+            className="w-full pl-9 pr-8 py-1.5 text-xs rounded-control border border-line bg-surface text-ink placeholder:text-muted focus:outline-hidden focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all shadow-2xs"
           />
           {searchKeyword && (
             <button
@@ -104,22 +107,22 @@ export function NotesToolbar({
               onClick={() => setShowColorDropdown((prev) => !prev)}
               className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-control border text-xs font-medium transition-all shadow-2xs cursor-pointer ${
                 selectedColor !== 'all'
-                  ? 'border-accent text-accent bg-accent-soft font-semibold'
+                  ? 'border-accent/40 text-accent bg-accent-soft font-semibold'
                   : 'border-line bg-surface text-secondary hover:text-ink hover:bg-surface-2'
               }`}
               title="按主题色筛选"
             >
               {selectedColor === 'all' ? (
-                <div className="size-3 rounded-full border border-line bg-gradient-to-tr from-amber-400 via-rose-400 to-sky-400" />
+                <div className="size-2.5 rounded-full border border-line bg-gradient-to-tr from-amber-400 via-rose-400 to-sky-400" />
               ) : (
                 <div
-                  className={`size-3 rounded-full border border-black/20 ${getNoteColorDotClass(
+                  className={`size-2.5 rounded-full border border-black/20 ${getNoteColorDotClass(
                     selectedColor,
                   )}`}
                 />
               )}
               <span>{selectedColor === 'all' ? '全部颜色' : getNoteColorLabel(selectedColor)}</span>
-              <IconChevronDown size={12} />
+              <IconChevronDown size={12} className="text-muted" />
             </button>
 
             {showColorDropdown && (
@@ -148,7 +151,7 @@ export function NotesToolbar({
                   >
                     <div className="flex items-center gap-2">
                       <div
-                        className={`size-3 rounded-full border border-black/20 ${getNoteColorDotClass(
+                        className={`size-2.5 rounded-full border border-black/20 ${getNoteColorDotClass(
                           c,
                         )}`}
                       />
@@ -165,91 +168,65 @@ export function NotesToolbar({
           <button
             type="button"
             onClick={onTogglePinnedOnly}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-control border text-xs font-medium transition-all shadow-2xs cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-control border text-xs font-medium transition-all shadow-2xs cursor-pointer ${
               pinnedOnly
-                ? 'border-warning/80 text-warning bg-warning-soft font-semibold'
+                ? 'border-warning/50 text-warning bg-warning-soft font-semibold'
                 : 'border-line bg-surface text-secondary hover:text-ink hover:bg-surface-2'
             }`}
             title="仅看置顶便签"
           >
-            <span>📌</span>
+            <IconPin size={13} className={pinnedOnly ? 'text-warning' : 'text-muted'} />
             <span>置顶</span>
           </button>
 
-          {/* 视图模式切换 */}
-          <div className="flex items-center rounded-control border border-line bg-surface p-0.5 shadow-2xs">
+          {/* 视图模式切换 (Apple / Linear 风格分段控制) */}
+          <div className="flex items-center rounded-control border border-line bg-surface-2/80 p-0.5 shadow-2xs">
             <button
               type="button"
               onClick={() => onViewModeChange('masonry')}
-              className={`p-1.5 rounded-control transition-all text-xs flex items-center justify-center cursor-pointer ${
+              className={`p-1.5 rounded-[7px] transition-all text-xs flex items-center justify-center cursor-pointer ${
                 viewMode === 'masonry'
-                  ? 'bg-accent text-white shadow-2xs'
-                  : 'text-secondary hover:text-ink'
+                  ? 'bg-surface text-ink font-semibold shadow-2xs'
+                  : 'text-muted hover:text-ink'
               }`}
               title="瀑布流网格视图"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <rect width="8" height="10" x="3" y="3" rx="1" />
-                <rect width="8" height="6" x="13" y="3" rx="1" />
-                <rect width="8" height="6" x="3" y="15" rx="1" />
-                <rect width="8" height="10" x="13" y="11" rx="1" />
-              </svg>
+              <IconLayoutGrid size={13} />
             </button>
             <button
               type="button"
               onClick={() => onViewModeChange('list')}
-              className={`p-1.5 rounded-control transition-all text-xs flex items-center justify-center cursor-pointer ${
+              className={`p-1.5 rounded-[7px] transition-all text-xs flex items-center justify-center cursor-pointer ${
                 viewMode === 'list'
-                  ? 'bg-accent text-white shadow-2xs'
-                  : 'text-secondary hover:text-ink'
+                  ? 'bg-surface text-ink font-semibold shadow-2xs'
+                  : 'text-muted hover:text-ink'
               }`}
               title="经典列表视图"
             >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <line x1="8" x2="21" y1="6" y2="6" />
-                <line x1="8" x2="21" y1="12" y2="12" />
-                <line x1="8" x2="21" y1="18" y2="18" />
-                <line x1="3" x2="3.01" y1="6" y2="6" />
-                <line x1="3" x2="3.01" y1="12" y2="12" />
-                <line x1="3" x2="3.01" y1="18" y2="18" />
-              </svg>
+              <IconLayoutList size={13} />
             </button>
           </div>
 
-          {/* 新建便签一体化组合按钮 (Segmented Split Button) */}
+          {/* 新建便签一体化组合按钮 */}
           {!isTrashed && (
-            <div className="relative inline-flex items-stretch rounded-control shadow-2xs bg-accent text-white group">
+            <div className="relative inline-flex items-stretch rounded-control shadow-xs bg-ink text-surface group">
               <button
                 type="button"
                 onClick={() => onCreateNote()}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-accent hover:bg-accent/90 text-white rounded-l-control transition-all active:scale-[0.98] cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-ink hover:opacity-90 text-surface rounded-l-control transition-all active:scale-[0.98] cursor-pointer"
                 title="新建便签"
               >
-                <IconPlus size={14} />
+                <IconPlus size={13} />
                 <span>新建便签</span>
               </button>
-              <div className="w-[1px] bg-white/25 self-stretch" />
+              <div className="w-[1px] bg-surface/20 self-stretch" />
               <button
                 type="button"
                 onClick={() => setShowNewNoteDropdown((prev) => !prev)}
-                className="inline-flex items-center justify-center px-2 py-1.5 bg-accent hover:bg-accent/90 text-white rounded-r-control transition-all active:scale-[0.98] cursor-pointer"
+                className="inline-flex items-center justify-center px-2 py-1.5 bg-ink hover:opacity-90 text-surface rounded-r-control transition-all active:scale-[0.98] cursor-pointer"
                 title="选择初始便签颜色"
               >
-                <IconChevronDown size={13} />
+                <IconChevronDown size={12} />
               </button>
 
               {showNewNoteDropdown && (
@@ -266,7 +243,7 @@ export function NotesToolbar({
                         setShowNewNoteDropdown(false);
                       }}
                       title={`以 ${getNoteColorLabel(c)} 新建便签`}
-                      className={`size-6 rounded-full border border-black/20 transition-transform hover:scale-120 active:scale-95 cursor-pointer ${getNoteColorDotClass(
+                      className={`size-5 rounded-full border border-black/15 transition-transform hover:scale-115 active:scale-95 cursor-pointer ${getNoteColorDotClass(
                         c,
                       )}`}
                     />

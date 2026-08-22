@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Modal, Button } from '@workbench/ui';
+import { Modal, Button, IconImage } from '@workbench/ui';
 import type { NoteView } from '../../contract.js';
 import {
   exportToHtml,
@@ -8,6 +8,7 @@ import {
   exportToPng,
   type ExportOptions,
 } from '../exportEngine.js';
+import { IconFileText, IconShare } from './icons.js';
 
 export interface NoteExportModalProps {
   isOpen: boolean;
@@ -91,7 +92,9 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl">📝</span>
+                <div className="size-7 rounded-control bg-accent-soft text-accent flex items-center justify-center">
+                  <IconFileText size={15} />
+                </div>
                 <span className="font-bold text-ink text-sm">Markdown 源文件</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
@@ -103,7 +106,7 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
               variant="secondary"
               onClick={() => handleExport('md')}
               disabled={isExporting}
-              className="w-full text-xs py-1.5"
+              className="w-full text-xs py-1.5 cursor-pointer"
             >
               下载 .md 文件
             </Button>
@@ -113,7 +116,9 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl">🌐</span>
+                <div className="size-7 rounded-control bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <IconShare size={15} />
+                </div>
                 <span className="font-bold text-ink text-sm">独立离线 HTML</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
@@ -125,7 +130,7 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
               variant="secondary"
               onClick={() => handleExport('html')}
               disabled={isExporting}
-              className="w-full text-xs py-1.5"
+              className="w-full text-xs py-1.5 cursor-pointer"
             >
               下载 .html 文件
             </Button>
@@ -135,7 +140,9 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl">🖼️</span>
+                <div className="size-7 rounded-control bg-rose-500/15 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                  <IconImage size={15} />
+                </div>
                 <span className="font-bold text-ink text-sm">PNG 高清分享长图</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
@@ -147,7 +154,7 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
               variant="secondary"
               onClick={() => handleExport('png')}
               disabled={isExporting}
-              className="w-full text-xs py-1.5"
+              className="w-full text-xs py-1.5 cursor-pointer"
             >
               生成并下载图片
             </Button>
@@ -157,7 +164,9 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xl">📄</span>
+                <div className="size-7 rounded-control bg-purple-500/15 text-purple-600 dark:text-purple-400 flex items-center justify-center">
+                  <IconFileText size={15} />
+                </div>
                 <span className="font-bold text-ink text-sm">PDF 文档 / 打印</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
@@ -168,7 +177,7 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
               variant="secondary"
               onClick={() => handleExport('pdf')}
               disabled={isExporting}
-              className="w-full text-xs py-1.5"
+              className="w-full text-xs py-1.5 cursor-pointer"
             >
               打开打印 / 另存为 PDF
             </Button>

@@ -6,6 +6,7 @@ import {
   IconChevronRight,
   IconEdit,
   IconFileText,
+  IconFolder,
   IconPlus,
   IconTrash,
 } from '@workbench/ui';
@@ -96,7 +97,11 @@ function FolderTreeItem({
             <span className="w-3" />
           )}
 
-          <span className="text-sm shrink-0">{node.icon || '📁'}</span>
+          {node.icon && node.icon !== '📁' ? (
+            <span className="text-sm shrink-0">{node.icon}</span>
+          ) : (
+            <IconFolder size={14} className="text-secondary shrink-0" />
+          )}
           <span className="truncate">{node.name}</span>
         </div>
 

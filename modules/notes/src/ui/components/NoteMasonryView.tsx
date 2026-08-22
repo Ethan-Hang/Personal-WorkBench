@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import type { FolderView, NoteColor, NoteView } from '../../contract.js';
 import { EmptyState, IconFileText } from '@workbench/ui';
 import { NoteCard } from './NoteCard.js';
+import { IconPin } from './icons.js';
 
 export interface NoteMasonryViewProps {
   notes: NoteView[];
@@ -69,7 +70,7 @@ export function NoteMasonryView({
     const folderName = folder ? `${folder.icon || '📁'} ${folder.name}` : undefined;
 
     return (
-      <div key={note.id} className="break-inside-avoid mb-4">
+      <div key={note.id} className="break-inside-avoid">
         <NoteCard
           note={note}
           folderName={folderName}
@@ -94,9 +95,9 @@ export function NoteMasonryView({
     <div className={`flex flex-col gap-6 ${className}`} data-testid="notes-masonry-view">
       {/* 置顶便签分区 */}
       {pinnedNotes.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wider px-1">
-            <span>📌</span>
+        <div className="flex flex-col gap-3 transition-all duration-300">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-warning uppercase tracking-wider px-1">
+            <IconPin size={13} className="text-warning" />
             <span>置顶便签 ({pinnedNotes.length})</span>
           </div>
           <div className="columns-1 sm:columns-2 lg:columns-3 xl:columns-4 gap-4 [column-fill:_balance]">
