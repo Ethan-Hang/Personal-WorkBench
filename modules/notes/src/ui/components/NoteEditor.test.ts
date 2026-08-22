@@ -4,6 +4,7 @@ import {
   formatReadingTime,
   getNoteColorBgClass,
   getNoteColorDotClass,
+  getNoteColorLabel,
   NoteEditor,
 } from './NoteEditor.js';
 import { NoteEditorModal } from './NoteEditorModal.js';
@@ -55,6 +56,15 @@ describe('NoteEditor - computeNoteStats', () => {
     expect(getNoteColorDotClass('purple')).toContain('purple');
     expect(getNoteColorDotClass('pink')).toContain('rose');
     expect(getNoteColorDotClass('gray')).toContain('zinc');
+  });
+
+  it('getNoteColorLabel 返回友好的中文色彩名称', () => {
+    expect(getNoteColorLabel('yellow')).toBe('暖阳黄');
+    expect(getNoteColorLabel('green')).toBe('薄荷绿');
+    expect(getNoteColorLabel('blue')).toBe('清泉蓝');
+    expect(getNoteColorLabel('purple')).toBe('薰衣草');
+    expect(getNoteColorLabel('pink')).toBe('樱花粉');
+    expect(getNoteColorLabel('gray')).toBe('极简灰');
   });
 
   it('成功导出所有编辑器核心 React 组件', () => {

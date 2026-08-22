@@ -44,18 +44,42 @@ export function parseInline(text: string): InlineNode[] {
       continue;
     }
 
-    // 4. <Badge text="..." type="..." />
-    const badgeMatch = remaining.match(/^<Badge\s+([^/>]+)\/>/);
-    if (badgeMatch && badgeMatch[1] !== undefined) {
-      const attrsStr = badgeMatch[1];
-      const textAttr = attrsStr.match(/text="([^"]+)"/)?.[1] ?? '';
-      const typeAttr = (attrsStr.match(/type="([^"]+)"/)?.[1] ?? 'tip') as BadgeType;
-      results.push({
-        type: 'badge',
-        text: textAttr,
-        badgeType: typeAttr,
-      });
+    // 4. <Badge text="..." type="..." /> 或 :badge[text]{type="..."} 或 @badge(text, type)
+    const badgeMatch =
+      remaining.match(/^<Badge\s+([^/>]+)\/>/) ||
+      remaining.match(/^:badge\[([^\]]+)\](?:\{type="([^"]+)"\})?/) ||
+      remaining.match(/^@badge\(([^,)]+)(?:,\s*([^)]+))?\)/);
+    if (badgeMatch) {
+      if (badgeMatch[0].startsWith('<Badge')) {
+        const attrsStr = badgeMatch[1] ?? '';
+        const textAttr = attrsStr.match(/text="([^"]+)"/)?.[1] ?? '';
+        const typeAttr = (attrsStr.match(/type="([^"]+)"/)?.[1] ?? 'tip') as BadgeType;
+        results.push({
+          type: 'badge',
+          text: textAttr,
+          badgeType: typeAttr,
+        });
+      } else {
+        const textAttr = (badgeMatch[1] ?? '').trim();
+        const typeAttr = (badgeMatch[2] ?? 'tip').trim().toLowerCase() as BadgeType;
+        results.push({
+          type: 'badge',
+          text: textAttr,
+          badgeType: typeAttr,
+        });
+      }
       remaining = remaining.slice(badgeMatch[0].length);
+      continue;
+    }
+
+    // 4.1 <kbd>Key</kbd> 按键组件
+    const kbdMatch = remaining.match(/^<kbd>([^<]+)<\/kbd>/i);
+    if (kbdMatch && kbdMatch[1] !== undefined) {
+      results.push({
+        type: 'kbd',
+        text: kbdMatch[1].trim(),
+      });
+      remaining = remaining.slice(kbdMatch[0].length);
       continue;
     }
 
@@ -176,9 +200,31 @@ export function parseInline(text: string): InlineNode[] {
       continue;
     }
 
+    // 14.1 下标 ~text~
+    const subMatch = remaining.match(/^~([^~\s]+)~/);
+    if (subMatch && subMatch[1] !== undefined) {
+      results.push({
+        type: 'sub',
+        children: parseInline(subMatch[1]),
+      });
+      remaining = remaining.slice(subMatch[0].length);
+      continue;
+    }
+
+    // 14.2 上标 ^text^
+    const supMatch = remaining.match(/^\^([^^ \n]+)\^/);
+    if (supMatch && supMatch[1] !== undefined) {
+      results.push({
+        type: 'sup',
+        children: parseInline(supMatch[1]),
+      });
+      remaining = remaining.slice(supMatch[0].length);
+      continue;
+    }
+
     // 15. 纯文本分词：吞掉直到下一个可能的分隔符起始
     const delimiterIndex = remaining.search(
-      /[`!<:*$=_~[\]]|(?:\*\*)|(?:\*\[)|(?:==)|(?:!!)|(?:~~)/,
+      /[`!<:*$=_~^[\]@]|(?:\*\*)|(?:\*\[)|(?:==)|(?:!!)|(?:~~)/,
     );
     if (delimiterIndex === -1) {
       results.push({ type: 'text', value: remaining });

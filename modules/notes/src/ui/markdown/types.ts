@@ -99,6 +99,21 @@ export interface AbbrNode {
   explanation: string;
 }
 
+export interface KbdNode {
+  type: 'kbd';
+  text: string;
+}
+
+export interface SubNode {
+  type: 'sub';
+  children: InlineNode[];
+}
+
+export interface SupNode {
+  type: 'sup';
+  children: InlineNode[];
+}
+
 export type InlineNode =
   | TextNode
   | BoldNode
@@ -113,7 +128,10 @@ export type InlineNode =
   | InlineMathNode
   | BadgeNode
   | IconNode
-  | AbbrNode;
+  | AbbrNode
+  | KbdNode
+  | SubNode
+  | SupNode;
 
 export interface HeadingNode {
   type: 'heading';

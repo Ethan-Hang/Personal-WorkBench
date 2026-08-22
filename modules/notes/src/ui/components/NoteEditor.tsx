@@ -37,38 +37,60 @@ export function formatReadingTime(minutes: number): string {
   return `约 ${minutes} 分钟阅读`;
 }
 
+export const NOTE_COLOR_CONFIG: Record<
+  NoteColor,
+  { label: string; bgClass: string; dotClass: string }
+> = {
+  yellow: {
+    label: '暖阳黄',
+    bgClass:
+      'bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800/60 text-ink shadow-xs',
+    dotClass: 'bg-amber-400 border-amber-500 shadow-2xs',
+  },
+  green: {
+    label: '薄荷绿',
+    bgClass:
+      'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800/60 text-ink shadow-xs',
+    dotClass: 'bg-emerald-400 border-emerald-500 shadow-2xs',
+  },
+  blue: {
+    label: '清泉蓝',
+    bgClass:
+      'bg-sky-50 border-sky-200 dark:bg-sky-950/30 dark:border-sky-800/60 text-ink shadow-xs',
+    dotClass: 'bg-sky-400 border-sky-500 shadow-2xs',
+  },
+  purple: {
+    label: '薰衣草',
+    bgClass:
+      'bg-purple-50 border-purple-200 dark:bg-purple-950/30 dark:border-purple-800/60 text-ink shadow-xs',
+    dotClass: 'bg-purple-400 border-purple-500 shadow-2xs',
+  },
+  pink: {
+    label: '樱花粉',
+    bgClass:
+      'bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-800/60 text-ink shadow-xs',
+    dotClass: 'bg-rose-400 border-rose-500 shadow-2xs',
+  },
+  gray: {
+    label: '极简灰',
+    bgClass: 'bg-surface border-zinc-200 dark:bg-surface-2 dark:border-zinc-700 text-ink shadow-xs',
+    dotClass: 'bg-zinc-400 border-zinc-500 shadow-2xs',
+  },
+};
+
 export function getNoteColorBgClass(color: NoteColor): string {
-  switch (color) {
-    case 'yellow':
-      return 'bg-amber-50/50 dark:bg-amber-950/20 border-amber-200/60 dark:border-amber-900/40 text-amber-900 dark:text-amber-100';
-    case 'green':
-      return 'bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200/60 dark:border-emerald-900/40 text-emerald-900 dark:text-emerald-100';
-    case 'blue':
-      return 'bg-sky-50/50 dark:bg-sky-950/20 border-sky-200/60 dark:border-sky-900/40 text-sky-900 dark:text-sky-100';
-    case 'purple':
-      return 'bg-purple-50/50 dark:bg-purple-950/20 border-purple-200/60 dark:border-purple-900/40 text-purple-900 dark:text-purple-100';
-    case 'pink':
-      return 'bg-rose-50/50 dark:bg-rose-950/20 border-rose-200/60 dark:border-rose-900/40 text-rose-900 dark:text-rose-100';
-    case 'gray':
-      return 'bg-zinc-50/50 dark:bg-zinc-900/30 border-zinc-200/60 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100';
-  }
+  return (
+    NOTE_COLOR_CONFIG[color]?.bgClass ??
+    'bg-surface-2 border-zinc-300/70 dark:border-zinc-700/60 text-ink'
+  );
 }
 
 export function getNoteColorDotClass(color: NoteColor): string {
-  switch (color) {
-    case 'yellow':
-      return 'bg-amber-400 border-amber-500';
-    case 'green':
-      return 'bg-emerald-400 border-emerald-500';
-    case 'blue':
-      return 'bg-sky-400 border-sky-500';
-    case 'purple':
-      return 'bg-purple-400 border-purple-500';
-    case 'pink':
-      return 'bg-rose-400 border-rose-500';
-    case 'gray':
-      return 'bg-zinc-400 border-zinc-500';
-  }
+  return NOTE_COLOR_CONFIG[color]?.dotClass ?? 'bg-zinc-400 border-zinc-500/40 shadow-2xs';
+}
+
+export function getNoteColorLabel(color: NoteColor): string {
+  return NOTE_COLOR_CONFIG[color]?.label ?? color;
 }
 
 export interface NoteEditorProps {
@@ -77,6 +99,7 @@ export interface NoteEditorProps {
   onUpdate?: (updated: NoteView) => void;
   onDelete?: (id: string) => void;
   onClose?: () => void;
+  onBack?: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   className?: string;
@@ -91,6 +114,7 @@ export function NoteEditor({
   onUpdate,
   onDelete,
   onClose,
+  onBack,
   isFullscreen = false,
   onToggleFullscreen,
   className = '',
@@ -355,6 +379,19 @@ export function NoteEditor({
     };
   }, [executeSave]);
 
+  const handleTaskToggle = (taskText: string, currentChecked: boolean) => {
+    const targetCheck = currentChecked ? '\\[x\\]' : '\\[ \\]';
+    const newCheck = currentChecked ? '- [ ]' : '- [x]';
+    const escaped = taskText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(-\\s+${targetCheck}\\s+)(${escaped})`, 'i');
+
+    if (regex.test(content)) {
+      const updated = content.replace(regex, `${newCheck} $2`);
+      setContent(updated);
+      triggerDebouncedSave();
+    }
+  };
+
   const colorBgClass = getNoteColorBgClass(color);
 
   return (
@@ -365,32 +402,55 @@ export function NoteEditor({
     >
       {/* 顶部主控制导航条 */}
       <header className="flex items-center justify-between px-4 py-2.5 border-b border-line bg-surface/90 backdrop-blur z-20 select-none">
-        {/* 左侧：色彩选择器、文件夹归属、置顶状态与保存状态指示 */}
-        <div className="flex items-center gap-2.5">
+        {/* 左侧：返回按钮、色彩选择器、文件夹归属、置顶状态与保存状态指示 */}
+        <div className="flex items-center gap-2">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-control border border-line bg-surface-2/80 hover:bg-surface-3 text-ink font-semibold text-xs transition active:scale-95 cursor-pointer shadow-2xs mr-1"
+              title="返回便签列表"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              <span>返回列表</span>
+            </button>
+          )}
+
           {/* 色彩选择器 */}
           <div className="relative">
             <button
               type="button"
               onClick={() => setIsColorPickerOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-control border border-line bg-surface-2/60 hover:bg-surface-3 transition"
+              className="flex items-center gap-1.5 px-2 py-1 rounded-control border border-line bg-surface-2/60 hover:bg-surface-3 transition cursor-pointer"
               title="切换便签主题色"
             >
-              <span className={`size-3 rounded-full border ${getNoteColorDotClass(color)}`} />
-              <span className="text-xs text-secondary capitalize">{color}</span>
+              <span
+                className={`size-3 rounded-full border border-black/10 ${getNoteColorDotClass(color)}`}
+              />
+              <span className="text-xs text-secondary font-medium">{getNoteColorLabel(color)}</span>
               <span className="text-[10px] text-muted">▼</span>
             </button>
 
             {isColorPickerOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-40 flex gap-1.5 p-2 rounded-panel border border-line bg-surface shadow-xl backdrop-blur">
+              <div className="absolute left-0 top-full mt-1.5 z-40 flex gap-1.5 p-2 rounded-panel border border-line bg-surface shadow-xl backdrop-blur animate-popover-enter">
                 {NOTE_COLORS.map((c) => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => handleColorChange(c)}
-                    className={`size-6 rounded-full border-2 transition ${getNoteColorDotClass(
+                    className={`size-6 rounded-full border border-black/15 transition cursor-pointer ${getNoteColorDotClass(
                       c,
-                    )} ${color === c ? 'ring-2 ring-amber-500 scale-110' : 'hover:scale-105'}`}
-                    title={`主题色：${c}`}
+                    )} ${color === c ? 'ring-2 ring-accent scale-115' : 'hover:scale-110'}`}
+                    title={`主题色：${getNoteColorLabel(c)}`}
                   />
                 ))}
               </div>
@@ -727,7 +787,7 @@ export function NoteEditor({
                   viewMode === 'split' ? 'w-1/2' : 'w-full max-w-4xl mx-auto'
                 } custom-scrollbar`}
               >
-                <NoteMarkdownViewer content={content} interactive />
+                <NoteMarkdownViewer content={content} onTaskToggle={handleTaskToggle} interactive />
               </div>
             )}
           </div>

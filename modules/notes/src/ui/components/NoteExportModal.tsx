@@ -56,29 +56,29 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
     <Modal isOpen={isOpen} onClose={onClose} title="导出便签" maxWidth="max-w-xl">
       <div className="flex flex-col gap-5 py-1">
         {/* 顶部便签信息卡片 */}
-        <div className="flex items-center justify-between p-3 rounded-lg bg-surface-raised border border-border text-xs">
+        <div className="flex items-center justify-between p-3.5 rounded-panel bg-surface-2 border border-line text-xs">
           <div className="flex flex-col gap-0.5 truncate">
-            <span className="font-semibold text-ink text-sm truncate">
+            <span className="font-bold text-ink text-sm truncate">
               {note.title.trim() || '无标题便签'}
             </span>
-            <span className="text-muted">
+            <span className="text-secondary text-xs">
               {note.tags.length > 0 ? note.tags.map((t) => `#${t}`).join(' ') : '无标签'} ·{' '}
               {note.content.length} 字符
             </span>
           </div>
-          <span className="shrink-0 px-2 py-0.5 rounded text-[11px] font-medium bg-accent/10 text-accent capitalize">
+          <span className="shrink-0 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-accent-soft text-accent capitalize border border-accent/20">
             {note.color}
           </span>
         </div>
 
         {/* 导出成功提示 */}
         {exportSuccess && (
-          <div className="p-2.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50 text-xs flex items-center justify-between animate-scale-in">
+          <div className="p-3 rounded-control bg-good-soft text-good border border-good/30 text-xs flex items-center justify-between animate-popover-enter font-medium">
             <span>✓ {exportSuccess}</span>
             <button
               type="button"
               onClick={() => setExportSuccess(null)}
-              className="text-emerald-600 hover:text-emerald-800 ml-2"
+              className="text-good hover:opacity-80 ml-2 font-bold cursor-pointer"
             >
               ×
             </button>
@@ -88,11 +88,11 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
         {/* 4 种导出格式选项矩阵 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {/* 1. Markdown 导出 */}
-          <div className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-accent/40 hover:bg-surface-raised/60 transition-all group">
+          <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">📝</span>
-                <span className="font-semibold text-ink text-sm">Markdown 源文件</span>
+                <span className="font-bold text-ink text-sm">Markdown 源文件</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
                 导出为 UTF-8 <code>.md</code> 纯文本文件，附带 YAML Frontmatter 元数据，兼容
@@ -110,11 +110,11 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           </div>
 
           {/* 2. 独立单文件 HTML 导出 */}
-          <div className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-accent/40 hover:bg-surface-raised/60 transition-all group">
+          <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🌐</span>
-                <span className="font-semibold text-ink text-sm">独立离线 HTML</span>
+                <span className="font-bold text-ink text-sm">独立离线 HTML</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
                 导出为单文件 <code>.html</code>
@@ -132,11 +132,11 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           </div>
 
           {/* 3. PNG 高清长图导出 */}
-          <div className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-accent/40 hover:bg-surface-raised/60 transition-all group">
+          <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">🖼️</span>
-                <span className="font-semibold text-ink text-sm">PNG 高清分享长图</span>
+                <span className="font-bold text-ink text-sm">PNG 高清分享长图</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
                 将便签转换为 2x
@@ -154,11 +154,11 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
           </div>
 
           {/* 4. PDF 文档打印导出 */}
-          <div className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-accent/40 hover:bg-surface-raised/60 transition-all group">
+          <div className="flex flex-col justify-between p-4 rounded-panel border border-line bg-surface hover:border-accent/40 hover:bg-surface-2/60 transition-all group shadow-2xs">
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-xl">📄</span>
-                <span className="font-semibold text-ink text-sm">PDF 文档 / 打印</span>
+                <span className="font-bold text-ink text-sm">PDF 文档 / 打印</span>
               </div>
               <p className="text-xs text-secondary leading-relaxed mb-3">
                 针对 A4 纸张排版进行分页优化，调起系统原生打印窗口，支持直接保存为 PDF 文档。
@@ -176,17 +176,15 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
         </div>
 
         {/* 导出偏好微调 */}
-        <div className="flex flex-col gap-2 pt-2 border-t border-border text-xs text-secondary">
-          <span className="font-medium text-ink text-[11px] uppercase tracking-wider">
-            导出选项
-          </span>
+        <div className="flex flex-col gap-2 pt-2 border-t border-line text-xs text-secondary">
+          <span className="font-bold text-ink text-[11px] uppercase tracking-wider">导出选项</span>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-1.5 cursor-pointer select-none">
               <input
                 type="checkbox"
                 checked={includeFrontmatter}
                 onChange={(e) => setIncludeFrontmatter(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent"
+                className="size-3.5 rounded border-line text-accent focus:ring-accent"
               />
               <span>包含 YAML 元数据 (Markdown)</span>
             </label>
@@ -196,7 +194,7 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
                 type="checkbox"
                 checked={includeWatermark}
                 onChange={(e) => setIncludeWatermark(e.target.checked)}
-                className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent"
+                className="size-3.5 rounded border-line text-accent focus:ring-accent"
               />
               <span>页脚署名水印 (HTML/PNG)</span>
             </label>
@@ -204,7 +202,7 @@ export function NoteExportModal({ isOpen, onClose, note }: NoteExportModalProps)
         </div>
 
         {/* 底部按钮 */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-line">
           <Button variant="ghost" onClick={onClose}>
             关闭
           </Button>

@@ -75,18 +75,18 @@ export function NoteListView({
 
   return (
     <div
-      className={`rounded-xl border border-border bg-surface overflow-hidden shadow-xs ${className}`}
+      className={`rounded-panel border border-line bg-surface overflow-hidden shadow-xs ${className}`}
       data-testid="notes-list-view"
     >
       {/* 列表表头 */}
-      <div className="flex items-center px-4 py-2.5 bg-surface-raised/60 border-b border-border text-[11px] font-semibold text-muted uppercase tracking-wider select-none">
+      <div className="flex items-center px-4 py-2.5 bg-surface-2/80 border-b border-line text-[11px] font-bold text-muted uppercase tracking-wider select-none">
         {(isSelectionMode || selectedNoteIds.size > 0) && (
           <div className="w-8 shrink-0">
             <input
               type="checkbox"
               checked={allSelected}
               onChange={(e) => onSelectAll?.(e.target.checked)}
-              className="w-4 h-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
+              className="size-4 rounded border-line text-accent focus:ring-accent cursor-pointer"
             />
           </div>
         )}
@@ -99,7 +99,7 @@ export function NoteListView({
       </div>
 
       {/* 列表条目 */}
-      <div className="divide-y divide-border/60">
+      <div className="divide-y divide-line/60">
         {notes.map((note) => {
           const isSelected = selectedNoteIds.has(note.id);
           const isTrashed = note.status === 'trashed';
@@ -120,7 +120,7 @@ export function NoteListView({
                 }
               }}
               className={`group flex items-center px-4 py-3 cursor-pointer transition-colors select-none ${
-                isSelected ? 'bg-accent/10' : 'hover:bg-surface-raised/80'
+                isSelected ? 'bg-accent-soft/40' : 'hover:bg-surface-2/60'
               }`}
               data-testid={`note-list-row-${note.id}`}
             >
@@ -134,7 +134,7 @@ export function NoteListView({
                       e.stopPropagation();
                       onSelectNote?.(note.id, e.target.checked);
                     }}
-                    className="w-4 h-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
+                    className="size-4 rounded border-line text-accent focus:ring-accent cursor-pointer"
                   />
                 </div>
               )}
@@ -142,31 +142,31 @@ export function NoteListView({
               {/* 颜色圆点与置顶标记 */}
               <div className="w-7 shrink-0 flex items-center justify-center relative">
                 <div
-                  className={`w-3 h-3 rounded-full border border-black/20 ${getNoteColorDotClass(
+                  className={`size-3.5 rounded-full border border-black/20 ${getNoteColorDotClass(
                     note.color,
                   )}`}
                   title={`颜色: ${note.color}`}
                 />
                 {note.isPinned && (
-                  <span className="absolute -top-1 -right-1 text-[10px]" title="置顶便签">
+                  <span className="absolute -top-1.5 -right-1.5 text-[10px]" title="置顶便签">
                     📌
                   </span>
                 )}
               </div>
 
               {/* 标题与摘要 */}
-              <div className="flex-1 min-w-0 px-2">
+              <div className="flex-1 min-w-0 px-2.5">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold text-ink truncate">
+                  <h4 className="text-sm font-bold text-ink truncate">
                     {note.title.trim() || '无标题便签'}
                   </h4>
                   {isArchived && (
-                    <span className="text-[10px] px-1 rounded bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 font-normal">
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-accent-soft text-accent font-semibold border border-accent/20">
                       已归档
                     </span>
                   )}
                   {isTrashed && (
-                    <span className="text-[10px] px-1 rounded bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300 font-normal">
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-critical-soft text-critical font-semibold border border-critical/20">
                       废纸篓
                     </span>
                   )}
@@ -184,7 +184,7 @@ export function NoteListView({
                     <span className="truncate">{folder.name}</span>
                   </>
                 ) : (
-                  <span className="text-muted/60 text-[11px]">未分类</span>
+                  <span className="text-muted text-[11px]">未分类</span>
                 )}
               </div>
 
@@ -200,7 +200,7 @@ export function NoteListView({
                           onTagClick(tag);
                         }
                       }}
-                      className="inline-flex items-center text-[10px] px-1.5 py-0.2 rounded-full bg-surface-raised text-secondary hover:text-ink hover:bg-border transition-colors"
+                      className="inline-flex items-center text-[10px] px-1.5 py-0.2 rounded-full bg-surface-2 text-secondary hover:text-ink hover:bg-surface-3 transition-colors border border-line/40 font-medium"
                     >
                       #{tag}
                     </span>
@@ -216,7 +216,7 @@ export function NoteListView({
               </div>
 
               {/* 更新时间 */}
-              <div className="w-24 shrink-0 text-right px-2 text-xs text-muted">
+              <div className="w-24 shrink-0 text-right px-2 text-xs text-muted font-mono">
                 {formatRelativeTime(note.updatedAt)}
               </div>
 
@@ -229,10 +229,10 @@ export function NoteListView({
                       e.stopPropagation();
                       onTogglePin(note);
                     }}
-                    className={`p-1 rounded hover:bg-surface text-muted hover:text-ink transition-colors ${
+                    className={`p-1 rounded-control hover:bg-surface-2 transition-all cursor-pointer ${
                       note.isPinned
-                        ? 'text-amber-600 dark:text-amber-400'
-                        : 'opacity-0 group-hover:opacity-100'
+                        ? 'text-warning font-bold'
+                        : 'text-muted hover:text-ink opacity-0 group-hover:opacity-100'
                     }`}
                     title={note.isPinned ? '取消置顶' : '置顶'}
                   >
@@ -249,7 +249,7 @@ export function NoteListView({
                           e.stopPropagation();
                           onRestore(note);
                         }}
-                        className="p-1 rounded hover:bg-emerald-50 text-emerald-600 transition-colors"
+                        className="p-1 rounded-control hover:bg-surface-2 text-good transition-all cursor-pointer"
                         title="恢复便签"
                       >
                         <IconRepeat size={13} />
@@ -262,7 +262,7 @@ export function NoteListView({
                           e.stopPropagation();
                           onDeletePermanent(note);
                         }}
-                        className="p-1 rounded hover:bg-rose-50 text-rose-600 transition-colors"
+                        className="p-1 rounded-control hover:bg-critical-soft text-critical transition-all cursor-pointer"
                         title="彻底删除"
                       >
                         <IconTrash size={13} />
@@ -278,7 +278,7 @@ export function NoteListView({
                           e.stopPropagation();
                           onArchiveToggle(note);
                         }}
-                        className="p-1 rounded hover:bg-surface text-muted hover:text-ink opacity-0 group-hover:opacity-100 transition-colors"
+                        className="p-1 rounded-control hover:bg-surface-2 text-muted hover:text-ink opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
                         title={isArchived ? '取消归档' : '归档'}
                       >
                         <IconCheckSquare size={13} />
@@ -291,7 +291,7 @@ export function NoteListView({
                           e.stopPropagation();
                           onTrashToggle(note);
                         }}
-                        className="p-1 rounded hover:bg-rose-50 text-muted hover:text-rose-600 opacity-0 group-hover:opacity-100 transition-colors"
+                        className="p-1 rounded-control hover:bg-critical-soft text-muted hover:text-critical opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
                         title="移至废纸篓"
                       >
                         <IconTrash size={13} />
@@ -304,7 +304,7 @@ export function NoteListView({
                           e.stopPropagation();
                           onExport(note);
                         }}
-                        className="p-1 rounded hover:bg-surface text-muted hover:text-ink opacity-0 group-hover:opacity-100 transition-colors"
+                        className="p-1 rounded-control hover:bg-surface-2 text-muted hover:text-ink opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
                         title="导出便签"
                       >
                         <span className="text-xs">📤</span>

@@ -175,10 +175,10 @@ export function FolderModal({
               <button
                 key={emoji}
                 type="button"
-                className={`w-9 h-9 rounded-md flex items-center justify-center text-lg transition-colors border ${
+                className={`size-9 rounded-control flex items-center justify-center text-lg transition-all border cursor-pointer ${
                   icon === emoji
-                    ? 'border-accent bg-accent/10 shadow-xs'
-                    : 'border-border-subtle hover:border-border hover:bg-surface-raised'
+                    ? 'border-accent bg-accent-soft shadow-2xs font-bold'
+                    : 'border-line hover:border-accent/60 hover:bg-surface-2'
                 }`}
                 onClick={() => setIcon(emoji)}
               >
@@ -195,10 +195,10 @@ export function FolderModal({
                 key={c.value}
                 type="button"
                 title={c.name}
-                className={`w-7 h-7 rounded-full transition-transform ${
+                className={`size-7 rounded-full transition-transform cursor-pointer border border-black/20 ${
                   color === c.value
-                    ? 'ring-2 ring-offset-2 ring-accent scale-110'
-                    : 'hover:scale-105 opacity-80 hover:opacity-100'
+                    ? 'ring-2 ring-offset-2 ring-accent scale-115 shadow-2xs'
+                    : 'hover:scale-110 opacity-80 hover:opacity-100'
                 }`}
                 style={{ backgroundColor: c.value }}
                 onClick={() => setColor(c.value)}
@@ -207,7 +207,7 @@ export function FolderModal({
           </div>
         </Field>
 
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-line">
           <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
             取消
           </Button>

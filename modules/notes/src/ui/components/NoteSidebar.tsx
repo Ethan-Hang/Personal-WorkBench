@@ -72,10 +72,10 @@ function FolderTreeItem({
   return (
     <div className="flex flex-col select-none">
       <div
-        className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+        className={`group relative flex items-center justify-between px-2.5 py-1.5 rounded-control text-xs font-medium cursor-pointer transition-all ${
           isSelected
-            ? 'bg-accent/10 text-accent font-semibold'
-            : 'text-secondary hover:text-ink hover:bg-surface-raised'
+            ? 'bg-accent-soft text-accent font-bold border border-accent/20 shadow-2xs'
+            : 'text-secondary hover:text-ink hover:bg-surface-2 border border-transparent'
         }`}
         style={{ paddingLeft: `${Math.max(10, level * 14 + 10)}px` }}
         onClick={() => onSelectFolder(node.id)}
@@ -88,7 +88,7 @@ function FolderTreeItem({
                 e.stopPropagation();
                 setIsExpanded((prev) => !prev);
               }}
-              className="p-0.5 -ml-1 text-muted hover:text-ink rounded transition-colors"
+              className="p-0.5 -ml-1 text-muted hover:text-ink rounded transition-colors cursor-pointer"
             >
               {isExpanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
             </button>
@@ -109,7 +109,7 @@ function FolderTreeItem({
               onCreateSubfolder(node.id);
             }}
             title="新建子文件夹"
-            className="p-1 rounded hover:bg-surface text-muted hover:text-ink transition-colors"
+            className="p-1 rounded-control hover:bg-surface text-muted hover:text-accent transition-colors cursor-pointer"
           >
             <IconPlus size={12} />
           </button>
@@ -120,7 +120,7 @@ function FolderTreeItem({
               onEditFolder(currentFolderView);
             }}
             title="编辑文件夹"
-            className="p-1 rounded hover:bg-surface text-muted hover:text-ink transition-colors"
+            className="p-1 rounded-control hover:bg-surface text-muted hover:text-ink transition-colors cursor-pointer"
           >
             <IconEdit size={12} />
           </button>
@@ -131,7 +131,7 @@ function FolderTreeItem({
               onDeleteFolder(node.id);
             }}
             title="删除文件夹"
-            className="p-1 rounded hover:bg-rose-50 text-muted hover:text-rose-600 transition-colors"
+            className="p-1 rounded-control hover:bg-critical-soft text-muted hover:text-critical transition-colors cursor-pointer"
           >
             <IconTrash size={12} />
           </button>
@@ -186,7 +186,7 @@ export function NoteSidebar({
 
   return (
     <aside
-      className={`w-64 shrink-0 flex flex-col justify-between border-r border-border bg-surface-raised/40 p-3 h-full overflow-y-auto ${className}`}
+      className={`w-64 shrink-0 flex flex-col justify-between border-r border-line bg-surface-2/30 p-3 h-full overflow-y-auto ${className}`}
       data-testid="notes-sidebar"
     >
       <div className="flex flex-col gap-5">
@@ -203,10 +203,10 @@ export function NoteSidebar({
               onSelectFolder(null);
               onSelectTag(null);
             }}
-            className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center justify-between px-2.5 py-2 rounded-control text-xs font-medium transition-all cursor-pointer ${
               isAllNotes
-                ? 'bg-accent/10 text-accent font-semibold'
-                : 'text-secondary hover:text-ink hover:bg-surface-raised'
+                ? 'bg-accent-soft text-accent font-bold border border-accent/20 shadow-2xs'
+                : 'text-secondary hover:text-ink hover:bg-surface-2 border border-transparent'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -214,7 +214,7 @@ export function NoteSidebar({
               <span>全部便签</span>
             </div>
             {stats && (
-              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-surface text-muted">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface border border-line/60 text-secondary font-mono">
                 {stats.active}
               </span>
             )}
@@ -227,10 +227,10 @@ export function NoteSidebar({
               onSelectFolder('unfiled');
               onSelectTag(null);
             }}
-            className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center justify-between px-2.5 py-2 rounded-control text-xs font-medium transition-all cursor-pointer ${
               isUnfiled
-                ? 'bg-accent/10 text-accent font-semibold'
-                : 'text-secondary hover:text-ink hover:bg-surface-raised'
+                ? 'bg-accent-soft text-accent font-bold border border-accent/20 shadow-2xs'
+                : 'text-secondary hover:text-ink hover:bg-surface-2 border border-transparent'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -246,10 +246,10 @@ export function NoteSidebar({
               onSelectFolder(null);
               onSelectTag(null);
             }}
-            className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center justify-between px-2.5 py-2 rounded-control text-xs font-medium transition-all cursor-pointer ${
               isArchived
-                ? 'bg-accent/10 text-accent font-semibold'
-                : 'text-secondary hover:text-ink hover:bg-surface-raised'
+                ? 'bg-accent-soft text-accent font-bold border border-accent/20 shadow-2xs'
+                : 'text-secondary hover:text-ink hover:bg-surface-2 border border-transparent'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -257,7 +257,7 @@ export function NoteSidebar({
               <span>已归档</span>
             </div>
             {stats && stats.archived > 0 && (
-              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-surface text-muted">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-surface border border-line/60 text-secondary font-mono">
                 {stats.archived}
               </span>
             )}
@@ -270,10 +270,10 @@ export function NoteSidebar({
               onSelectFolder(null);
               onSelectTag(null);
             }}
-            className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+            className={`flex items-center justify-between px-2.5 py-2 rounded-control text-xs font-medium transition-all cursor-pointer ${
               isTrashed
-                ? 'bg-rose-500/10 text-rose-600 font-semibold'
-                : 'text-secondary hover:text-ink hover:bg-surface-raised'
+                ? 'bg-critical-soft text-critical font-bold border border-critical/30 shadow-2xs'
+                : 'text-secondary hover:text-ink hover:bg-surface-2 border border-transparent'
             }`}
           >
             <div className="flex items-center gap-2">
@@ -281,7 +281,7 @@ export function NoteSidebar({
               <span>废纸篓</span>
             </div>
             {stats && stats.trashed > 0 && (
-              <span className="text-[11px] px-1.5 py-0.2 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-600">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-critical-soft text-critical font-bold border border-critical/30 font-mono">
                 {stats.trashed}
               </span>
             )}
@@ -295,7 +295,7 @@ export function NoteSidebar({
             <button
               type="button"
               onClick={() => onCreateFolder(null)}
-              className="p-0.5 rounded hover:bg-surface text-muted hover:text-accent transition-colors"
+              className="p-1 rounded-control hover:bg-surface text-muted hover:text-accent transition-colors cursor-pointer shadow-2xs"
               title="新建根文件夹"
             >
               <IconPlus size={13} />
@@ -303,12 +303,12 @@ export function NoteSidebar({
           </div>
 
           {folders.length === 0 ? (
-            <div className="px-3 py-3 text-center text-xs text-muted/80 bg-surface/40 rounded-lg border border-dashed border-border-subtle">
+            <div className="px-3 py-3 text-center text-xs text-muted/80 bg-surface/50 rounded-panel border border-dashed border-line">
               暂无文件夹
               <button
                 type="button"
                 onClick={() => onCreateFolder(null)}
-                className="block mx-auto mt-1.5 text-accent hover:underline text-[11px]"
+                className="block mx-auto mt-1.5 text-accent hover:underline text-[11px] font-semibold cursor-pointer"
               >
                 + 点击新建
               </button>
@@ -338,7 +338,7 @@ export function NoteSidebar({
           <div className="flex flex-col gap-1">
             <div className="flex items-center justify-between px-2 pb-1 text-[11px] font-bold tracking-wider text-muted uppercase">
               <span>标签</span>
-              <span className="text-[10px] text-muted">{tags.tags.length}</span>
+              <span className="text-[10px] text-muted font-mono">{tags.tags.length}</span>
             </div>
 
             <div className="flex flex-wrap gap-1 px-1">
@@ -355,14 +355,14 @@ export function NoteSidebar({
                         onSelectTag(tag.name);
                       }
                     }}
-                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full transition-colors border ${
+                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full transition-all border cursor-pointer ${
                       isTagActive
-                        ? 'bg-accent text-white border-accent shadow-xs'
-                        : 'bg-surface text-secondary hover:text-ink hover:bg-surface-raised border-border-subtle'
+                        ? 'bg-accent text-white border-accent shadow-2xs font-semibold'
+                        : 'bg-surface text-secondary hover:text-ink hover:bg-surface-2 border-line'
                     }`}
                   >
                     <span>#{tag.name}</span>
-                    <span className="text-[9px] opacity-75">{tag.count}</span>
+                    <span className="text-[9px] opacity-80 font-mono">({tag.count})</span>
                   </button>
                 );
               })}
@@ -373,14 +373,14 @@ export function NoteSidebar({
 
       {/* 底部统计与废纸篓清理 */}
       {isTrashed && stats && stats.trashed > 0 && onEmptyTrash && (
-        <div className="pt-3 mt-4 border-t border-border">
+        <div className="pt-3 mt-4 border-t border-line">
           <button
             type="button"
             onClick={onEmptyTrash}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg border border-rose-200 dark:border-rose-900/50 transition-colors font-medium"
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 text-xs text-critical hover:bg-critical/20 bg-critical-soft rounded-control border border-critical/30 transition-all font-semibold cursor-pointer shadow-2xs"
           >
             <IconTrash size={13} />
-            清空废纸篓 ({stats.trashed})
+            <span>清空废纸篓 ({stats.trashed})</span>
           </button>
         </div>
       )}

@@ -26,9 +26,19 @@ describe('NoteMarkdownViewer & Renderer Components', () => {
 内容 2
 :::
 
-==高亮文本== 与 !!刮刮乐密码!! 与 [[双链事项]] 与 <Badge text="Pro" type="tip" />
+- [ ] 待办任务 1
+- [x] 已完成任务 2
+
+==高亮文本== 与 !!刮刮乐密码!! 与 [[双链事项]] 与 <Badge text="Pro" type="tip" /> 与 <kbd>Ctrl+S</kbd> 与 H~2~O 与 E=mc^2^
 `;
     const blocks = parseMarkdown(md);
-    expect(blocks.length).toBeGreaterThanOrEqual(4);
+    expect(blocks.length).toBeGreaterThanOrEqual(5);
+
+    const listBlock = blocks.find((b) => b.type === 'list');
+    expect(listBlock).toBeDefined();
+    if (listBlock && listBlock.type === 'list') {
+      expect(listBlock.items[0]?.checked).toBe(false);
+      expect(listBlock.items[1]?.checked).toBe(true);
+    }
   });
 });

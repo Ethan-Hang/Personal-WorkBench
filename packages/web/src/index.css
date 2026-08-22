@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Tailwind v4 的自动扫描以 Vite root（packages/web）为界，
    模块的 UI 在这棵树之外，缺了这行它们的样式会静默消失。 */
 @source "../../../modules";

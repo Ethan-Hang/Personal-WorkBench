@@ -29,7 +29,7 @@ import { NoteSidebar } from './components/NoteSidebar.js';
 import { NotesToolbar } from './components/NotesToolbar.js';
 import { NoteMasonryView } from './components/NoteMasonryView.js';
 import { NoteListView } from './components/NoteListView.js';
-import { NoteEditorModal } from './components/NoteEditorModal.js';
+import { NoteEditor } from './components/NoteEditor.js';
 import { FolderModal } from './components/FolderModal.js';
 import { NoteExportModal } from './components/NoteExportModal.js';
 
@@ -92,7 +92,6 @@ export function NotesPage() {
 
   // 4. 弹窗状态（便签编辑器 & 文件夹配置）
   const [activeNoteForEdit, setActiveNoteForEdit] = useState<NoteView | null>(null);
-  const [isEditorModalOpen, setIsEditorModalOpen] = useState(false);
 
   const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
   const [editingFolder, setEditingFolder] = useState<FolderView | null>(null);
@@ -177,7 +176,6 @@ export function NotesPage() {
       const match = rawNotes.find((n) => n.id === targetNoteId);
       if (match) {
         setActiveNoteForEdit(match);
-        setIsEditorModalOpen(true);
       }
     }
   }, [rawNotes]);
@@ -192,7 +190,6 @@ export function NotesPage() {
     onSuccess: (newNote) => {
       invalidateAll();
       setActiveNoteForEdit(newNote);
-      setIsEditorModalOpen(true);
     },
   });
 
@@ -253,11 +250,9 @@ export function NotesPage() {
 
   const handleOpenEditor = (note: NoteView) => {
     setActiveNoteForEdit(note);
-    setIsEditorModalOpen(true);
   };
 
   const handleCloseEditor = () => {
-    setIsEditorModalOpen(false);
     setActiveNoteForEdit(null);
   };
 
@@ -426,15 +421,27 @@ export function NotesPage() {
   }, [selectedStatus, selectedFolderId, selectedTag, foldersMap]);
 
   return (
-    <div className="flex flex-col h-full w-full bg-background" data-testid="notes-page">
+    <div className="flex flex-col h-full w-full bg-page text-ink" data-testid="notes-page">
       {/* 主页面顶栏 */}
-      <div className="px-6 py-4 border-b border-border bg-surface shrink-0">
+      <div className="px-6 py-3.5 border-b border-line bg-surface shrink-0">
         <PageHeader
-          eyebrow="Notes & Ideas"
-          title="便签笔记"
-          subtitle="Typora 级富 Markdown 写作、自适应多尺寸瀑布流、双视图体系与无限级树状文件夹管理"
+          eyebrow={activeNoteForEdit ? '正在编辑便签' : 'Notes & Ideas'}
+          title={activeNoteForEdit ? activeNoteForEdit.title.trim() || '无标题便签' : '便签笔记'}
+          subtitle={
+            activeNoteForEdit
+              ? `主题色：${activeNoteForEdit.color} · 最后保存于 ${new Date(activeNoteForEdit.updatedAt).toLocaleTimeString()}`
+              : 'Typora 级富 Markdown 写作、自适应多尺寸瀑布流、双视图体系与无限级树状文件夹管理'
+          }
           action={
-            selectedStatus !== 'trashed' && (
+            activeNoteForEdit ? (
+              <Button
+                variant="secondary"
+                onClick={handleCloseEditor}
+                className="gap-1.5 px-3.5 text-xs font-semibold"
+              >
+                <span>← 返回便签列表</span>
+              </Button>
+            ) : selectedStatus !== 'trashed' ? (
               <Button
                 variant="primary"
                 onClick={() => handleCreateNote()}
@@ -444,12 +451,12 @@ export function NotesPage() {
                 <IconPlus size={16} />
                 <span>新建便签</span>
               </Button>
-            )
+            ) : null
           }
         />
       </div>
 
-      {/* 主体两栏布局：左侧树状侧栏 + 右侧便签流 */}
+      {/* 主体两栏布局：左侧树状侧栏 + 右侧便签流 / 便签编辑工作台 */}
       <div className="flex-1 flex overflow-hidden">
         {/* 左侧侧边栏 */}
         <NoteSidebar
@@ -462,15 +469,18 @@ export function NotesPage() {
           onSelectFolder={(fId) => {
             setSelectedFolderId(fId);
             setSelectedTag(null);
+            if (activeNoteForEdit) handleCloseEditor();
           }}
           onSelectStatus={(st) => {
             setSelectedStatus(st);
             setSelectedFolderId(null);
             setSelectedTag(null);
+            if (activeNoteForEdit) handleCloseEditor();
           }}
           onSelectTag={(t) => {
             setSelectedTag(t);
             setSelectedFolderId(null);
+            if (activeNoteForEdit) handleCloseEditor();
           }}
           onCreateFolder={handleOpenCreateFolder}
           onEditFolder={handleOpenEditFolder}
@@ -478,143 +488,150 @@ export function NotesPage() {
           onEmptyTrash={handleEmptyTrash}
         />
 
-        {/* 右侧主内容流 */}
-        <main className="flex-1 flex flex-col min-w-0 bg-background overflow-y-auto p-4 sm:p-6">
-          {/* 工具栏 */}
-          <NotesToolbar
-            searchKeyword={searchKeyword}
-            onSearchChange={setSearchKeyword}
-            viewMode={viewMode}
-            onViewModeChange={handleViewModeChange}
-            selectedColor={selectedColor}
-            onSelectColor={setSelectedColor}
-            pinnedOnly={pinnedOnly}
-            onTogglePinnedOnly={() => setPinnedOnly((prev) => !prev)}
-            selectedNoteIds={selectedNoteIds}
-            onClearSelection={() => setSelectedNoteIds(new Set())}
-            onBatchPin={handleBatchPin}
-            onBatchColor={handleBatchColor}
-            onBatchMove={handleBatchMove}
-            onBatchArchive={handleBatchArchive}
-            onBatchTrash={handleBatchTrash}
-            onBatchDelete={handleBatchDelete}
-            onCreateNote={handleCreateNote}
-            allFoldersFlat={allFoldersFlat}
-            selectedStatus={selectedStatus}
-            className="mb-5"
-          />
-
-          {/* 筛选指示标签栏 */}
-          <div className="flex items-center justify-between gap-2 mb-4 pb-2 border-b border-border/50 text-xs text-secondary">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-ink text-sm">{currentViewTitle}</span>
-              <span className="text-muted">（共 {notes.length} 条）</span>
-
-              {selectedTag && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent font-medium text-[11px]">
-                  标签: #{selectedTag}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTag(null)}
-                    className="hover:text-accent-hover ml-0.5"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-
-              {selectedColor !== 'all' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-raised border border-border text-[11px] capitalize">
-                  颜色: {selectedColor}
-                  <button
-                    type="button"
-                    onClick={() => setSelectedColor('all')}
-                    className="hover:text-ink ml-0.5"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-
-              {pinnedOnly && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[11px]">
-                  仅置顶
-                  <button
-                    type="button"
-                    onClick={() => setPinnedOnly(false)}
-                    className="hover:text-amber-900 ml-0.5"
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
+        {/* 右侧主内容流 / 工作台 */}
+        <main className="flex-1 flex flex-col min-w-0 bg-page overflow-y-auto p-4 sm:p-6">
+          {activeNoteForEdit ? (
+            /* 沉浸式原位便签工作区过渡 (In-place Note Workspace) */
+            <div className="flex-1 flex flex-col h-full min-h-[600px] animate-scale-in">
+              <NoteEditor
+                note={activeNoteForEdit}
+                folders={foldersTree}
+                onClose={handleCloseEditor}
+                onBack={handleCloseEditor}
+                onUpdate={(updated) => {
+                  setActiveNoteForEdit(updated);
+                  invalidateAll();
+                }}
+                onDelete={() => {
+                  handleCloseEditor();
+                  invalidateAll();
+                }}
+                className="h-full"
+              />
             </div>
-          </div>
-
-          {/* 视图内容区（瀑布流 / 列表） */}
-          {notesQuery.isLoading ? (
-            <div className="flex items-center justify-center py-20 text-xs text-muted">
-              正在加载便签列表...
-            </div>
-          ) : viewMode === 'masonry' ? (
-            <NoteMasonryView
-              notes={notes}
-              foldersMap={foldersMap}
-              selectedNoteIds={selectedNoteIds}
-              isSelectionMode={selectedNoteIds.size > 0}
-              onSelectNote={handleSelectNote}
-              onClickNote={handleOpenEditor}
-              onTogglePin={handleTogglePin}
-              onChangeColor={handleChangeColor}
-              onArchiveToggle={handleArchiveToggle}
-              onTrashToggle={handleTrashToggle}
-              onDeletePermanent={handleDeletePermanent}
-              onRestore={handleRestore}
-              onExport={(note) => {
-                setExportingNote(note);
-                setIsExportModalOpen(true);
-              }}
-              onTagClick={(tag) => setSelectedTag(tag)}
-            />
           ) : (
-            <NoteListView
-              notes={notes}
-              foldersMap={foldersMap}
-              selectedNoteIds={selectedNoteIds}
-              isSelectionMode={selectedNoteIds.size > 0}
-              onSelectNote={handleSelectNote}
-              onSelectAll={handleSelectAll}
-              onClickNote={handleOpenEditor}
-              onTogglePin={handleTogglePin}
-              onArchiveToggle={handleArchiveToggle}
-              onTrashToggle={handleTrashToggle}
-              onDeletePermanent={handleDeletePermanent}
-              onRestore={handleRestore}
-              onExport={(note) => {
-                setExportingNote(note);
-                setIsExportModalOpen(true);
-              }}
-              onTagClick={(tag) => setSelectedTag(tag)}
-            />
+            <>
+              {/* 工具栏 */}
+              <NotesToolbar
+                searchKeyword={searchKeyword}
+                onSearchChange={setSearchKeyword}
+                viewMode={viewMode}
+                onViewModeChange={handleViewModeChange}
+                selectedColor={selectedColor}
+                onSelectColor={setSelectedColor}
+                pinnedOnly={pinnedOnly}
+                onTogglePinnedOnly={() => setPinnedOnly((prev) => !prev)}
+                selectedNoteIds={selectedNoteIds}
+                onClearSelection={() => setSelectedNoteIds(new Set())}
+                onBatchPin={handleBatchPin}
+                onBatchColor={handleBatchColor}
+                onBatchMove={handleBatchMove}
+                onBatchArchive={handleBatchArchive}
+                onBatchTrash={handleBatchTrash}
+                onBatchDelete={handleBatchDelete}
+                onCreateNote={handleCreateNote}
+                allFoldersFlat={allFoldersFlat}
+                selectedStatus={selectedStatus}
+                className="mb-5"
+              />
+
+              {/* 筛选指示标签栏 */}
+              <div className="flex items-center justify-between gap-2 mb-4 pb-2 border-b border-line/60 text-xs text-secondary">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-ink text-sm">{currentViewTitle}</span>
+                  <span className="text-muted font-mono">（共 {notes.length} 条）</span>
+
+                  {selectedTag && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-accent-soft text-accent font-semibold text-[11px] border border-accent/20">
+                      标签: #{selectedTag}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTag(null)}
+                        className="hover:text-accent font-bold ml-0.5 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+
+                  {selectedColor !== 'all' && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-surface-2 border border-line text-[11px] font-semibold capitalize">
+                      颜色: {selectedColor}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedColor('all')}
+                        className="hover:text-ink font-bold ml-0.5 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+
+                  {pinnedOnly && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-warning-soft text-warning font-semibold border border-warning/20 text-[11px]">
+                      仅置顶
+                      <button
+                        type="button"
+                        onClick={() => setPinnedOnly(false)}
+                        className="hover:text-warning font-bold ml-0.5 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 视图内容区（瀑布流 / 列表） */}
+              {notesQuery.isLoading ? (
+                <div className="flex items-center justify-center py-20 text-xs text-muted">
+                  正在加载便签列表...
+                </div>
+              ) : viewMode === 'masonry' ? (
+                <NoteMasonryView
+                  notes={notes}
+                  foldersMap={foldersMap}
+                  selectedNoteIds={selectedNoteIds}
+                  isSelectionMode={selectedNoteIds.size > 0}
+                  onSelectNote={handleSelectNote}
+                  onClickNote={handleOpenEditor}
+                  onTogglePin={handleTogglePin}
+                  onChangeColor={handleChangeColor}
+                  onArchiveToggle={handleArchiveToggle}
+                  onTrashToggle={handleTrashToggle}
+                  onDeletePermanent={handleDeletePermanent}
+                  onRestore={handleRestore}
+                  onExport={(note) => {
+                    setExportingNote(note);
+                    setIsExportModalOpen(true);
+                  }}
+                  onTagClick={(tag) => setSelectedTag(tag)}
+                />
+              ) : (
+                <NoteListView
+                  notes={notes}
+                  foldersMap={foldersMap}
+                  selectedNoteIds={selectedNoteIds}
+                  isSelectionMode={selectedNoteIds.size > 0}
+                  onSelectNote={handleSelectNote}
+                  onSelectAll={handleSelectAll}
+                  onClickNote={handleOpenEditor}
+                  onTogglePin={handleTogglePin}
+                  onArchiveToggle={handleArchiveToggle}
+                  onTrashToggle={handleTrashToggle}
+                  onDeletePermanent={handleDeletePermanent}
+                  onRestore={handleRestore}
+                  onExport={(note) => {
+                    setExportingNote(note);
+                    setIsExportModalOpen(true);
+                  }}
+                  onTagClick={(tag) => setSelectedTag(tag)}
+                />
+              )}
+            </>
           )}
         </main>
       </div>
-
-      {/* 沉浸式便签编辑器模态弹窗 */}
-      <NoteEditorModal
-        isOpen={isEditorModalOpen}
-        note={activeNoteForEdit}
-        folders={foldersTree}
-        onClose={handleCloseEditor}
-        onNoteUpdated={(updated) => {
-          setActiveNoteForEdit(updated);
-          invalidateAll();
-        }}
-        onNoteDeleted={() => {
-          handleCloseEditor();
-          invalidateAll();
-        }}
-      />
 
       {/* 文件夹新建/编辑弹窗 */}
       <FolderModal

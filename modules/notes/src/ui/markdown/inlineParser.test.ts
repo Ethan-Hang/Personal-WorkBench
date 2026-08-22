@@ -100,6 +100,28 @@ describe('inlineParser', () => {
     ]);
   });
 
+  it('解析 <kbd> 按键组件与下标/上标', () => {
+    const nodes = parseInline('Press <kbd>Ctrl+C</kbd> or H~2~O or E=mc^2^');
+    expect(nodes).toEqual([
+      { type: 'text', value: 'Press ' },
+      { type: 'kbd', text: 'Ctrl+C' },
+      { type: 'text', value: ' or H' },
+      { type: 'sub', children: [{ type: 'text', value: '2' }] },
+      { type: 'text', value: 'O or E=mc' },
+      { type: 'sup', children: [{ type: 'text', value: '2' }] },
+    ]);
+  });
+
+  it('解析 Plume 风格 :badge[text]{type="tip"} 与 @badge(text, tip)', () => {
+    const nodes = parseInline('Status: :badge[v2.0]{type="success"} and @badge(Beta, warning)');
+    expect(nodes).toEqual([
+      { type: 'text', value: 'Status: ' },
+      { type: 'badge', text: 'v2.0', badgeType: 'success' },
+      { type: 'text', value: ' and ' },
+      { type: 'badge', text: 'Beta', badgeType: 'warning' },
+    ]);
+  });
+
   it('正确处理嵌套与混合行内元素', () => {
     const nodes = parseInline('**==High Priority==** with `code` and $x_1$');
     expect(nodes).toEqual([
