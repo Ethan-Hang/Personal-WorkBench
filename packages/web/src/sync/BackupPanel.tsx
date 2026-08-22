@@ -28,6 +28,7 @@ import {
   updateBackupConfig,
 } from './backupApi.js';
 import { RestoreDiffModal } from './RestoreDiffModal.js';
+import { parseRetentionCount } from './backupForm.js';
 import { invalidateFor } from './workspaceCache.js';
 
 export function BackupPanel() {
@@ -102,11 +103,17 @@ export function BackupPanel() {
 
   function handleSaveConfig(e: React.FormEvent) {
     e.preventDefault();
+    // 留空才回退默认值；0 / 非数字一律报错而不是被静默改写（见 backupForm.ts）
+    const retention = parseRetentionCount(formRetention, 10);
+    if (!retention.ok) {
+      setConfigSaveError(retention.error);
+      return;
+    }
     const patch: BackupConfigPatch = {
       url: formUrl.trim(),
       username: formUsername.trim(),
       autoEnabled: formAutoEnabled,
-      retentionCount: Number(formRetention) || 10,
+      retentionCount: retention.value,
     };
     if (formPassword.trim()) {
       patch.password = formPassword.trim();
