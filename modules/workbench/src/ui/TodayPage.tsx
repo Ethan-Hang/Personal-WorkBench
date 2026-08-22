@@ -11,7 +11,6 @@ import {
   Field,
   Modal,
   Panel,
-  ProgressBar,
   MetricRing,
   QuickAddBar,
   TodayClockCard,
@@ -23,7 +22,6 @@ import {
   IconAlertCircle,
   IconChevronDown,
   IconChevronRight,
-  IconTarget,
   IconBookOpen,
   IconTrash,
   IconEdit,
@@ -1638,34 +1636,6 @@ export function TodayPage() {
 
         {/* 今日执行度仪表盘卡片 */}
         <TodayExecutionCard doneCount={doneTasks.length} totalCount={totalTasksCount} />
-
-        {/* 目标推进概览 */}
-        <Panel
-          className="hover-lift"
-          title={
-            <div className="flex items-center gap-2">
-              <IconTarget size={16} className="text-goal" />
-              <span>目标推进</span>
-            </div>
-          }
-        >
-          <div className="space-y-3.5">
-            <div>
-              <div className="flex justify-between text-xs font-semibold">
-                <span className="text-ink">个人工作台正式版</span>
-                <span className="text-goal tabular-nums">75%</span>
-              </div>
-              <ProgressBar value={75} tone="goal" size="sm" className="mt-1.5" />
-            </div>
-            <div>
-              <div className="flex justify-between text-xs font-semibold">
-                <span className="text-ink">秋招投递与面试攻坚</span>
-                <span className="text-accent tabular-nums">48%</span>
-              </div>
-              <ProgressBar value={48} tone="accent" size="sm" className="mt-1.5" />
-            </div>
-          </div>
-        </Panel>
 
         {/* 习惯打卡上下文 */}
         <TodayHabitCard />
