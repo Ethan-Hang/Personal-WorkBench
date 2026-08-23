@@ -40,8 +40,10 @@ export interface WorkDraft {
 }
 
 export interface WorkListRecord extends WorkRecord {
+  authors: string[];
   attachmentCount: number;
   collectionIds: string[];
+  storageModes: StorageMode[];
   fileStatus: 'none' | 'available' | 'missing' | 'changed' | 'recycled' | 'mixed';
 }
 

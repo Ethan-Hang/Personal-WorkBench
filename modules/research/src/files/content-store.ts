@@ -10,6 +10,7 @@ import {
 
 const CHUNK_SIZE = 1024 * 1024;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 
 export interface HashProgress {
   processedBytes: number;
@@ -63,6 +64,11 @@ export interface ManagedObjectEntry {
 
 export interface QuarantinedManagedObject extends ManagedObjectEntry {
   quarantinePath: string;
+}
+
+export interface StagedManagedUpload {
+  path: string;
+  byteSize: number;
 }
 
 export class FileLifecycleError extends Error {
@@ -172,16 +178,100 @@ export class ResearchContentStore {
     return target;
   }
 
+  async stageManagedUpload(
+    chunks: AsyncIterable<Uint8Array>,
+    options: FileOperationOptions = {},
+  ): Promise<StagedManagedUpload> {
+    const root = await this.resolvedRoot();
+    const stagingRoot = join(root, '.staging');
+    const uploadPath = join(stagingRoot, `${this.createId()}.upload`);
+    let target = null;
+    let byteSize = 0;
+    const signature = Buffer.alloc(5);
+    let signatureBytes = 0;
+    try {
+      await this.fs.mkdir(stagingRoot);
+      target = await this.fs.openWriteExclusive(uploadPath);
+      for await (const value of chunks) {
+        throwIfAborted(options.signal, 'upload');
+        const chunk = Buffer.from(value);
+        if (chunk.length === 0) continue;
+        byteSize += chunk.length;
+        if (byteSize > MAX_UPLOAD_BYTES) {
+          throw new FileLifecycleError(
+            '单个 PDF 不能超过 2 GiB',
+            'INVALID_INPUT',
+            'upload',
+            false,
+            null,
+          );
+        }
+        if (signatureBytes < signature.length) {
+          const copied = Math.min(chunk.length, signature.length - signatureBytes);
+          chunk.copy(signature, signatureBytes, 0, copied);
+          signatureBytes += copied;
+        }
+        let offset = 0;
+        while (offset < chunk.length) {
+          const written = await target.write(chunk, offset, chunk.length - offset);
+          if (written <= 0) throw new Error('write returned no progress');
+          offset += written;
+        }
+        options.onProgress?.({ processedBytes: byteSize, totalBytes: byteSize });
+      }
+      if (signatureBytes !== signature.length || signature.toString('ascii') !== '%PDF-') {
+        throw new FileLifecycleError('文件内容不是 PDF', 'PDF_INVALID', 'upload', false, null);
+      }
+      await target.sync();
+      await closeQuietly(target);
+      target = null;
+      return { path: uploadPath, byteSize };
+    } catch (error) {
+      await closeQuietly(target);
+      await this.fs.remove(uploadPath).catch(() => undefined);
+      throw mappedError(error, 'upload');
+    }
+  }
+
+  async discardStagedUpload(uploadPath: string): Promise<void> {
+    const root = await this.resolvedRoot();
+    const stagingRoot = resolve(root, '.staging');
+    const target = resolve(uploadPath);
+    const inside = relative(stagingRoot, target);
+    if (
+      inside.startsWith(`..${sep}`) ||
+      inside === '..' ||
+      isAbsolute(inside) ||
+      !target.endsWith('.upload')
+    ) {
+      throw new FileLifecycleError(
+        '上传临时路径不合法',
+        'INVALID_INPUT',
+        'discard-upload',
+        false,
+        null,
+      );
+    }
+    try {
+      await this.fs.remove(target);
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') throw mappedError(error, 'discard-upload');
+    }
+  }
+
   private async hashHandle(
     sourcePath: string,
     targetPath: string | null,
     identity: FileIdentity,
     options: FileOperationOptions,
+    validatePdf = false,
   ): Promise<string> {
     let source = null;
     let target = null;
     const digest = createHash('sha256');
     let processedBytes = 0;
+    const signature = Buffer.alloc(5);
+    let signatureBytes = 0;
     try {
       source = await this.fs.openRead(sourcePath);
       if (targetPath) target = await this.fs.openWriteExclusive(targetPath);
@@ -190,6 +280,11 @@ export class ResearchContentStore {
         throwIfAborted(options.signal, targetPath ? 'copy' : 'hash');
         const bytesRead = await source.read(buffer);
         if (bytesRead === 0) break;
+        if (signatureBytes < signature.length) {
+          const copied = Math.min(bytesRead, signature.length - signatureBytes);
+          buffer.copy(signature, signatureBytes, 0, copied);
+          signatureBytes += copied;
+        }
         digest.update(buffer.subarray(0, bytesRead));
         if (target) {
           let offset = 0;
@@ -208,6 +303,18 @@ export class ResearchContentStore {
           'FILE_CHANGED',
           targetPath ? 'copy' : 'hash',
           true,
+          null,
+        );
+      }
+      if (
+        validatePdf &&
+        (signatureBytes !== signature.length || signature.toString('ascii') !== '%PDF-')
+      ) {
+        throw new FileLifecycleError(
+          '文件内容不是 PDF',
+          'PDF_INVALID',
+          'validate-pdf',
+          false,
           null,
         );
       }
@@ -275,7 +382,13 @@ export class ResearchContentStore {
       }
       const resolvedSourcePath = await this.fs.realpath(sourcePath);
       tempPath = join(stagingRoot, `${this.createId()}.part`);
-      const contentHash = await this.hashHandle(sourcePath, tempPath, sourceIdentity, options);
+      const contentHash = await this.hashHandle(
+        sourcePath,
+        tempPath,
+        sourceIdentity,
+        options,
+        true,
+      );
       throwIfAborted(options.signal, 'publish');
       const objectKey = objectKeyFor(contentHash);
       const objectPath = await this.objectPath(objectKey);
@@ -332,7 +445,7 @@ export class ResearchContentStore {
           null,
         );
       }
-      const contentHash = await this.hashHandle(resolvedPath, null, sourceIdentity, options);
+      const contentHash = await this.hashHandle(resolvedPath, null, sourceIdentity, options, true);
       return {
         contentHash,
         byteSize: sourceIdentity.size,

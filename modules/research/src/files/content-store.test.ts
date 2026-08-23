@@ -58,6 +58,47 @@ function systemError(code: string): Error & { code: string } {
 }
 
 describe('托管内容', () => {
+  it('浏览器上传先流式落入账号 staging，完成后可显式清理', async () => {
+    const { store, bytes } = await fixture();
+    async function* chunks() {
+      yield bytes.subarray(0, 7);
+      yield bytes.subarray(7);
+    }
+
+    const staged = await store.stageManagedUpload(chunks());
+
+    expect(staged.byteSize).toBe(bytes.length);
+    expect(await readFile(staged.path)).toEqual(bytes);
+    expect(await store.listStagingFiles()).toEqual([staged.path]);
+    await store.discardStagedUpload(staged.path);
+    expect(await store.listStagingFiles()).toEqual([]);
+  });
+
+  it('浏览器上传拒绝非 PDF 内容并清理 staging', async () => {
+    const { store } = await fixture();
+    async function* chunks() {
+      yield Buffer.from('plain text');
+    }
+
+    await expect(store.stageManagedUpload(chunks())).rejects.toMatchObject({
+      code: 'PDF_INVALID',
+      stage: 'upload',
+    });
+    expect(await store.listStagingFiles()).toEqual([]);
+  });
+
+  it('扩展名是 pdf 但内容没有 PDF 签名时拒绝入库', async () => {
+    const { sourcePath, store } = await fixture();
+    await writeFile(sourcePath, Buffer.from('this is not a pdf'));
+
+    await expect(store.ingestManaged(sourcePath)).rejects.toMatchObject({
+      code: 'PDF_INVALID',
+      stage: 'validate-pdf',
+      retryable: false,
+    });
+    await expect(store.listStagingFiles()).resolves.toEqual([]);
+  });
+
   it('流式 hash 后按 SHA-256 路径原子发布，源文件保持不变', async () => {
     const { store, sourcePath, bytes } = await fixture();
     const progress: number[] = [];
@@ -237,6 +278,16 @@ describe('托管内容', () => {
 });
 
 describe('链接内容', () => {
+  it('链接模式同样验证 PDF 内容签名', async () => {
+    const { sourcePath, store } = await fixture();
+    await writeFile(sourcePath, Buffer.from('plain text'));
+
+    await expect(store.inspectLinked(sourcePath)).rejects.toMatchObject({
+      code: 'PDF_INVALID',
+      stage: 'validate-pdf',
+    });
+  });
+
   it('保存用户路径与 realpath，不复制源文件', async () => {
     const { managedRoot, sourcePath, bytes, store } = await fixture();
 

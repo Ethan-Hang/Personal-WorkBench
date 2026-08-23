@@ -13,6 +13,7 @@ import {
   IconSettings,
   IconInfo,
   IconCalendar,
+  IconBookOpen,
 } from './icons.js';
 
 export interface ShellNavItem {
@@ -63,6 +64,7 @@ export function AppShell({
     if (path === '/calendar') return <IconCalendar size={16} />;
     if (path === '/campus') return <IconBriefcase size={16} />;
     if (path === '/campus/stats') return <IconBarChart size={16} />;
+    if (path === '/research') return <IconBookOpen size={16} />;
     if (path === '/settings') return <IconSettings size={16} />;
     if (path === '/about') return <IconInfo size={16} />;
     return <IconCheckSquare size={16} />;
@@ -289,14 +291,14 @@ export function AppShell({
         {/* 页面主内容 */}
         <main
           className={`flex-1 flex flex-col min-h-0 ${
-            activePath === '/notes'
+            activePath === '/notes' || activePath === '/research'
               ? 'p-0 overflow-hidden'
               : 'px-4 py-4 sm:px-6 lg:px-8 overflow-y-auto'
           }`}
         >
           <div
             className={`mx-auto w-full flex-1 flex flex-col min-h-0 ${
-              activePath === '/notes' ? 'h-full' : 'max-w-[1680px]'
+              activePath === '/notes' || activePath === '/research' ? 'h-full' : 'max-w-[1680px]'
             }`}
           >
             {children}

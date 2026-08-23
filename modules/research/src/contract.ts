@@ -258,8 +258,10 @@ export const workViewSchema = z.object({
   year: z.number().int().min(0).max(9999).nullable(),
   status: z.enum(WORK_STATUSES),
   preferredEditionId: researchIdSchema.nullable(),
+  authors: z.array(z.string()),
   attachmentCount: z.number().int().nonnegative(),
   collectionIds: z.array(researchIdSchema),
+  storageModes: z.array(z.enum(STORAGE_MODES)),
   fileStatus: z.enum(['none', 'available', 'missing', 'changed', 'recycled', 'mixed']),
   createdAt: instantSchema,
   updatedAt: instantSchema,
@@ -354,6 +356,14 @@ export const metadataCandidateSchema = z.object({
 
 export const importInspectionItemSchema = z.object({
   item: importItemViewSchema,
+  asset: z
+    .object({
+      id: researchIdSchema,
+      contentHash: sha256Schema,
+      byteSize: z.number().int().nonnegative(),
+      mimeType: z.string(),
+    })
+    .nullable(),
   localSuggestions: z.array(
     z.object({
       fieldName: z.string(),
@@ -413,6 +423,12 @@ export const pickPdfResponseSchema = z.object({
   cancelled: z.boolean(),
 });
 
+export const uploadPdfQuerySchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  requestId: z.string().min(1).max(128),
+});
+export type UploadPdfQuery = z.infer<typeof uploadPdfQuerySchema>;
+
 export const listWorksQuerySchema = z.object({
   status: z.enum(WORK_STATUSES).default('active'),
   collectionId: researchIdSchema.optional(),
@@ -448,6 +464,16 @@ export const setWorkCollectionsInputSchema = z.object({
 });
 
 export const relinkLocationInputSchema = z.object({ path: z.string().min(1) });
+
+export const relinkLocationResponseSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('restored'), location: assetLocationViewSchema }),
+  z.object({
+    kind: z.literal('replacement-candidate'),
+    expectedAssetId: researchIdSchema,
+    candidateAssetId: researchIdSchema,
+  }),
+]);
+export type RelinkLocationResponse = z.infer<typeof relinkLocationResponseSchema>;
 
 export const permanentDeleteInputSchema = z.object({ confirmationToken: z.string().min(1) });
 

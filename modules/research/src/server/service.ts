@@ -50,6 +50,12 @@ interface StoredExternalCandidate {
 }
 
 interface InspectionPayload {
+  asset: {
+    id: string;
+    contentHash: string;
+    byteSize: number;
+    mimeType: string;
+  } | null;
   localSuggestions: Array<{
     fieldName: string;
     value: unknown;
@@ -85,6 +91,12 @@ interface DeletionToken {
   workId: string;
   fingerprint: string;
   expiresAt: number;
+}
+
+const MANAGED_UPLOAD_PREFIX = 'managed-upload:';
+
+function safeDisplayName(fileName: string): string {
+  return fileName.split(/[\\/]/).at(-1)?.trim() || 'uploaded.pdf';
 }
 
 export interface ResearchServiceDependencies {
@@ -149,6 +161,7 @@ function parsePayload(item: ImportItemRecord): InspectionPayload {
     const parsed = JSON.parse(item.candidateJson) as InspectionPayload;
     return {
       ...parsed,
+      asset: parsed.asset ?? null,
       localSuggestions: parsed.localSuggestions.map((suggestion) => ({
         ...suggestion,
         sourceRecordId: suggestion.sourceRecordId ?? null,
@@ -173,8 +186,10 @@ function toWorkView(record: WorkListRecord): WorkView {
     year: record.year,
     status: record.status,
     preferredEditionId: record.preferredEditionId,
+    authors: record.authors,
     attachmentCount: record.attachmentCount,
     collectionIds: record.collectionIds,
+    storageModes: record.storageModes,
     fileStatus: record.fileStatus,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -228,11 +243,11 @@ export class ResearchService {
     return { paths, cancelled: paths.length === 0 };
   }
 
-  async prepareImport(input: {
+  private async createImportSession(input: {
     files: Array<{ path: string; storageMode: 'managed' | 'linked'; fileName?: string }>;
     requestId: string;
   }) {
-    const session = await this.repository.createImportSession({
+    return this.repository.createImportSession({
       id: this.createId(),
       requestId: input.requestId,
       items: input.files.map((file) => ({
@@ -242,7 +257,41 @@ export class ResearchService {
         storageMode: file.storageMode,
       })),
     });
-    return toImportSessionView(session);
+  }
+
+  async prepareImport(input: {
+    files: Array<{ path: string; storageMode: 'managed' | 'linked'; fileName?: string }>;
+    requestId: string;
+  }) {
+    return toImportSessionView(await this.createImportSession(input));
+  }
+
+  async prepareManagedUpload(
+    chunks: AsyncIterable<Uint8Array>,
+    fileName: string,
+    requestId: string,
+  ) {
+    const staged = await this.contentStore.stageManagedUpload(chunks);
+    try {
+      const sourcePath = `${MANAGED_UPLOAD_PREFIX}${staged.path}`;
+      const session = await this.createImportSession({
+        files: [
+          {
+            path: sourcePath,
+            storageMode: 'managed',
+            fileName: safeDisplayName(fileName),
+          },
+        ],
+        requestId,
+      });
+      if (!session.items.some((item) => item.sourcePath === sourcePath)) {
+        await this.contentStore.discardStagedUpload(staged.path);
+      }
+      return toImportSessionView(session);
+    } catch (error) {
+      await this.contentStore.discardStagedUpload(staged.path);
+      throw error;
+    }
   }
 
   async getImportSession(id: string): Promise<ImportSessionView> {
@@ -374,10 +423,20 @@ export class ResearchService {
       retryable: false,
     });
     try {
+      const stagedUploadPath = item.sourcePath.startsWith(MANAGED_UPLOAD_PREFIX)
+        ? item.sourcePath.slice(MANAGED_UPLOAD_PREFIX.length)
+        : null;
+      const sourcePath = stagedUploadPath ?? item.sourcePath;
       const asset =
         item.storageMode === 'managed'
           ? await (async () => {
-              const stored = await this.contentStore.ingestManaged(item.sourcePath);
+              const stored = await this.contentStore
+                .ingestManaged(sourcePath)
+                .finally(() =>
+                  stagedUploadPath
+                    ? this.contentStore.discardStagedUpload(stagedUploadPath)
+                    : undefined,
+                );
               return this.repository.storeAsset(
                 {
                   id: this.createId(),
@@ -401,7 +460,7 @@ export class ResearchService {
               );
             })()
           : await (async () => {
-              const stored = await this.contentStore.inspectLinked(item.sourcePath);
+              const stored = await this.contentStore.inspectLinked(sourcePath);
               return this.repository.storeAsset(
                 {
                   id: this.createId(),
@@ -476,6 +535,12 @@ export class ResearchService {
         );
 
       let payload: InspectionPayload = {
+        asset: {
+          id: asset.asset.id,
+          contentHash: asset.asset.contentHash,
+          byteSize: asset.asset.byteSize,
+          mimeType: asset.asset.mimeType,
+        },
         localSuggestions: local.suggestions.map((suggestion) => ({
           ...suggestion,
           sourceRecordId: localSourceId,
@@ -535,6 +600,7 @@ export class ResearchService {
           results.push({
             item,
             payload: {
+              asset: null,
               localSuggestions: [],
               identifiers: [],
               externalCandidates: [],
@@ -1025,9 +1091,15 @@ export class ResearchService {
         );
         if (!deleted) throw conflict('引用关系已经变化，永久删除未完成');
       } catch (error) {
-        for (const object of quarantined.reverse()) {
-          await this.contentStore.restoreQuarantinedObject(object);
+        let restoreFailure: unknown = null;
+        for (const object of [...quarantined].reverse()) {
+          try {
+            await this.contentStore.restoreQuarantinedObject(object);
+          } catch (restoreError) {
+            restoreFailure ??= restoreError;
+          }
         }
+        if (restoreFailure) throw restoreFailure;
         throw error;
       }
       let cleanupPending = 0;

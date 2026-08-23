@@ -23,6 +23,7 @@ import {
   IconCheckSquare,
   IconFlame,
   IconFileText,
+  IconBookOpen,
   type ShellNavGroup,
   type CommandItemDescriptor,
 } from '@workbench/ui';
@@ -160,6 +161,7 @@ function AppContent() {
         else if (nav.path === '/campus/stats') icon = <IconBarChart size={15} />;
         else if (nav.path === '/habits') icon = <IconFlame size={15} />;
         else if (nav.path === '/notes') icon = <IconFileText size={15} />;
+        else if (nav.path === '/research') icon = <IconBookOpen size={15} />;
 
         items.push({
           id: `nav-mod-${mod.id}-${nav.path}`,

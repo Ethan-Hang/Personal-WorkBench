@@ -94,6 +94,26 @@ async function inspectFile(
 }
 
 describe('ResearchService 导入闭环', () => {
+  it('浏览器托管上传按 requestId 复用会话且不泄漏重试产生的临时文件', async () => {
+    const { service, contentStore } = await harness();
+    const bytes = makePdfFixture({ title: 'Uploaded Paper', author: 'Browser User' });
+    const upload = async function* () {
+      yield bytes;
+    };
+
+    const first = await service.prepareManagedUpload(upload(), 'Uploaded Paper.pdf', 'upload-once');
+    const second = await service.prepareManagedUpload(
+      upload(),
+      'Uploaded Paper.pdf',
+      'upload-once',
+    );
+
+    expect(second.id).toBe(first.id);
+    expect(await contentStore.listStagingFiles()).toHaveLength(1);
+    await service.inspectImport(first.id, { allowExternal: false, forceRefresh: false });
+    expect(await contentStore.listStagingFiles()).toEqual([]);
+  });
+
   it('托管导入建立完整领域关系、来源记录和多目录归属', async () => {
     const { service, repo, sources, sqlite } = await harness();
     const source = await pdf(join(sources, 'paper.pdf'), {

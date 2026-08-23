@@ -418,7 +418,7 @@ try {
     results.observations.longPath,
   );
 
-  const managedBytes = Buffer.from('managed-object-content');
+  const managedBytes = Buffer.from('%PDF-1.7\nmanaged-object-content\n%%EOF\n');
   const concurrentManagedRoot = join(root, 'managed-concurrent');
   const [firstCommit, secondCommit] = await Promise.all([
     commitManagedObject(concurrentManagedRoot, managedBytes),

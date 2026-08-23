@@ -174,4 +174,37 @@ describe('research HTTP API', () => {
       sqlite.close();
     }
   });
+
+  it('浏览器 PDF 流只建立 managed 导入会话并可继续识别', async () => {
+    const { app, sqlite } = await appFixture();
+    try {
+      const uploaded = await app.inject({
+        method: 'POST',
+        url: `${RESEARCH_API_V1.importUpload}?fileName=Browser%20Paper.pdf&requestId=browser-upload`,
+        headers: { 'content-type': 'application/pdf' },
+        payload: makePdfFixture({ title: 'Browser Paper', author: 'Local User' }),
+      });
+
+      expect(uploaded.statusCode).toBe(201);
+      const session = importSessionViewSchema.parse(uploaded.json());
+      expect(session.items).toEqual([
+        expect.objectContaining({ fileName: 'Browser Paper.pdf', storageMode: 'managed' }),
+      ]);
+
+      const inspected = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.importInspect(session.id),
+        payload: { allowExternal: false },
+      });
+      expect(inspected.statusCode).toBe(200);
+      const inspectedItem = importInspectionResponseSchema.parse(inspected.json()).items[0]!;
+      expect(inspectedItem.asset).toMatchObject({ mimeType: 'application/pdf' });
+      expect(inspectedItem.localSuggestions).toContainEqual(
+        expect.objectContaining({ fieldName: 'title' }),
+      );
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
 });

@@ -294,6 +294,13 @@ function combineFileStatus(
   return 'mixed';
 }
 
+function storageModes(value: string | null): StorageMode[] {
+  return (value ?? '')
+    .split(',')
+    .filter((mode): mode is StorageMode => mode === 'managed' || mode === 'linked')
+    .sort();
+}
+
 /** SQLite 只存在于 storage 适配器内，连接在组合根按当前账号动态注入。 */
 export class SqliteResearchRepository implements ResearchRepository {
   constructor(
@@ -1032,13 +1039,21 @@ export class SqliteResearchRepository implements ResearchRepository {
     const aggregate = this.sqlite
       .prepare(
         `SELECT COUNT(DISTINCT CASE WHEN a.status = 'active' THEN a.id END) AS attachment_count,
-                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.state END) AS states
+                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.state END) AS states,
+                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.mode END) AS modes
          FROM research_editions e
          LEFT JOIN research_attachments a ON a.edition_id = e.id
          LEFT JOIN research_asset_locations l ON l.asset_id = a.asset_id
          WHERE e.work_id = ?`,
       )
-      .get(id) as { attachment_count: number; states: string | null };
+      .get(id) as { attachment_count: number; states: string | null; modes: string | null };
+    const authorRows = this.sqlite
+      .prepare(
+        `SELECT c.display_name FROM research_editions e
+         JOIN research_contributors c ON c.edition_id = e.id AND c.role = 'author'
+         WHERE e.work_id = ? ORDER BY e.created_at, e.id, c.sequence, c.id`,
+      )
+      .all(id) as Array<{ display_name: string }>;
     const collectionRows = this.sqlite
       .prepare(
         `SELECT collection_id FROM research_collection_entries
@@ -1048,8 +1063,10 @@ export class SqliteResearchRepository implements ResearchRepository {
     const work = toWork(row);
     return {
       ...work,
+      authors: authorRows.map((value) => value.display_name),
       attachmentCount: aggregate.attachment_count,
       collectionIds: collectionRows.map((value) => value.collection_id),
+      storageModes: storageModes(aggregate.modes),
       fileStatus: combineFileStatus(aggregate.states, aggregate.attachment_count),
     };
   }
@@ -1093,15 +1110,35 @@ export class SqliteResearchRepository implements ResearchRepository {
       .prepare(
         `SELECT e.work_id,
                 COUNT(DISTINCT CASE WHEN a.status = 'active' THEN a.id END) AS attachment_count,
-                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.state END) AS states
+                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.state END) AS states,
+                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.mode END) AS modes
          FROM research_editions e
          LEFT JOIN research_attachments a ON a.edition_id = e.id
          LEFT JOIN research_asset_locations l ON l.asset_id = a.asset_id
          WHERE e.work_id IN (${placeholders})
          GROUP BY e.work_id`,
       )
-      .all(...ids) as Array<{ work_id: string; attachment_count: number; states: string | null }>;
+      .all(...ids) as Array<{
+      work_id: string;
+      attachment_count: number;
+      states: string | null;
+      modes: string | null;
+    }>;
     const attachmentByWork = new Map(attachmentRows.map((row) => [row.work_id, row]));
+    const authorRows = this.sqlite
+      .prepare(
+        `SELECT e.work_id, c.display_name FROM research_editions e
+         JOIN research_contributors c ON c.edition_id = e.id AND c.role = 'author'
+         WHERE e.work_id IN (${placeholders})
+         ORDER BY e.work_id, e.created_at, e.id, c.sequence, c.id`,
+      )
+      .all(...ids) as Array<{ work_id: string; display_name: string }>;
+    const authors = new Map<string, string[]>();
+    for (const row of authorRows) {
+      const values = authors.get(row.work_id) ?? [];
+      values.push(row.display_name);
+      authors.set(row.work_id, values);
+    }
     const collectionRows = this.sqlite
       .prepare(
         `SELECT work_id, collection_id FROM research_collection_entries
@@ -1121,8 +1158,10 @@ export class SqliteResearchRepository implements ResearchRepository {
       const attachmentCount = aggregate?.attachment_count ?? 0;
       return {
         ...work,
+        authors: authors.get(work.id) ?? [],
         attachmentCount,
         collectionIds: collections.get(work.id) ?? [],
+        storageModes: storageModes(aggregate?.modes ?? null),
         fileStatus: combineFileStatus(aggregate?.states ?? null, attachmentCount),
       };
     });

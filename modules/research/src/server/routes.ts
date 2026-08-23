@@ -12,12 +12,24 @@ import {
   prepareImportInputSchema,
   relinkLocationInputSchema,
   setWorkCollectionsInputSchema,
+  uploadPdfQuerySchema,
 } from '../contract.js';
 import type { ResearchService } from './service.js';
 
 const idParams = z.object({ id: z.string().min(1) });
+const uploadStreamSchema = z.custom<AsyncIterable<Uint8Array>>(
+  (value) =>
+    typeof value === 'object' &&
+    value !== null &&
+    Symbol.asyncIterator in value &&
+    typeof value[Symbol.asyncIterator] === 'function',
+  '请求体必须是 PDF 文件流',
+);
 
 export function registerResearchRoutes(app: FastifyInstance, service: ResearchService): void {
+  app.addContentTypeParser('application/pdf', (_request, payload, done) => {
+    done(null, payload);
+  });
   app.get(
     RESEARCH_API_V1.works,
     defineRoute({ query: listWorksQuerySchema }, ({ query }) => service.listWorks(query)),
@@ -72,6 +84,13 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     RESEARCH_API_V1.importSessions,
     defineRoute({ body: prepareImportInputSchema, status: 201 }, ({ body }) =>
       service.prepareImport(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.importUpload,
+    defineRoute(
+      { query: uploadPdfQuerySchema, body: uploadStreamSchema, status: 201 },
+      ({ query, body }) => service.prepareManagedUpload(body, query.fileName, query.requestId),
     ),
   );
   app.get(
