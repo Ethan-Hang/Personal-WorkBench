@@ -45,6 +45,44 @@ describe('模块边界规则（架构守卫的回归测试）', () => {
     expect(messages.join('\n')).toContain('违反 spec §4.2 铁律 1');
   });
 
+  it('模块可以依赖 http-kit——这是铁律 1 放行的第二个包（ADR-0024）', async () => {
+    const messages = await messagesFor(
+      'modules/probe/src/server/routes.ts',
+      "import '@workbench/http-kit';\n",
+    );
+    expect(messages.join('\n')).not.toContain('违反 spec §4.2 铁律 1');
+  });
+
+  it('core 不得依赖 http-kit——箭头恒指向内层', async () => {
+    const messages = await messagesFor(
+      'packages/core/src/__boundary_probe__.ts',
+      "import '@workbench/http-kit';\n",
+    );
+    expect(messages.join('\n')).toContain('违反 spec §4.2 铁律 2');
+  });
+
+  it('http-kit 不得依赖模块、数据层或组合根——否则 server → modules → http-kit 成环', async () => {
+    const moduleImport = await messagesFor(
+      'packages/http-kit/src/__boundary_probe__.ts',
+      "import '@workbench/module-todo';\n",
+    );
+    expect(moduleImport.join('\n')).toContain('违反 packages/http-kit 的边界');
+
+    const serverImport = await messagesFor(
+      'packages/http-kit/src/__boundary_probe__.ts',
+      "import '@workbench/server';\n",
+    );
+    expect(serverImport.join('\n')).toContain('违反 packages/http-kit 的边界');
+  });
+
+  it('packages/ui 不得依赖 http-kit——那是服务端胶水，不该进浏览器产物', async () => {
+    const messages = await messagesFor(
+      'packages/ui/src/__boundary_probe__.tsx',
+      "import '@workbench/http-kit';\n",
+    );
+    expect(messages.join('\n')).toContain('违反 packages/ui 的边界');
+  });
+
   it('packages/ui 允许依赖 core，但不得依赖数据或服务层', async () => {
     const coreMessages = await messagesFor(
       'packages/ui/src/__boundary_probe__.tsx',

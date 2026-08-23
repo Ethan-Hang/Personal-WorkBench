@@ -69,10 +69,10 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-page text-ink transition-colors duration-200 flex">
+    <div className="h-screen max-h-screen w-full bg-page text-ink transition-colors duration-200 flex overflow-hidden">
       {/* 侧边栏 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-screen sm:shrink-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-full sm:shrink-0 ${
           isSidebarCollapsed ? 'w-16' : 'w-64'
         }`}
       >
@@ -246,9 +246,9 @@ export function AppShell({
       </aside>
 
       {/* 主工作区 */}
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0 h-full min-h-0 overflow-hidden">
         {/* 顶栏 */}
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
+        <header className="shrink-0 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
           <div className="flex items-center gap-3">
             <div className="text-xs font-medium text-muted">
               <span>工作台</span>
@@ -287,8 +287,18 @@ export function AppShell({
         </header>
 
         {/* 页面主内容 */}
-        <main className="flex-1 px-4 py-4 sm:px-6 lg:px-8 flex flex-col min-h-0 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1680px] flex-1 flex flex-col min-h-0">
+        <main
+          className={`flex-1 flex flex-col min-h-0 ${
+            activePath === '/notes'
+              ? 'p-0 overflow-hidden'
+              : 'px-4 py-4 sm:px-6 lg:px-8 overflow-y-auto'
+          }`}
+        >
+          <div
+            className={`mx-auto w-full flex-1 flex flex-col min-h-0 ${
+              activePath === '/notes' ? 'h-full' : 'max-w-[1680px]'
+            }`}
+          >
             {children}
           </div>
         </main>

@@ -26,6 +26,7 @@ import {
   preflightLocalImport,
   uploadLocalBackupFile,
 } from './localImportApi.js';
+import { invalidateFor } from './workspaceCache.js';
 
 type ImportDirection = 'overwrite' | 'new-account';
 
@@ -234,8 +235,8 @@ export function LocalImportModal({
   const confirmMutation = useMutation({
     mutationFn: (path: string) => confirmLocalImport(path),
     onSuccess: async () => {
-      // 关键铁律：导入完成后全量失效 React Query 缓存
-      await queryClient.invalidateQueries();
+      // 覆盖导入换掉了当前账号的库文件
+      await invalidateFor(queryClient, 'active-database-changed');
       onClose();
       if (onSuccess) {
         onSuccess({ direction: 'overwrite' });
@@ -250,8 +251,8 @@ export function LocalImportModal({
   const asNewAccountMutation = useMutation({
     mutationFn: ({ path, name }: { path: string; name: string }) => importAsNewAccount(path, name),
     onSuccess: async (res) => {
-      // 关键铁律：全量失效 React Query 缓存
-      await queryClient.invalidateQueries();
+      // 导入为新账号不动当前库，变的是账号列表
+      await invalidateFor(queryClient, 'account-metadata-changed');
       setCreatedAccount(res);
       if (onSuccess) {
         onSuccess({
@@ -270,7 +271,7 @@ export function LocalImportModal({
   const switchMutation = useMutation({
     mutationFn: (id: string) => switchAccount(id),
     onSuccess: async () => {
-      await queryClient.invalidateQueries();
+      await invalidateFor(queryClient, 'active-database-changed');
       onClose();
     },
     onError: (err: Error) => {

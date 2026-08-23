@@ -10,29 +10,7 @@ import {
   type UpdateApplicationInput,
   type UpdateRoundInput,
 } from '../contract.js';
-
-async function request(url: string, init: RequestInit = {}): Promise<unknown> {
-  const headers = new Headers(init.headers);
-  if (init.body !== undefined) headers.set('Content-Type', 'application/json');
-
-  const response = await fetch(url, { ...init, headers });
-  const body = response.status === 204 ? undefined : await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    const payload = body as { error?: string; requestId?: string } | undefined;
-    const message = payload?.error ?? `请求失败（${response.status}）`;
-    // 附上服务端的请求编号：界面上这一句报错据此才能和日志里的整段堆栈对上号。
-    throw new Error(
-      payload?.requestId === undefined ? message : `${message}（编号 ${payload.requestId}）`,
-    );
-  }
-
-  return body;
-}
-
-function json(method: 'POST' | 'PATCH', body: unknown): RequestInit {
-  return { method, body: JSON.stringify(body) };
-}
+import { apiRequest as request, jsonBody as json } from '@workbench/ui';
 
 export const fetchApplications = async (): Promise<{ applications: ApplicationView[] }> =>
   applicationsResponseSchema.parse(await request(CAMPUS_API.applications));

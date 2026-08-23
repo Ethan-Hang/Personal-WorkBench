@@ -1,3 +1,4 @@
+export { apiRequest, jsonBody } from './http.js';
 export { Panel } from './Panel.js';
 export { Button } from './Button.js';
 export { Switch, type SwitchProps } from './Switch.js';

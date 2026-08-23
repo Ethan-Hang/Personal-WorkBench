@@ -1,5 +1,7 @@
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* Tailwind v4 的自动扫描以 Vite root（packages/web）为界，
    模块的 UI 在这棵树之外，缺了这行它们的样式会静默消失。 */
 @source "../../../modules";
@@ -819,6 +821,105 @@
   pointer-events: none !important;
   overflow: hidden !important;
   will-change: transform, opacity, max-height;
+}
+
+/* ==========================================================================
+   便签瀑布流水流式平滑过渡与动画体系 (Notes Fluid Waterfall & Card Transitions)
+   ========================================================================== */
+.note-fluid-card-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition:
+    grid-template-rows 360ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 280ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 360ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: grid-template-rows, opacity, transform;
+}
+
+.note-fluid-card-slot.is-exiting {
+  grid-template-rows: 0fr !important;
+  opacity: 0 !important;
+  transform: translateY(-10px) scale(0.94) !important;
+  pointer-events: none !important;
+}
+
+.note-fluid-card-slot > div {
+  overflow: hidden;
+  min-height: 0;
+}
+
+.note-fluid-row-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    grid-template-rows 320ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 240ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 320ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: grid-template-rows, opacity, transform;
+}
+
+.note-fluid-row-slot.is-exiting {
+  grid-template-rows: 0fr !important;
+  opacity: 0 !important;
+  transform: translateX(-24px) !important;
+  pointer-events: none !important;
+}
+
+.note-fluid-row-slot > div {
+  overflow: hidden;
+  min-height: 0;
+}
+
+@keyframes noteCardSlideEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes noteViewFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes noteEditorEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-note-enter {
+  animation: noteCardSlideEnter 280ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  will-change: transform, opacity;
+}
+
+.animate-view-fade-in {
+  animation: noteViewFadeIn 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  will-change: transform, opacity;
+}
+
+.animate-editor-enter {
+  animation: noteEditorEnter 300ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  will-change: transform, opacity;
 }
 
 /* ==========================================================================

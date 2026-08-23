@@ -43,6 +43,7 @@ import { GistSyncPanel } from '../sync/GistSyncPanel.js';
 import { fetchLocalBackupConfig, fetchLocalBackupList } from '../sync/localBackupApi.js';
 import { LocalImportModal } from '../sync/LocalImportModal.js';
 import { fetchSyncStatus } from '../sync/syncApi.js';
+import { invalidateFor } from '../sync/workspaceCache.js';
 
 const PRESET_AVATARS: Array<{ id: string; label: string; url: string }> = [
   {
@@ -243,8 +244,8 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
   const switchMutation = useMutation({
     mutationFn: (id: string) => switchAccount(id),
     onSuccess: async (_res, targetId) => {
-      // 关键铁律：切换账号后必须触发全量缓存失效，防止上一个账号的数据残留
-      await queryClient.invalidateQueries();
+      // 切库：缓存里每一条都属于另一个库文件了（见 sync/workspaceCache.ts）
+      await invalidateFor(queryClient, 'active-database-changed');
       const targetAcc = accounts.find((a) => a.id === targetId);
       showToast(`已切换至账号「${targetAcc?.displayName ?? targetId}」`);
     },
@@ -283,7 +284,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
     }) => bindGithubAccount(id, { direction, github, credential }),
     onSuccess: async (res) => {
       void queryClient.setQueryData(['accounts'], res);
-      await queryClient.invalidateQueries();
+      await invalidateFor(queryClient, 'account-metadata-changed');
       setAuthStep('bind_success_hint');
     },
     onError: (err: Error) => {
@@ -296,7 +297,7 @@ export function AccountsPanel({ onNavigateToStorage }: { onNavigateToStorage?: (
     mutationFn: (id: string) => unbindGithubAccount(id),
     onSuccess: async (res) => {
       void queryClient.setQueryData(['accounts'], res);
-      await queryClient.invalidateQueries();
+      await invalidateFor(queryClient, 'account-metadata-changed');
       setIsUnbindModalOpen(false);
       setUnbindError(null);
       showToast('已解除 GitHub 账号绑定');

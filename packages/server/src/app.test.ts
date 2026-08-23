@@ -8,6 +8,8 @@ import { localDayOf, nowIso, type ServerModuleDefinition } from '@workbench/core
 import { openTestDatabase, runMigrationsFrom } from '@workbench/data';
 import { createCampusRecruitServerModule } from '@workbench/module-campus-recruit';
 import { SqliteCampusRecruitRepository } from '@workbench/module-campus-recruit/storage';
+import { createNotesServerModule } from '@workbench/module-notes';
+import { SqliteNoteRepository } from '@workbench/module-notes/storage';
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import type { FastifyInstance } from 'fastify';
@@ -154,6 +156,54 @@ describe('buildApp', () => {
         sourceModule: 'campus-recruit',
       }),
     );
+
+    await app.close();
+    sqlite.close();
+  });
+
+  it('注册 notes 模块后，可通过 API 创建便签并一键派发待办与关联', async () => {
+    const { db, sqlite } = openTestDatabase();
+    runMigrationsFrom(db, 'modules/notes/migrations');
+    const notes = createNotesServerModule(new SqliteNoteRepository(() => sqlite));
+    const app = await buildApp({ getSqlite: () => sqlite, modules: [notes] });
+
+    // 1. 创建便签
+    const createdNoteRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/notes',
+      payload: {
+        title: '架构设计便签',
+        content: '# 架构要点\n- 模块间零依赖\n- Core 零感知',
+      },
+    });
+    expect(createdNoteRes.statusCode).toBe(201);
+    const createdNote = createdNoteRes.json();
+    expect(createdNote.id).toBeTruthy();
+    expect(createdNote.title).toBe('架构设计便签');
+
+    // 2. 一键派发待办
+    const createTodoRes = await app.inject({
+      method: 'POST',
+      url: `/api/v1/notes/${createdNote.id}/create-todo`,
+      payload: {
+        title: '落实架构设计评审',
+        importance: 'high',
+      },
+    });
+    expect(createTodoRes.statusCode).toBe(201);
+    const todoResult = createTodoRes.json();
+    expect(todoResult.link.title).toBe('落实架构设计评审');
+    expect(todoResult.link.sourceModule).toBe('notes');
+    expect(todoResult.note.todoLinks).toHaveLength(1);
+
+    // 3. 查便签详情带关联待办
+    const getNoteRes = await app.inject({
+      method: 'GET',
+      url: `/api/v1/notes/${createdNote.id}`,
+    });
+    expect(getNoteRes.statusCode).toBe(200);
+    expect(getNoteRes.json().todoLinks).toHaveLength(1);
+    expect(getNoteRes.json().todoLinks[0].title).toBe('落实架构设计评审');
 
     await app.close();
     sqlite.close();

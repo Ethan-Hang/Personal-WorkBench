@@ -13,6 +13,8 @@
     "@workbench/data": "*",
     "@workbench/sync": "*",
     "@workbench/module-campus-recruit": "*",
+    "@workbench/module-habit": "*",
+    "@workbench/module-notes": "*",
     "@workbench/module-todo": "*",
     "@workbench/module-workbench": "*",
     "fastify": "^5.12.0"

@@ -269,7 +269,7 @@ export const taskViewSchema = z.object({
   scheduled: scheduledTimeSchema.nullable(),
   /** 子任务，按 position 升序。无子任务时为空数组，不是 null。 */
   subtasks: z.array(subtaskViewSchema).default([]),
-  /** 标签，按名称升序。todo 内部概念，工作台看不到（ADR-0014）。 */
+  /** 标签，按名称升序。todo 内部概念，工作台看不到（ADR-0025）。 */
   tags: z.array(tagViewSchema).default([]),
   /** 由哪条重复规则物化而来；手工建的任务为 null。 */
   recurrenceId: z.string().nullable().default(null),

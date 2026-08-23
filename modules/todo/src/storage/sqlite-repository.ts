@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { asc, eq, inArray, max } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
-import { notFound } from '../server/errors.js';
+import { notFound } from '@workbench/http-kit';
 import type {
   RecurrenceChanges,
   RecurrenceRecord,

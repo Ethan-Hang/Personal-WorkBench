@@ -7,6 +7,8 @@
     "@tanstack/react-query": "^5.101.4",
     "@workbench/core": "*",
     "@workbench/module-campus-recruit": "*",
+    "@workbench/module-habit": "*",
+    "@workbench/module-notes": "*",
     "@workbench/module-todo": "*",
     "@workbench/module-workbench": "*",
     "@workbench/sync": "*",

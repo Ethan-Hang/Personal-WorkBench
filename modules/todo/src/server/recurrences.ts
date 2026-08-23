@@ -5,14 +5,14 @@ import {
   type RecurrenceView,
   type UpdateRecurrenceInput,
 } from '../contract.js';
-import { notFound } from './errors.js';
+import { notFound } from '@workbench/http-kit';
 import { addDays, expandOccurrences, type RecurrenceRule } from './recurrence.js';
 import type { RecurrenceRecord, TodoRepository } from './repository.js';
 
 /**
  * 重复任务：**物化策略**。规则本身不是待办，它按需生成真正的 core Item。
  *
- * 选物化而非「1 条 Item + 规则」的理由（ADR-0014）：日历、排程、完成、回收站
+ * 选物化而非「1 条 Item + 规则」的理由（ADR-0025）：日历、排程、完成、回收站
  * 全部零改动，core 一行不改。一条重复出来的待办与手工建的待办在系统里完全同形，
  * 因此不需要在每个消费端各写一遍「这条是重复的吗」。
  */

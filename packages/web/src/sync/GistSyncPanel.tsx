@@ -20,6 +20,7 @@ import {
   useTimezone,
 } from '@workbench/ui';
 import { fetchSyncStatus, pullSync, pushSync, unlockSync } from './syncApi.js';
+import { invalidateFor } from './workspaceCache.js';
 
 export interface GistSyncPanelProps {
   activeAccount?: AccountView;
@@ -95,7 +96,7 @@ export function GistSyncPanel({ activeAccount, onStartGitHubAuth }: GistSyncPane
     mutationFn: () => pullSync(),
     onSuccess: async (res) => {
       void queryClient.setQueryData(['sync-status'], res);
-      await queryClient.invalidateQueries();
+      await invalidateFor(queryClient, 'settings-pulled');
       setIsConflictModalOpen(false);
       showToast('已从云端拉取最新设置并覆写本地');
     },
