@@ -25,7 +25,7 @@ import { join, resolve, win32 } from 'node:path';
 // Non-Windows syntax and portable-flow check: node scripts/research-windows-file-semantics.mjs --smoke
 
 const EXPECTED_LOCK_ERRORS = new Set(['EACCES', 'EBUSY', 'EPERM']);
-const EXPECTED_RENAME_COLLISION_ERRORS = new Set(['EACCES', 'EEXIST', 'EPERM']);
+const EXPECTED_PUBLISH_COLLISION_ERRORS = new Set(['EACCES', 'EEXIST', 'EPERM']);
 const argv = process.argv.slice(2);
 
 let baseRoot = tmpdir();
@@ -224,10 +224,13 @@ async function commitManagedObject(root, bytes) {
   }
 
   try {
-    await rename(stagedPath, finalPath);
+    // 与实际 content store 一致：完整 staging 文件通过同盘 hard link 无覆盖发布。
+    // POSIX rename 会静默替换已有目标，不能承担内容寻址对象的竞争提交。
+    await link(stagedPath, finalPath);
+    await unlink(stagedPath);
     return { digest, finalPath, outcome: 'stored' };
   } catch (error) {
-    if (!EXPECTED_RENAME_COLLISION_ERRORS.has(error?.code)) throw error;
+    if (!EXPECTED_PUBLISH_COLLISION_ERRORS.has(error?.code)) throw error;
 
     const finalHash = await attempt(() => hashFile(finalPath));
     if (!finalHash.ok || finalHash.value !== digest) throw error;
