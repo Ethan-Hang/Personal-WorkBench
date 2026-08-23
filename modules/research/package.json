@@ -26,6 +26,8 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
-    "@workbench/data": "*"
+    "@workbench/data": "*",
+    "@workbench/server": "*",
+    "fastify": "^5.12.0"
   }
 }

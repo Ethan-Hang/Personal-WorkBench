@@ -186,6 +186,54 @@ describe('托管内容', () => {
       await store.auditManaged(result.objectKey, result.contentHash, result.byteSize),
     ).toMatchObject({ state: 'missing' });
   });
+
+  it('可扫描内容地址对象，并用可回滚隔离完成永久清理', async () => {
+    const { store, sourcePath } = await fixture();
+    const result = await store.ingestManaged(sourcePath);
+
+    expect(await store.listManagedObjects()).toEqual([
+      expect.objectContaining({
+        objectKey: result.objectKey,
+        objectPath: result.objectPath,
+        contentHash: result.contentHash,
+        byteSize: result.byteSize,
+      }),
+    ]);
+    const first = await store.quarantineManagedObject(
+      result.objectKey,
+      result.contentHash,
+      result.byteSize,
+    );
+    expect(first).not.toBeNull();
+    expect(
+      await store.auditManaged(result.objectKey, result.contentHash, result.byteSize),
+    ).toMatchObject({ state: 'missing' });
+    await store.restoreQuarantinedObject(first!);
+    expect(
+      await store.auditManaged(result.objectKey, result.contentHash, result.byteSize),
+    ).toMatchObject({ state: 'available' });
+
+    const second = await store.quarantineManagedObject(
+      result.objectKey,
+      result.contentHash,
+      result.byteSize,
+    );
+    await store.finalizeQuarantinedObject(second!);
+    expect(await store.listManagedObjects()).toEqual([]);
+  });
+
+  it('对账只清理达到期限的 staging 文件', async () => {
+    const { managedRoot, store } = await fixture();
+    const staging = join(managedRoot, '.staging');
+    await mkdir(staging, { recursive: true });
+    const old = join(staging, 'old.part');
+    await writeFile(old, 'partial');
+
+    expect(await store.removeStaleStagingFiles(new Date(Date.now() + 1_000))).toEqual([
+      expect.stringMatching(/\.staging[\\/]old\.part$/),
+    ]);
+    expect(await store.listStagingFiles()).toEqual([]);
+  });
 });
 
 describe('链接内容', () => {

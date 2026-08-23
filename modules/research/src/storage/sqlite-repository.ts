@@ -8,7 +8,11 @@ import type {
   CollectionRecord,
   CommitImportDraft,
   CommitImportResult,
+  ContributorRecord,
+  DeletionImpact,
   EditionRecord,
+  IdentifierMatch,
+  IdentifierRecord,
   ImportItemChanges,
   ImportItemRecord,
   ImportSessionDraft,
@@ -22,6 +26,8 @@ import type {
   SourceRecord,
   SourceRecordDraft,
   StoredAsset,
+  AssetUsage,
+  LocationAuditRecord,
   WorkListRecord,
   WorkPage,
   WorkRecord,
@@ -33,6 +39,7 @@ import type {
   EditionKind,
   ImportItemStage,
   ImportSessionStatus,
+  IdentifierScheme,
   LocationState,
   MetadataSourceKind,
   StorageMode,
@@ -95,6 +102,32 @@ function toEdition(row: Row): EditionRecord {
     revision: integer(row, 'revision'),
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at'),
+  };
+}
+
+function toContributor(row: Row): ContributorRecord {
+  return {
+    id: text(row, 'id'),
+    editionId: text(row, 'edition_id'),
+    role: text(row, 'role'),
+    displayName: text(row, 'display_name'),
+    givenName: nullableText(row, 'given_name'),
+    familyName: nullableText(row, 'family_name'),
+    orcid: nullableText(row, 'orcid'),
+    sequence: integer(row, 'sequence'),
+  };
+}
+
+function toIdentifier(row: Row): IdentifierRecord {
+  return {
+    id: text(row, 'id'),
+    entityType: text(row, 'entity_type') as IdentifierRecord['entityType'],
+    entityId: text(row, 'entity_id'),
+    scheme: text(row, 'scheme') as IdentifierScheme,
+    value: text(row, 'value'),
+    normalizedValue: text(row, 'normalized_value'),
+    sourceRecordId: nullableText(row, 'source_record_id'),
+    createdAt: text(row, 'created_at'),
   };
 }
 
@@ -387,6 +420,58 @@ export class SqliteResearchRepository implements ResearchRepository {
     return row ? toAsset(row) : null;
   }
 
+  async getAsset(id: string): Promise<AssetRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_assets WHERE id = ?').get(id) as
+      Row | undefined;
+    return row ? toAsset(row) : null;
+  }
+
+  async findAssetUsages(assetId: string): Promise<AssetUsage[]> {
+    return this.sqlite
+      .prepare(
+        `SELECT e.work_id, a.edition_id, a.id AS attachment_id, a.role
+         FROM research_attachments a
+         JOIN research_editions e ON e.id = a.edition_id
+         WHERE a.asset_id = ? AND a.status = 'active'
+         ORDER BY e.work_id, a.edition_id, a.id`,
+      )
+      .all(assetId)
+      .map((row) => {
+        const value = row as Row;
+        return {
+          workId: text(value, 'work_id'),
+          editionId: text(value, 'edition_id'),
+          attachmentId: text(value, 'attachment_id'),
+          role: text(value, 'role') as AttachmentRole,
+        };
+      });
+  }
+
+  async findIdentifierMatches(
+    scheme: IdentifierScheme,
+    normalizedValue: string,
+  ): Promise<IdentifierMatch[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT i.*, e.id AS edition_id, e.work_id
+         FROM research_identifiers i
+         JOIN research_editions e ON i.entity_type = 'edition' AND e.id = i.entity_id
+         WHERE i.scheme = ? AND i.normalized_value = ?
+         UNION ALL
+         SELECT i.*, e.id AS edition_id, e.work_id
+         FROM research_identifiers i
+         JOIN research_editions e ON i.entity_type = 'work' AND e.work_id = i.entity_id
+         WHERE i.scheme = ? AND i.normalized_value = ?
+         ORDER BY work_id, edition_id`,
+      )
+      .all(scheme, normalizedValue, scheme, normalizedValue) as Row[];
+    return rows.map((row) => ({
+      workId: text(row, 'work_id'),
+      editionId: text(row, 'edition_id'),
+      identifier: toIdentifier(row),
+    }));
+  }
+
   async storeAsset(
     draft: Parameters<ResearchRepository['storeAsset']>[0],
     location: AssetLocationDraft,
@@ -475,6 +560,44 @@ export class SqliteResearchRepository implements ResearchRepository {
     return row ? toLocation(row) : null;
   }
 
+  async listLocationsForAsset(assetId: string): Promise<AssetLocationRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_asset_locations
+         WHERE asset_id = ? ORDER BY mode, created_at, id`,
+      )
+      .all(assetId) as Row[];
+    return rows.map(toLocation);
+  }
+
+  async listLocationsForAudit(): Promise<LocationAuditRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT l.*, a.hash_algorithm, a.content_hash, a.byte_size, a.mime_type,
+                a.state AS asset_state, a.created_at AS asset_created_at,
+                a.updated_at AS asset_updated_at, a.recycled_at AS asset_recycled_at
+         FROM research_asset_locations l
+         JOIN research_assets a ON a.id = l.asset_id
+         WHERE l.state <> 'recycled' AND a.state = 'active'
+         ORDER BY l.id`,
+      )
+      .all() as Row[];
+    return rows.map((row) => ({
+      asset: toAsset({
+        id: row.asset_id,
+        hash_algorithm: row.hash_algorithm,
+        content_hash: row.content_hash,
+        byte_size: row.byte_size,
+        mime_type: row.mime_type,
+        state: row.asset_state,
+        created_at: row.asset_created_at,
+        updated_at: row.asset_updated_at,
+        recycled_at: row.asset_recycled_at,
+      }),
+      location: toLocation(row),
+    }));
+  }
+
   async updateLocationState(
     id: string,
     state: LocationState,
@@ -488,6 +611,35 @@ export class SqliteResearchRepository implements ResearchRepository {
          WHERE id = ? RETURNING *`,
       )
       .get(state, errorCode, checkedAt, this.clock(), id) as Row | undefined;
+    return row ? toLocation(row) : null;
+  }
+
+  async relinkLocation(
+    id: string,
+    originalPath: string,
+    resolvedPath: string,
+    identity: { deviceId: string; fileId: string; size: number; mtimeMs: number },
+    checkedAt: string,
+  ): Promise<AssetLocationRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_asset_locations
+         SET original_path = ?, resolved_path = ?, state = 'available', device_id = ?, file_id = ?,
+             observed_size = ?, observed_mtime_ms = ?, error_code = NULL, last_checked_at = ?,
+             updated_at = ?
+         WHERE id = ? AND mode = 'linked' RETURNING *`,
+      )
+      .get(
+        originalPath,
+        resolvedPath,
+        identity.deviceId,
+        identity.fileId,
+        identity.size,
+        identity.mtimeMs,
+        checkedAt,
+        this.clock(),
+        id,
+      ) as Row | undefined;
     return row ? toLocation(row) : null;
   }
 
@@ -780,6 +932,25 @@ export class SqliteResearchRepository implements ResearchRepository {
         );
       }
 
+      const insertContributor = this.sqlite.prepare(
+        `INSERT INTO research_contributors
+         (id, edition_id, role, display_name, given_name, family_name, orcid, sequence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(edition_id, sequence) DO NOTHING`,
+      );
+      for (const contributor of draft.contributors) {
+        insertContributor.run(
+          contributor.id,
+          editionId,
+          contributor.role ?? 'author',
+          contributor.displayName,
+          contributor.givenName ?? null,
+          contributor.familyName ?? null,
+          contributor.orcid ?? null,
+          contributor.sequence,
+        );
+      }
+
       for (const assertion of draft.assertions) {
         this.writeAssertion(
           {
@@ -852,6 +1023,35 @@ export class SqliteResearchRepository implements ResearchRepository {
     const row = this.sqlite.prepare('SELECT * FROM research_works WHERE id = ?').get(id) as
       Row | undefined;
     return row ? toWork(row) : null;
+  }
+
+  async getWorkListRecord(id: string): Promise<WorkListRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_works WHERE id = ?').get(id) as
+      Row | undefined;
+    if (!row) return null;
+    const aggregate = this.sqlite
+      .prepare(
+        `SELECT COUNT(DISTINCT CASE WHEN a.status = 'active' THEN a.id END) AS attachment_count,
+                GROUP_CONCAT(DISTINCT CASE WHEN a.status = 'active' THEN l.state END) AS states
+         FROM research_editions e
+         LEFT JOIN research_attachments a ON a.edition_id = e.id
+         LEFT JOIN research_asset_locations l ON l.asset_id = a.asset_id
+         WHERE e.work_id = ?`,
+      )
+      .get(id) as { attachment_count: number; states: string | null };
+    const collectionRows = this.sqlite
+      .prepare(
+        `SELECT collection_id FROM research_collection_entries
+         WHERE work_id = ? ORDER BY collection_id`,
+      )
+      .all(id) as Array<{ collection_id: string }>;
+    const work = toWork(row);
+    return {
+      ...work,
+      attachmentCount: aggregate.attachment_count,
+      collectionIds: collectionRows.map((value) => value.collection_id),
+      fileStatus: combineFileStatus(aggregate.states, aggregate.attachment_count),
+    };
   }
 
   async listWorks(query: ListWorksQuery): Promise<WorkPage> {
@@ -942,11 +1142,161 @@ export class SqliteResearchRepository implements ResearchRepository {
     return rows.map(toEdition);
   }
 
+  async getEdition(id: string): Promise<EditionRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_editions WHERE id = ?').get(id) as
+      Row | undefined;
+    return row ? toEdition(row) : null;
+  }
+
+  async listContributors(editionId: string): Promise<ContributorRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_contributors
+         WHERE edition_id = ? ORDER BY sequence, id`,
+      )
+      .all(editionId) as Row[];
+    return rows.map(toContributor);
+  }
+
+  async listIdentifiers(
+    entityType: 'work' | 'edition',
+    entityId: string,
+  ): Promise<IdentifierRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_identifiers
+         WHERE entity_type = ? AND entity_id = ? ORDER BY scheme, normalized_value, id`,
+      )
+      .all(entityType, entityId) as Row[];
+    return rows.map(toIdentifier);
+  }
+
   async listAttachments(editionId: string): Promise<AttachmentRecord[]> {
     const rows = this.sqlite
       .prepare('SELECT * FROM research_attachments WHERE edition_id = ? ORDER BY created_at, id')
       .all(editionId) as Row[];
     return rows.map(toAttachment);
+  }
+
+  async recycleAttachment(id: string, at: string): Promise<boolean> {
+    const result = this.sqlite
+      .prepare(
+        `UPDATE research_attachments SET status = 'recycled', recycled_at = ?
+         WHERE id = ? AND status = 'active'`,
+      )
+      .run(at, id);
+    return result.changes === 1;
+  }
+
+  async trashWork(id: string, at: string): Promise<boolean> {
+    const result = this.sqlite
+      .prepare(
+        `UPDATE research_works
+         SET status = 'trashed', trashed_at = ?, updated_at = ?, revision = revision + 1
+         WHERE id = ? AND status = 'active'`,
+      )
+      .run(at, at, id);
+    return result.changes === 1;
+  }
+
+  async restoreWork(id: string, at: string): Promise<boolean> {
+    const result = this.sqlite
+      .prepare(
+        `UPDATE research_works
+         SET status = 'active', trashed_at = NULL, updated_at = ?, revision = revision + 1
+         WHERE id = ? AND status = 'trashed'`,
+      )
+      .run(at, id);
+    return result.changes === 1;
+  }
+
+  async getDeletionImpact(workId: string): Promise<DeletionImpact | null> {
+    const work = this.sqlite.prepare('SELECT id FROM research_works WHERE id = ?').get(workId);
+    if (!work) return null;
+    const counts = this.sqlite
+      .prepare(
+        `SELECT
+           COUNT(DISTINCT a.id) AS attachment_count,
+           COUNT(DISTINCT CASE WHEN l.mode = 'linked' THEN l.id END) AS linked_location_count
+         FROM research_editions e
+         LEFT JOIN research_attachments a ON a.edition_id = e.id
+         LEFT JOIN research_asset_locations l ON l.asset_id = a.asset_id
+         WHERE e.work_id = ?`,
+      )
+      .get(workId) as { attachment_count: number; linked_location_count: number };
+    const removable = this.sqlite
+      .prepare(
+        `SELECT DISTINCT a2.id AS asset_id, l.object_key, a2.content_hash, a2.byte_size
+         FROM research_editions e
+         JOIN research_attachments att ON att.edition_id = e.id
+         JOIN research_assets a2 ON a2.id = att.asset_id
+         JOIN research_asset_locations l ON l.asset_id = a2.id AND l.mode = 'managed'
+         WHERE e.work_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM research_attachments other_att
+             JOIN research_editions other_e ON other_e.id = other_att.edition_id
+             WHERE other_att.asset_id = a2.id AND other_e.work_id <> ?
+           )
+         ORDER BY a2.id`,
+      )
+      .all(workId, workId) as Array<{
+      asset_id: string;
+      object_key: string;
+      content_hash: string;
+      byte_size: number;
+    }>;
+    return {
+      workId,
+      attachmentCount: counts.attachment_count,
+      managedObjectCount: removable.length,
+      linkedLocationCount: counts.linked_location_count,
+      removableManagedAssets: removable.map((row) => ({
+        assetId: row.asset_id,
+        objectKey: row.object_key,
+        contentHash: row.content_hash,
+        byteSize: row.byte_size,
+      })),
+    };
+  }
+
+  async permanentlyDeleteWork(workId: string, removableAssetIds: string[]): Promise<boolean> {
+    return this.sqlite.transaction(() => {
+      const work = this.sqlite
+        .prepare('SELECT status FROM research_works WHERE id = ?')
+        .get(workId) as { status: string } | undefined;
+      if (!work || work.status !== 'trashed') return false;
+      const current = this.sqlite
+        .prepare(
+          `SELECT DISTINCT a2.id AS asset_id
+           FROM research_editions e
+           JOIN research_attachments att ON att.edition_id = e.id
+           JOIN research_assets a2 ON a2.id = att.asset_id
+           JOIN research_asset_locations l ON l.asset_id = a2.id AND l.mode = 'managed'
+           WHERE e.work_id = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM research_attachments other_att
+               JOIN research_editions other_e ON other_e.id = other_att.edition_id
+               WHERE other_att.asset_id = a2.id AND other_e.work_id <> ?
+             )
+           ORDER BY a2.id`,
+        )
+        .all(workId, workId) as Array<{ asset_id: string }>;
+      const actual = current.map((row) => row.asset_id);
+      const expected = [...removableAssetIds].sort();
+      if (actual.length !== expected.length || actual.some((id, index) => id !== expected[index])) {
+        return false;
+      }
+
+      this.sqlite.prepare('DELETE FROM research_works WHERE id = ?').run(workId);
+      const deleteAsset = this.sqlite.prepare(
+        `DELETE FROM research_assets
+         WHERE id = ? AND NOT EXISTS (
+           SELECT 1 FROM research_attachments WHERE asset_id = research_assets.id
+         )`,
+      );
+      for (const assetId of actual) deleteAsset.run(assetId);
+      return true;
+    })();
   }
 
   async createCollection(draft: CollectionDraft): Promise<CollectionRecord> {

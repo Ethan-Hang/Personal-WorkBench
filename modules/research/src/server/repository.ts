@@ -87,6 +87,27 @@ export interface EditionDraft {
   pages?: string | null;
 }
 
+export interface ContributorRecord {
+  id: string;
+  editionId: string;
+  role: string;
+  displayName: string;
+  givenName: string | null;
+  familyName: string | null;
+  orcid: string | null;
+  sequence: number;
+}
+
+export interface ContributorDraft {
+  id: string;
+  displayName: string;
+  role?: string;
+  givenName?: string | null;
+  familyName?: string | null;
+  orcid?: string | null;
+  sequence: number;
+}
+
 export interface IdentifierDraft {
   id: string;
   entityType: 'work' | 'edition';
@@ -94,6 +115,17 @@ export interface IdentifierDraft {
   value: string;
   normalizedValue: string;
   sourceRecordId?: string | null;
+}
+
+export interface IdentifierRecord extends IdentifierDraft {
+  entityId: string;
+  createdAt: string;
+}
+
+export interface IdentifierMatch {
+  workId: string;
+  editionId: string;
+  identifier: IdentifierRecord;
 }
 
 export interface AssetRecord {
@@ -154,6 +186,18 @@ export interface StoredAsset {
   location: AssetLocationRecord;
   reusedAsset: boolean;
   reusedLocation: boolean;
+}
+
+export interface AssetUsage {
+  workId: string;
+  editionId: string;
+  attachmentId: string;
+  role: AttachmentRole;
+}
+
+export interface LocationAuditRecord {
+  asset: AssetRecord;
+  location: AssetLocationRecord;
 }
 
 export interface AttachmentRecord {
@@ -317,9 +361,23 @@ export interface CommitImportDraft {
     displayName: string;
   };
   identifiers: IdentifierDraft[];
+  contributors: ContributorDraft[];
   assertions: Array<Omit<MetadataAssertionDraft, 'entityId'>>;
   collections: Array<{ entryId: string; collectionId: string }>;
   decisionJson: string;
+}
+
+export interface DeletionImpact {
+  workId: string;
+  attachmentCount: number;
+  managedObjectCount: number;
+  linkedLocationCount: number;
+  removableManagedAssets: Array<{
+    assetId: string;
+    objectKey: string;
+    contentHash: string;
+    byteSize: number;
+  }>;
 }
 
 export interface CommitImportResult {
@@ -340,13 +398,28 @@ export interface ResearchRepository {
   setImportSessionStatus(id: string, status: ImportSessionStatus): Promise<boolean>;
 
   findAssetByHash(contentHash: string): Promise<AssetRecord | null>;
+  getAsset(id: string): Promise<AssetRecord | null>;
+  findAssetUsages(assetId: string): Promise<AssetUsage[]>;
+  findIdentifierMatches(
+    scheme: IdentifierScheme,
+    normalizedValue: string,
+  ): Promise<IdentifierMatch[]>;
   storeAsset(asset: AssetDraft, location: AssetLocationDraft): Promise<StoredAsset>;
   getLocation(id: string): Promise<AssetLocationRecord | null>;
+  listLocationsForAsset(assetId: string): Promise<AssetLocationRecord[]>;
+  listLocationsForAudit(): Promise<LocationAuditRecord[]>;
   updateLocationState(
     id: string,
     state: LocationState,
     checkedAt: string,
     errorCode: string | null,
+  ): Promise<AssetLocationRecord | null>;
+  relinkLocation(
+    id: string,
+    originalPath: string,
+    resolvedPath: string,
+    identity: { deviceId: string; fileId: string; size: number; mtimeMs: number },
+    checkedAt: string,
   ): Promise<AssetLocationRecord | null>;
 
   recordSource(draft: SourceRecordDraft): Promise<SourceRecord>;
@@ -364,9 +437,18 @@ export interface ResearchRepository {
 
   commitImport(draft: CommitImportDraft): Promise<CommitImportResult>;
   getWork(id: string): Promise<WorkRecord | null>;
+  getWorkListRecord(id: string): Promise<WorkListRecord | null>;
   listWorks(query: ListWorksQuery): Promise<WorkPage>;
+  getEdition(id: string): Promise<EditionRecord | null>;
   listEditions(workId: string): Promise<EditionRecord[]>;
+  listContributors(editionId: string): Promise<ContributorRecord[]>;
+  listIdentifiers(entityType: 'work' | 'edition', entityId: string): Promise<IdentifierRecord[]>;
   listAttachments(editionId: string): Promise<AttachmentRecord[]>;
+  recycleAttachment(id: string, at: string): Promise<boolean>;
+  trashWork(id: string, at: string): Promise<boolean>;
+  restoreWork(id: string, at: string): Promise<boolean>;
+  getDeletionImpact(workId: string): Promise<DeletionImpact | null>;
+  permanentlyDeleteWork(workId: string, removableAssetIds: string[]): Promise<boolean>;
 
   createCollection(draft: CollectionDraft): Promise<CollectionRecord>;
   listCollections(): Promise<CollectionRecord[]>;

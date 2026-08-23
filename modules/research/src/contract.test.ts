@@ -133,6 +133,7 @@ describe('research contract', () => {
           title: 'Research Workbench',
           publicationTitle: 'Workbench Journal',
           publishedDate: '2026-08-23',
+          contributors: [],
           identifiers: [{ scheme: 'doi', value: '10.1000/example' }],
           attachments: [
             {

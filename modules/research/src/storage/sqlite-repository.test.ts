@@ -45,6 +45,7 @@ function importDraft(overrides: Partial<CommitImportDraft> = {}): CommitImportDr
         normalizedValue: '10.1000/example',
       },
     ],
+    contributors: overrides.contributors ?? [],
     assertions: overrides.assertions ?? [
       {
         id: 'assertion-title',

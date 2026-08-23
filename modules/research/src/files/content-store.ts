@@ -53,6 +53,18 @@ export interface RelinkResult extends LinkedFileResult {
   matchesExpectedAsset: boolean;
 }
 
+export interface ManagedObjectEntry {
+  objectKey: string;
+  objectPath: string;
+  contentHash: string;
+  byteSize: number;
+  mtimeMs: number;
+}
+
+export interface QuarantinedManagedObject extends ManagedObjectEntry {
+  quarantinePath: string;
+}
+
 export class FileLifecycleError extends Error {
   constructor(
     message: string,
@@ -419,6 +431,137 @@ export class ResearchContentStore {
     } catch (error) {
       throw mappedError(error, 'remove-object');
     }
+  }
+
+  async quarantineManagedObject(
+    objectKey: string,
+    expectedHash: string,
+    expectedSize: number,
+  ): Promise<QuarantinedManagedObject | null> {
+    if (!SHA256_PATTERN.test(expectedHash) || objectKey !== objectKeyFor(expectedHash)) {
+      throw new FileLifecycleError(
+        '对象标识与 hash 不一致',
+        'INVALID_INPUT',
+        'quarantine-object',
+        false,
+        null,
+      );
+    }
+    const objectPath = await this.objectPath(objectKey);
+    const audit = await this.auditManaged(objectKey, expectedHash, expectedSize);
+    if (audit.state === 'missing') return null;
+    if (audit.state !== 'available') {
+      throw new FileLifecycleError(
+        '托管对象已变化，拒绝删除',
+        'FILE_CHANGED',
+        'quarantine-object',
+        false,
+        null,
+      );
+    }
+    const root = await this.resolvedRoot();
+    const quarantineRoot = join(root, '.trash');
+    await this.fs.mkdir(quarantineRoot);
+    const quarantinePath = join(quarantineRoot, `${expectedHash}-${this.createId()}.pending`);
+    try {
+      await this.fs.rename(objectPath, quarantinePath);
+    } catch (error) {
+      throw mappedError(error, 'quarantine-object');
+    }
+    return {
+      objectKey,
+      objectPath,
+      contentHash: expectedHash,
+      byteSize: expectedSize,
+      mtimeMs: audit.observedIdentity?.mtimeMs ?? 0,
+      quarantinePath,
+    };
+  }
+
+  async restoreQuarantinedObject(object: QuarantinedManagedObject): Promise<void> {
+    try {
+      await this.fs.mkdir(dirname(object.objectPath));
+      await this.fs.rename(object.quarantinePath, object.objectPath);
+    } catch (error) {
+      throw mappedError(error, 'restore-quarantined-object');
+    }
+  }
+
+  async finalizeQuarantinedObject(object: QuarantinedManagedObject): Promise<void> {
+    try {
+      await this.fs.unlink(object.quarantinePath);
+    } catch (error) {
+      if (errorCode(error) !== 'ENOENT') throw mappedError(error, 'finalize-quarantined-object');
+    }
+  }
+
+  async listManagedObjects(): Promise<ManagedObjectEntry[]> {
+    const root = await this.resolvedRoot();
+    const algorithmRoot = join(root, 'sha256');
+    const found: ManagedObjectEntry[] = [];
+    let firstLevels: string[];
+    try {
+      firstLevels = await this.fs.readdir(algorithmRoot);
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return [];
+      throw mappedError(error, 'scan-managed-objects');
+    }
+    for (const first of firstLevels) {
+      if (!/^[a-f0-9]{2}$/.test(first)) continue;
+      const firstPath = join(algorithmRoot, first);
+      let secondLevels: string[];
+      try {
+        secondLevels = await this.fs.readdir(firstPath);
+      } catch {
+        continue;
+      }
+      for (const second of secondLevels) {
+        if (!/^[a-f0-9]{2}$/.test(second)) continue;
+        const secondPath = join(firstPath, second);
+        let names: string[];
+        try {
+          names = await this.fs.readdir(secondPath);
+        } catch {
+          continue;
+        }
+        for (const contentHash of names) {
+          if (!SHA256_PATTERN.test(contentHash)) continue;
+          if (contentHash.slice(0, 2) !== first || contentHash.slice(2, 4) !== second) continue;
+          const objectKey = objectKeyFor(contentHash);
+          const objectPath = join(secondPath, contentHash);
+          try {
+            const identity = await this.fs.stat(objectPath);
+            if (!identity.isFile) continue;
+            found.push({
+              objectKey,
+              objectPath,
+              contentHash,
+              byteSize: identity.size,
+              mtimeMs: identity.mtimeMs,
+            });
+          } catch {
+            // 扫描过程中对象可能被另一次导入发布或清理；下次对账会重新采样。
+          }
+        }
+      }
+    }
+    return found.sort((left, right) => left.objectKey.localeCompare(right.objectKey));
+  }
+
+  async removeStaleStagingFiles(olderThan: Date): Promise<string[]> {
+    const files = await this.listStagingFiles();
+    const removed: string[] = [];
+    for (const path of files) {
+      try {
+        const identity = await this.fs.stat(path);
+        if (identity.mtimeMs > olderThan.getTime()) continue;
+        await this.fs.remove(path);
+        removed.push(path);
+      } catch (error) {
+        if (errorCode(error) !== 'ENOENT') throw mappedError(error, 'remove-stale-staging');
+      }
+    }
+    return removed;
   }
 
   async listStagingFiles(): Promise<string[]> {

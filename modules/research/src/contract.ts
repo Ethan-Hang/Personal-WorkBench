@@ -10,6 +10,7 @@ export const RESEARCH_API_V1 = {
   workTrash: (id: string) => `${API_ROOT}/works/${id}/trash`,
   workRestore: (id: string) => `${API_ROOT}/works/${id}/restore`,
   workDeletionPreview: (id: string) => `${API_ROOT}/works/${id}/deletion-preview`,
+  workPermanentDelete: (id: string) => `${API_ROOT}/works/${id}/permanent-delete`,
   collections: `${API_ROOT}/collections`,
   collection: (id: string) => `${API_ROOT}/collections/${id}`,
   importSessions: `${API_ROOT}/import-sessions`,
@@ -234,6 +235,17 @@ export const editionViewSchema = z.object({
   title: z.string(),
   publicationTitle: z.string().nullable(),
   publishedDate: z.string().nullable(),
+  contributors: z.array(
+    z.object({
+      id: researchIdSchema,
+      role: z.string(),
+      displayName: z.string(),
+      givenName: z.string().nullable(),
+      familyName: z.string().nullable(),
+      orcid: z.string().nullable(),
+      sequence: z.number().int().nonnegative(),
+    }),
+  ),
   identifiers: z.array(identifierViewSchema),
   attachments: z.array(attachmentViewSchema),
 });
@@ -305,11 +317,101 @@ export const confirmImportInputSchema = z.object({
   itemId: researchIdSchema,
   duplicateDecision: z.enum(DUPLICATE_DECISIONS),
   targetWorkId: researchIdSchema.nullish(),
+  targetEditionId: researchIdSchema.nullish(),
   collectionIds: z.array(researchIdSchema).max(100).default([]),
-  fields: z.record(z.string(), z.unknown()),
+  fields: z.record(
+    z.string(),
+    z.object({
+      value: z.unknown(),
+      sourceKind: z.enum(METADATA_SOURCE_KINDS),
+      sourceRecordId: researchIdSchema.nullish(),
+    }),
+  ),
   requestId: z.string().min(1).max(128),
 });
 export type ConfirmImportInput = z.infer<typeof confirmImportInputSchema>;
+
+export const inspectImportInputSchema = z.object({
+  allowExternal: z.boolean().default(false),
+  forceRefresh: z.boolean().default(false),
+});
+export type InspectImportInput = z.infer<typeof inspectImportInputSchema>;
+
+export const metadataCandidateSchema = z.object({
+  provider: z.enum(['crossref', 'datacite', 'arxiv', 'openalex']),
+  matchKind: z.enum(['exact', 'candidate']),
+  sourceLocator: z.string(),
+  title: z.string().nullable(),
+  authors: z.array(z.string()),
+  year: z.number().int().nullable(),
+  type: z.enum(WORK_TYPES),
+  publicationTitle: z.string().nullable(),
+  publisher: z.string().nullable(),
+  abstract: z.string().nullable(),
+  identifiers: z.array(identifierViewSchema),
+  sourceRecordId: researchIdSchema.nullable(),
+});
+
+export const importInspectionItemSchema = z.object({
+  item: importItemViewSchema,
+  localSuggestions: z.array(
+    z.object({
+      fieldName: z.string(),
+      value: z.unknown(),
+      sourceKind: z.enum(['embedded-pdf', 'first-page', 'filename']),
+      sourceRecordId: researchIdSchema.nullable(),
+    }),
+  ),
+  identifiers: z.array(
+    z.object({
+      scheme: z.enum(['doi', 'arxiv']),
+      value: z.string(),
+      normalizedValue: z.string(),
+      sourceKind: z.enum(['embedded-pdf', 'first-page']),
+      sourceRecordId: researchIdSchema.nullable(),
+    }),
+  ),
+  externalCandidates: z.array(metadataCandidateSchema),
+  exactAssetUsages: z.array(
+    z.object({
+      workId: researchIdSchema,
+      editionId: researchIdSchema,
+      attachmentId: researchIdSchema,
+      role: z.enum(ATTACHMENT_ROLES),
+    }),
+  ),
+  identifierMatches: z.array(
+    z.object({
+      workId: researchIdSchema,
+      editionId: researchIdSchema,
+      scheme: z.enum(IDENTIFIER_SCHEMES),
+      value: z.string(),
+    }),
+  ),
+  warnings: z.array(z.string()),
+});
+
+export const importInspectionResponseSchema = z.object({
+  sessionId: researchIdSchema,
+  status: z.enum(IMPORT_SESSION_STATUSES),
+  items: z.array(importInspectionItemSchema),
+  disclosure: z.object({
+    externalEnabled: z.boolean(),
+    services: z.array(z.enum(['crossref', 'datacite', 'arxiv', 'openalex'])),
+    sentFields: z.array(z.enum(['doi', 'arxivId', 'title', 'author', 'year'])),
+    sendsPdf: z.literal(false),
+  }),
+});
+
+export const pickPdfInputSchema = z.object({
+  initialDir: z.string().optional(),
+  multiple: z.boolean().default(false),
+});
+
+export const pickPdfResponseSchema = z.object({
+  paths: z.array(z.string()),
+  cancelled: z.boolean(),
+});
 
 export const listWorksQuerySchema = z.object({
   status: z.enum(WORK_STATUSES).default('active'),
@@ -330,11 +432,24 @@ export const createCollectionInputSchema = z.object({
   parentId: researchIdSchema.nullish(),
 });
 
+export const collectionViewSchema = z.object({
+  id: researchIdSchema,
+  parentId: researchIdSchema.nullable(),
+  name: z.string(),
+  sortOrder: z.number().int().nonnegative(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+});
+
+export const collectionsResponseSchema = z.object({ collections: z.array(collectionViewSchema) });
+
 export const setWorkCollectionsInputSchema = z.object({
   collectionIds: z.array(researchIdSchema).max(100),
 });
 
 export const relinkLocationInputSchema = z.object({ path: z.string().min(1) });
+
+export const permanentDeleteInputSchema = z.object({ confirmationToken: z.string().min(1) });
 
 export const deletionPreviewSchema = z.object({
   workId: researchIdSchema,
