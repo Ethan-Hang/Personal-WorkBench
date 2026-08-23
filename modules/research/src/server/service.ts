@@ -5,9 +5,11 @@ import {
   ATTACHMENT_ROLES,
   RESEARCH_ERROR_CODES,
   WORK_TYPES,
+  researchSearchAstSchema,
   type AddLocalAttachmentInput,
   type BulkWorkActionInput,
   type ConfirmImportInput,
+  type CreateSavedQueryInput,
   type CreateTagInput,
   type CreateManualWorkInput,
   type CreateWorkRelationInput,
@@ -17,6 +19,8 @@ import {
   type MergeTagsInput,
   type MergeWorksInput,
   type ResearchErrorCode,
+  type ResearchSearchAst,
+  type StructuredSearchInput,
   type UpdateCollectionInput,
   type UpdateTagInput,
   type WorkDetailView,
@@ -38,6 +42,7 @@ import type {
   CommitImportResult,
   DeletionImpact,
   ImportItemRecord,
+  ListWorksQuery,
   MetadataAssertionDraft,
   MergeRecord,
   ResearchRepository,
@@ -264,6 +269,8 @@ function toWorkView(record: WorkListRecord): WorkView {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     trashedAt: record.trashedAt,
+    searchScore: record.searchScore,
+    matchedFields: record.matchedFields,
   };
 }
 
@@ -934,6 +941,7 @@ export class ResearchService {
     if (!session) throw notFound('导入会话不存在');
     const item = session.items.find((value) => value.id === input.itemId);
     if (!item) throw notFound('导入条目不存在');
+    await this.assertManualCollections(input.collectionIds);
     if (input.duplicateDecision === 'defer') return { deferred: true };
     if (input.duplicateDecision === 'discard') {
       await this.repository.updateImportItem(item.id, { stage: 'cancelled' });
@@ -1100,9 +1108,67 @@ export class ResearchService {
     });
   }
 
+  private searchQuery(
+    ast: ResearchSearchAst,
+    cursor: string | null,
+    limit: number,
+  ): ListWorksQuery {
+    return {
+      status: 'active',
+      systemView: 'all',
+      query: ast.text || undefined,
+      collectionIds: ast.filters.collectionIds,
+      tagIds: ast.filters.tagIds,
+      types: ast.filters.types,
+      yearFrom: ast.filters.yearFrom,
+      yearTo: ast.filters.yearTo,
+      attachmentRoles: ast.filters.attachmentRoles,
+      storageModes: ast.filters.storageModes,
+      fileStatuses: ast.filters.fileStatuses,
+      maintenance: ast.filters.maintenance,
+      relatedWorkId: ast.filters.relatedWorkId,
+      sort: ast.sort,
+      cursor,
+      limit,
+    };
+  }
+
   async listWorks(query: Parameters<ResearchRepository['listWorks']>[0]) {
-    const page = await this.repository.listWorks(query);
+    let repositoryQuery = query;
+    if (query.collectionId) {
+      const collection = await this.repository.getCollection(query.collectionId);
+      if (collection?.kind === 'smart') {
+        let raw: unknown;
+        try {
+          raw = collection.queryJson ? JSON.parse(collection.queryJson) : null;
+        } catch {
+          throw conflict('保存查询内容已损坏');
+        }
+        const parsed = researchSearchAstSchema.safeParse(raw);
+        if (!parsed.success) throw conflict('保存查询版本不受支持，无法作为普通目录执行');
+        repositoryQuery = this.searchQuery(
+          {
+            ...parsed.data,
+            text: query.query ?? parsed.data.text,
+          },
+          query.cursor ?? null,
+          query.limit,
+        );
+      }
+    }
+    const page = await this.repository.listWorks(repositoryQuery);
     return { works: page.works.map(toWorkView), nextCursor: page.nextCursor };
+  }
+
+  async structuredSearch(input: StructuredSearchInput) {
+    const page = await this.repository.listWorks(
+      this.searchQuery(input.ast, input.cursor, input.limit),
+    );
+    return { works: page.works.map(toWorkView), nextCursor: page.nextCursor };
+  }
+
+  async rebuildSearchIndex() {
+    return { indexedWorks: await this.repository.rebuildSearchIndex() };
   }
 
   async getWork(id: string): Promise<WorkDetailView> {
@@ -1230,6 +1296,7 @@ export class ResearchService {
   }
 
   async createManualWork(input: CreateManualWorkInput): Promise<WorkDetailView> {
+    await this.assertManualCollections(input.collectionIds);
     const workId = this.createId();
     const editionId = this.createId();
     const observedAt = this.instant();
@@ -1357,11 +1424,25 @@ export class ResearchService {
   }
 
   private collectionView(collection: CollectionRecord) {
+    let queryAst: ResearchSearchAst | null = null;
+    if (collection.kind === 'smart') {
+      let raw: unknown;
+      try {
+        raw = collection.queryJson ? JSON.parse(collection.queryJson) : null;
+      } catch {
+        throw conflict('保存查询内容已损坏');
+      }
+      const parsed = researchSearchAstSchema.safeParse(raw);
+      if (!parsed.success) throw conflict('保存查询版本不受支持');
+      queryAst = parsed.data;
+    }
     return {
       id: collection.id,
       parentId: collection.parentId,
       name: collection.name,
       sortOrder: collection.sortOrder,
+      kind: collection.kind,
+      queryAst,
       createdAt: collection.createdAt,
       updatedAt: collection.updatedAt,
     };
@@ -1389,6 +1470,46 @@ export class ResearchService {
       sortOrder: siblings.filter((value) => value.parentId === parentId).length,
     });
     return this.collectionView(created);
+  }
+
+  async createSavedQuery(input: CreateSavedQueryInput) {
+    const collections = await this.repository.listCollections();
+    if (input.parentId && !collections.some((collection) => collection.id === input.parentId)) {
+      throw notFound('父目录不存在');
+    }
+    const normalizedName = input.name.trim().toLocaleLowerCase();
+    if (
+      collections.some(
+        (collection) =>
+          collection.parentId === input.parentId && collection.normalizedName === normalizedName,
+      )
+    ) {
+      throw conflict('同一目录下已有同名目录或保存查询');
+    }
+    const created = await this.repository.createCollection({
+      id: this.createId(),
+      parentId: input.parentId,
+      name: input.name.trim(),
+      normalizedName,
+      sortOrder: collections.filter((collection) => collection.parentId === input.parentId).length,
+      kind: 'smart',
+      queryJson: JSON.stringify(input.ast),
+    });
+    return this.collectionView(created);
+  }
+
+  async runSavedQuery(id: string, cursor: string | null, limit: number) {
+    const collection = await this.repository.getCollection(id);
+    if (!collection || collection.kind !== 'smart') throw notFound('保存查询不存在');
+    let raw: unknown;
+    try {
+      raw = collection.queryJson ? JSON.parse(collection.queryJson) : null;
+    } catch {
+      throw conflict('保存查询内容已损坏');
+    }
+    const parsed = researchSearchAstSchema.safeParse(raw);
+    if (!parsed.success) throw conflict('保存查询版本不受支持');
+    return this.structuredSearch({ ast: parsed.data, cursor, limit });
   }
 
   async updateCollection(id: string, input: UpdateCollectionInput) {
@@ -1465,6 +1586,7 @@ export class ResearchService {
 
   async setWorkCollections(workId: string, collectionIds: string[]) {
     if (!(await this.repository.getWork(workId))) throw notFound('作品不存在');
+    await this.assertManualCollections(collectionIds);
     await this.repository.setWorkCollections(
       workId,
       [...new Set(collectionIds)].map((collectionId) => ({
@@ -1473,6 +1595,15 @@ export class ResearchService {
       })),
     );
     return this.getWork(workId);
+  }
+
+  private async assertManualCollections(collectionIds: string[]) {
+    const uniqueIds = [...new Set(collectionIds)];
+    const collections = await Promise.all(uniqueIds.map((id) => this.repository.getCollection(id)));
+    if (collections.some((collection) => !collection)) throw notFound('所选目录不存在');
+    if (collections.some((collection) => collection?.kind !== 'manual')) {
+      throw invalid('保存查询是智能目录，不能写入显式目录归属');
+    }
   }
 
   async addWorkRelation(sourceWorkId: string, input: CreateWorkRelationInput) {
@@ -1766,8 +1897,12 @@ export class ResearchService {
     return this.exclusive(async () => {
       if ('collectionIds' in input) {
         const collections = await this.repository.listCollections();
-        if (input.collectionIds.some((id) => !collections.some((value) => value.id === id))) {
-          throw notFound('批量操作包含不存在的目录');
+        if (
+          input.collectionIds.some(
+            (id) => !collections.some((value) => value.id === id && value.kind === 'manual'),
+          )
+        ) {
+          throw notFound('批量操作包含不存在的普通目录');
         }
       }
       if ('tagIds' in input) {

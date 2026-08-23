@@ -10,6 +10,7 @@ import {
   createWorkRelationInputSchema,
   createCollectionInputSchema,
   createManualWorkInputSchema,
+  createSavedQueryInputSchema,
   deleteCollectionQuerySchema,
   inspectImportInputSchema,
   listImportSessionsQuerySchema,
@@ -21,10 +22,12 @@ import {
   pickPdfInputSchema,
   prepareImportInputSchema,
   relinkLocationInputSchema,
+  savedQueryRunQuerySchema,
   setWorkCollectionsInputSchema,
   setWorkTagsInputSchema,
   tagCandidatesQuerySchema,
   tagVersionInputSchema,
+  structuredSearchInputSchema,
   uploadPdfQuerySchema,
   updateCollectionInputSchema,
   updateTagInputSchema,
@@ -53,6 +56,12 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
   app.get(
     RESEARCH_API_V1.works,
     defineRoute({ query: listWorksQuerySchema }, ({ query }) => service.listWorks(query)),
+  );
+  app.post(
+    RESEARCH_API_V1.workSearch,
+    defineRoute({ body: structuredSearchInputSchema }, ({ body }) =>
+      service.structuredSearch(body),
+    ),
   );
   app.post(
     RESEARCH_API_V1.workBulkPreview,
@@ -164,6 +173,19 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
       service.deleteCollection(params.id, query.strategy),
     ),
   );
+  app.post(
+    RESEARCH_API_V1.savedQueries,
+    defineRoute({ body: createSavedQueryInputSchema, status: 201 }, ({ body }) =>
+      service.createSavedQuery(body),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.savedQueryRun(':id'),
+    defineRoute({ params: idParams, query: savedQueryRunQuerySchema }, ({ params, query }) =>
+      service.runSavedQuery(params.id, query.cursor ?? null, query.limit),
+    ),
+  );
+  app.post(RESEARCH_API_V1.searchIndexRebuild, async () => service.rebuildSearchIndex());
 
   app.get(
     RESEARCH_API_V1.tags,

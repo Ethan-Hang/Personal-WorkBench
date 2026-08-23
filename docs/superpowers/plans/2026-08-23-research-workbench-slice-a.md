@@ -457,14 +457,14 @@ npx vitest run modules/research/src/library/tags.test.ts modules/research/src/li
 
 **提交：** `feat(research): add structured library search`
 
-- [ ] 新迁移建立 FTS5 搜索表和同步触发器；重建命令可以从规范表恢复索引。
-- [ ] 搜索覆盖标题、作者、摘要、出版信息和标识符；结构化过滤覆盖目录、标签、类型、年份、附件角色、存储模式和文件状态。
-- [ ] 维护过滤覆盖缺失字段、缺失/变化文件、重复候选、元数据失败和未完成导入。
-- [ ] 模糊搜索返回稳定 score 与命中字段；低分结果不进入自动操作。
-- [ ] 保存查询使用版本化 JSON AST，作为 smart collection 执行；未知版本明确拒绝，不解释为普通文本。
-- [ ] keyset 分页与稳定排序在并发新增记录时不重不漏。
-- [ ] 10k/20k 正式表结构上验证普通查询 p95 ≤100ms、维护查询 p95 ≤250ms、DB ≤100MiB、RSS ≤250MiB、integrity ≤2s。
-- [ ] UI 提供单一搜索入口、可展开过滤器、保存查询和系统维护视图。
+- [x] 新迁移建立 FTS5 搜索表和同步触发器；重建命令可以从规范表恢复索引。
+- [x] 搜索覆盖标题、作者、摘要、出版信息和标识符；结构化过滤覆盖目录、标签、类型、年份、附件角色、存储模式和文件状态。
+- [x] 维护过滤覆盖缺失字段、缺失/变化文件、重复候选、元数据失败和未完成导入。
+- [x] 模糊搜索返回稳定 score 与命中字段；低分结果不进入自动操作。
+- [x] 保存查询使用版本化 JSON AST，作为 smart collection 执行；未知版本明确拒绝，不解释为普通文本。
+- [x] keyset 分页与稳定排序在并发新增记录时不重不漏。
+- [x] 10k/20k 正式表结构上验证普通查询 p95 ≤100ms、维护查询 p95 ≤250ms、DB ≤100MiB、RSS ≤250MiB、integrity ≤2s。
+- [x] UI 提供单一搜索入口、可展开过滤器、保存查询和系统维护视图。
 
 **验证：**
 
@@ -472,6 +472,8 @@ npx vitest run modules/research/src/library/tags.test.ts modules/research/src/li
 npx vitest run modules/research/src/library/search.test.ts modules/research/src/storage/search-index.test.ts
 RUN_RESEARCH_SCALE=1 npx vitest run modules/research/src/storage/scale.test.ts
 ```
+
+**验收记录（2026-08-24，macOS）：** 搜索索引与结构化检索两个计划专项文件共 7 项通过，另有 API 路由专项 1 项通过；完整 research 默认套件 25 个测试文件通过、4 个 opt-in 文件跳过，共 138 项通过。生产 Vite 构建通过。正式结构规模验证为 10,000 Work、20,000 Edition/Asset/Location/Attachment、20,000 目录引用、1,000 标签和 30,000 作品标签：数据库 32.22 MiB，RSS 159.36 MiB，普通检索 p95 4.28 ms，真实维护过滤 p95 10.52 ms，`integrity_check` 181.10 ms。搜索先用 FTS 缩小候选，零命中时才做受分数阈值约束的拼写误差回退；两套布局共用搜索 AST、过滤面板、智能目录和命中字段显示。
 
 ### Task 13：完成规范导出和迁移包
 

@@ -15,6 +15,13 @@
       "when": 1787488154798,
       "tag": "0001_steep_quentin_quire",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787500000000,
+      "tag": "0002_research_work_search",
+      "breakpoints": true
     }
   ]
 }

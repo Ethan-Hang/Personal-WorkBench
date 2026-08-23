@@ -353,6 +353,102 @@ function storageModes(value: string | null): StorageMode[] {
     .sort();
 }
 
+type SearchField = 'title' | 'abstract' | 'authors' | 'publication' | 'identifiers';
+
+interface SearchDocument {
+  title: string;
+  abstract: string;
+  authors: string;
+  publication: string;
+  identifiers: string;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/g, ' ');
+}
+
+function ftsPrefixQuery(value: string): string {
+  return value
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean)
+    .map((token) => `"${token.replaceAll('"', '""')}"*`)
+    .join(' AND ');
+}
+
+function trigrams(value: string): Set<string> {
+  const padded = `  ${value}  `;
+  const result = new Set<string>();
+  for (let index = 0; index <= padded.length - 3; index += 1) {
+    result.add(padded.slice(index, index + 3));
+  }
+  return result;
+}
+
+function textSimilarity(query: string, value: string): number {
+  const normalized = normalizeSearchText(value);
+  if (!normalized) return 0;
+  if (normalized === query) return 1;
+  if (normalized.includes(query)) return 0.96;
+  const queryTokens = query.split(' ');
+  const valueTokens = normalized.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  if (
+    queryTokens.every((token) =>
+      valueTokens.some((candidate) => candidate.startsWith(token) || token.startsWith(candidate)),
+    )
+  ) {
+    return 0.88;
+  }
+  const left = trigrams(query);
+  const right = trigrams(normalized);
+  const overlap = [...left].filter((gram) => right.has(gram)).length;
+  return (2 * overlap) / Math.max(1, left.size + right.size);
+}
+
+function scoreSearchDocument(
+  query: string,
+  document: SearchDocument,
+): {
+  score: number;
+  matchedFields: SearchField[];
+} {
+  const weights: Record<SearchField, number> = {
+    title: 1,
+    abstract: 0.68,
+    authors: 0.9,
+    publication: 0.82,
+    identifiers: 1,
+  };
+  const values = (Object.keys(weights) as SearchField[]).map((field) => ({
+    field,
+    raw: textSimilarity(query, document[field]),
+  }));
+  const matchedFields = values
+    .filter((value) => value.raw >= 0.32)
+    .sort((left, right) => right.raw - left.raw || left.field.localeCompare(right.field))
+    .map((value) => value.field);
+  const score = Math.max(...values.map((value) => value.raw * weights[value.field]), 0);
+  return { score: Math.round(score * 1_000_000) / 1_000_000, matchedFields };
+}
+
+function encodeAdvancedCursor(sort: string, id: string): string {
+  return Buffer.from(JSON.stringify({ version: 1, sort, id })).toString('base64url');
+}
+
+function decodeAdvancedCursor(cursor: string): { version: 1; sort: string; id: string } | null {
+  try {
+    const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as {
+      version?: unknown;
+      sort?: unknown;
+      id?: unknown;
+    };
+    return value.version === 1 && typeof value.sort === 'string' && typeof value.id === 'string'
+      ? { version: 1, sort: value.sort, id: value.id }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** SQLite 只存在于 storage 适配器内，连接在组合根按当前账号动态注入。 */
 export class SqliteResearchRepository implements ResearchRepository {
   constructor(
@@ -1312,25 +1408,40 @@ export class SqliteResearchRepository implements ResearchRepository {
       collectionIds: collectionRows.map((value) => value.collection_id),
       storageModes: storageModes(aggregate.modes),
       fileStatus: combineFileStatus(aggregate.states, aggregate.attachment_count),
+      searchScore: null,
+      matchedFields: [],
     };
   }
 
   async listWorks(query: ListWorksQuery): Promise<WorkPage> {
     const conditions = ['w.status = ?'];
     const params: unknown[] = [query.systemView === 'trash' ? 'trashed' : query.status];
+    const missingFilesCondition = `w.id IN (
+      SELECT e.work_id FROM research_asset_locations loc
+      JOIN research_attachments att ON att.asset_id = loc.asset_id AND att.status = 'active'
+      JOIN research_editions e ON e.id = att.edition_id
+      WHERE loc.state IN ('missing', 'changed')
+    )`;
+    const duplicateCondition = `w.id IN (
+      SELECT own_e.work_id FROM research_editions own_e
+        JOIN research_attachments own_a ON own_a.edition_id = own_e.id AND own_a.status = 'active'
+        JOIN research_attachments other_a ON other_a.asset_id = own_a.asset_id AND other_a.status = 'active'
+        JOIN research_editions other_e ON other_e.id = other_a.edition_id
+        WHERE other_e.work_id <> own_e.work_id
+      UNION
+      SELECT own_e.work_id FROM research_editions own_e
+        JOIN research_identifiers own_i ON own_i.entity_type = 'edition' AND own_i.entity_id = own_e.id
+        JOIN research_identifiers other_i
+          ON other_i.scheme = own_i.scheme AND other_i.normalized_value = own_i.normalized_value
+        JOIN research_editions other_e ON other_i.entity_type = 'edition' AND other_i.entity_id = other_e.id
+        WHERE other_e.work_id <> own_e.work_id
+    )`;
     if (query.systemView === 'uncategorized') {
       conditions.push(
         'NOT EXISTS (SELECT 1 FROM research_collection_entries ce WHERE ce.work_id = w.id)',
       );
     } else if (query.systemView === 'missing-files') {
-      conditions.push(
-        `EXISTS (
-           SELECT 1 FROM research_editions e
-           JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
-           JOIN research_asset_locations loc ON loc.asset_id = att.asset_id
-           WHERE e.work_id = w.id AND loc.state IN ('missing', 'changed')
-         )`,
-      );
+      conditions.push(missingFilesCondition);
     } else if (query.systemView === 'metadata-review') {
       conditions.push(
         `NOT EXISTS (
@@ -1340,25 +1451,7 @@ export class SqliteResearchRepository implements ResearchRepository {
          )`,
       );
     } else if (query.systemView === 'duplicate-candidates') {
-      conditions.push(
-        `(
-           EXISTS (
-             SELECT 1 FROM research_editions own_e
-             JOIN research_attachments own_a ON own_a.edition_id = own_e.id AND own_a.status = 'active'
-             JOIN research_attachments other_a ON other_a.asset_id = own_a.asset_id AND other_a.status = 'active'
-             JOIN research_editions other_e ON other_e.id = other_a.edition_id
-             WHERE own_e.work_id = w.id AND other_e.work_id <> w.id
-           )
-           OR EXISTS (
-             SELECT 1 FROM research_editions own_e
-             JOIN research_identifiers own_i ON own_i.entity_type = 'edition' AND own_i.entity_id = own_e.id
-             JOIN research_identifiers other_i
-               ON other_i.scheme = own_i.scheme AND other_i.normalized_value = own_i.normalized_value
-             JOIN research_editions other_e ON other_i.entity_type = 'edition' AND other_i.entity_id = other_e.id
-             WHERE own_e.work_id = w.id AND other_e.work_id <> w.id
-           )
-         )`,
-      );
+      conditions.push(duplicateCondition);
     }
     if (query.collectionId) {
       conditions.push(
@@ -1367,27 +1460,215 @@ export class SqliteResearchRepository implements ResearchRepository {
       );
       params.push(query.collectionId);
     }
-    if (query.query) {
-      conditions.push('(lower(w.title) LIKE ? OR CAST(w.year AS TEXT) = ?)');
-      params.push(`%${query.query.toLowerCase()}%`, query.query);
+    for (const collectionId of query.collectionIds ?? []) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM research_collection_entries ce
+                 WHERE ce.work_id = w.id AND ce.collection_id = ?)`,
+      );
+      params.push(collectionId);
     }
-    const cursor = query.cursor ? decodeCursor(query.cursor) : null;
-    if (cursor) {
-      conditions.push('(w.updated_at < ? OR (w.updated_at = ? AND w.id < ?))');
-      params.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+    for (const tagId of query.tagIds ?? []) {
+      conditions.push(
+        `EXISTS (SELECT 1 FROM research_work_tags wt WHERE wt.work_id = w.id AND wt.tag_id = ?)`,
+      );
+      params.push(tagId);
     }
-
-    // fileStatus 是聚合结果；多取几批再过滤，避免把过滤逻辑复制进复杂 SQL。
-    const fetchLimit = query.fileStatus ? Math.min((query.limit + 1) * 8, 1000) : query.limit + 1;
-    params.push(fetchLimit);
-    const rows = this.sqlite
-      .prepare(
-        `SELECT w.* FROM research_works w
-         WHERE ${conditions.join(' AND ')}
-         ORDER BY w.updated_at DESC, w.id DESC
-         LIMIT ?`,
-      )
-      .all(...params) as Row[];
+    if (query.types && query.types.length > 0) {
+      conditions.push(`w.type IN (${query.types.map(() => '?').join(', ')})`);
+      params.push(...query.types);
+    }
+    if (query.yearFrom !== undefined && query.yearFrom !== null) {
+      conditions.push('w.year >= ?');
+      params.push(query.yearFrom);
+    }
+    if (query.yearTo !== undefined && query.yearTo !== null) {
+      conditions.push('w.year <= ?');
+      params.push(query.yearTo);
+    }
+    if (query.attachmentRoles && query.attachmentRoles.length > 0) {
+      conditions.push(
+        `EXISTS (
+           SELECT 1 FROM research_editions e
+           JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
+           WHERE e.work_id = w.id AND att.role IN (${query.attachmentRoles.map(() => '?').join(', ')})
+         )`,
+      );
+      params.push(...query.attachmentRoles);
+    }
+    if (query.storageModes && query.storageModes.length > 0) {
+      conditions.push(
+        `EXISTS (
+           SELECT 1 FROM research_editions e
+           JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
+           JOIN research_asset_locations loc ON loc.asset_id = att.asset_id
+           WHERE e.work_id = w.id AND loc.mode IN (${query.storageModes.map(() => '?').join(', ')})
+         )`,
+      );
+      params.push(...query.storageModes);
+    }
+    const requestedFileStatuses = [
+      ...(query.fileStatuses ?? []),
+      ...(query.fileStatus ? [query.fileStatus] : []),
+    ];
+    if (requestedFileStatuses.length > 0) {
+      const fileStatusExpression = `CASE
+        WHEN NOT EXISTS (
+          SELECT 1 FROM research_editions e
+          JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
+          WHERE e.work_id = w.id
+        ) THEN 'none'
+        WHEN (
+          SELECT COUNT(DISTINCT COALESCE(loc.state, '__none__'))
+          FROM research_editions e
+          JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
+          LEFT JOIN research_asset_locations loc ON loc.asset_id = att.asset_id
+          WHERE e.work_id = w.id
+        ) <> 1 THEN 'mixed'
+        ELSE COALESCE((
+          SELECT MIN(loc.state)
+          FROM research_editions e
+          JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
+          LEFT JOIN research_asset_locations loc ON loc.asset_id = att.asset_id
+          WHERE e.work_id = w.id
+        ), 'mixed')
+      END`;
+      conditions.push(
+        `(${fileStatusExpression}) IN (${requestedFileStatuses.map(() => '?').join(', ')})`,
+      );
+      params.push(...requestedFileStatuses);
+    }
+    if (query.relatedWorkId) {
+      conditions.push(
+        `EXISTS (
+           SELECT 1 FROM research_work_relations wr
+           WHERE (wr.source_work_id = w.id AND wr.target_work_id = ?)
+              OR (wr.target_work_id = w.id AND wr.source_work_id = ?)
+         )`,
+      );
+      params.push(query.relatedWorkId, query.relatedWorkId);
+    }
+    for (const maintenance of query.maintenance ?? []) {
+      if (maintenance === 'missing-fields') {
+        conditions.push(
+          `(trim(w.title) = '' OR w.year IS NULL OR w.id NOT IN (
+             SELECT e.work_id FROM research_editions e
+             JOIN research_contributors c ON c.edition_id = e.id AND c.role = 'author'
+           ))`,
+        );
+      } else if (maintenance === 'missing-files') {
+        conditions.push(missingFilesCondition);
+      } else if (maintenance === 'duplicate-candidates') {
+        conditions.push(duplicateCondition);
+      } else if (maintenance === 'metadata-failed') {
+        conditions.push(
+          `w.id IN (
+             SELECT ii.work_id FROM research_import_items ii
+             WHERE ii.work_id IS NOT NULL AND ii.stage IN ('metadata-failed', 'failed')
+           )`,
+        );
+      } else if (maintenance === 'unfinished-imports') {
+        conditions.push(
+          `w.id IN (
+             SELECT ii.work_id FROM research_import_items ii
+             WHERE ii.work_id IS NOT NULL AND ii.stage NOT IN ('available', 'cancelled')
+           )`,
+        );
+      }
+    }
+    const textQuery = normalizeSearchText(query.query ?? '');
+    const sort = query.sort ?? (textQuery ? 'relevance' : 'updated-desc');
+    const advanced = Boolean(textQuery) || sort !== 'updated-desc';
+    let rows: Row[];
+    let nextCursor: string | null;
+    if (advanced) {
+      const selectCandidates = (match: string | null) =>
+        this.sqlite
+          .prepare(
+            `SELECT w.*,
+                    research_work_search.title AS search_title,
+                    research_work_search.abstract AS search_abstract,
+                    research_work_search.authors AS search_authors,
+                    research_work_search.publication AS search_publication,
+                    research_work_search.identifiers AS search_identifiers
+             FROM research_works w
+             JOIN research_work_search ON research_work_search.work_id = w.id
+             WHERE ${conditions.join(' AND ')}
+             ${match ? 'AND research_work_search MATCH ?' : ''}`,
+          )
+          .all(...params, ...(match ? [match] : [])) as Row[];
+      const prefixQuery = textQuery ? ftsPrefixQuery(textQuery) : '';
+      let candidates = selectCandidates(prefixQuery || null);
+      if (textQuery && candidates.length === 0) candidates = selectCandidates(null);
+      const scored = candidates
+        .map((row) => {
+          const result = textQuery
+            ? scoreSearchDocument(textQuery, {
+                title: text(row, 'search_title'),
+                abstract: text(row, 'search_abstract'),
+                authors: text(row, 'search_authors'),
+                publication: text(row, 'search_publication'),
+                identifiers: text(row, 'search_identifiers'),
+              })
+            : { score: 0, matchedFields: [] as SearchField[] };
+          return { ...row, search_score: result.score, matched_fields: result.matchedFields };
+        })
+        .filter((row) => !textQuery || (row.search_score as number) >= 0.28);
+      scored.sort((left, right) => {
+        if (sort === 'relevance') {
+          return (
+            (right.search_score as number) - (left.search_score as number) ||
+            text(right, 'updated_at').localeCompare(text(left, 'updated_at')) ||
+            text(right, 'id').localeCompare(text(left, 'id'))
+          );
+        }
+        if (sort === 'title-asc') {
+          return (
+            text(left, 'title_sort').localeCompare(text(right, 'title_sort')) ||
+            text(left, 'id').localeCompare(text(right, 'id'))
+          );
+        }
+        if (sort === 'year-desc') {
+          return (
+            (nullableInteger(right, 'year') ?? -1) - (nullableInteger(left, 'year') ?? -1) ||
+            text(right, 'id').localeCompare(text(left, 'id'))
+          );
+        }
+        return (
+          text(right, 'updated_at').localeCompare(text(left, 'updated_at')) ||
+          text(right, 'id').localeCompare(text(left, 'id'))
+        );
+      });
+      const cursor = query.cursor ? decodeAdvancedCursor(query.cursor) : null;
+      const start =
+        cursor?.sort === sort ? scored.findIndex((row) => text(row, 'id') === cursor.id) + 1 : 0;
+      const safeStart = start < 0 ? 0 : start;
+      const selected = scored.slice(safeStart, safeStart + query.limit + 1);
+      rows = selected.slice(0, query.limit);
+      nextCursor =
+        selected.length > query.limit && rows.length > 0
+          ? encodeAdvancedCursor(sort, text(rows.at(-1)!, 'id'))
+          : null;
+    } else {
+      const cursor = query.cursor ? decodeCursor(query.cursor) : null;
+      if (cursor) {
+        conditions.push('(w.updated_at < ? OR (w.updated_at = ? AND w.id < ?))');
+        params.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+      }
+      params.push(query.limit + 1);
+      const selected = this.sqlite
+        .prepare(
+          `SELECT w.* FROM research_works w
+           WHERE ${conditions.join(' AND ')}
+           ORDER BY w.updated_at DESC, w.id DESC
+           LIMIT ?`,
+        )
+        .all(...params) as Row[];
+      rows = selected.slice(0, query.limit);
+      nextCursor =
+        selected.length > query.limit && rows.length > 0
+          ? encodeCursor(toWork(rows.at(-1)!))
+          : null;
+    }
     if (rows.length === 0) return { works: [], nextCursor: null };
 
     const ids = rows.map((row) => text(row, 'id'));
@@ -1449,15 +1730,29 @@ export class SqliteResearchRepository implements ResearchRepository {
         collectionIds: collections.get(work.id) ?? [],
         storageModes: storageModes(aggregate?.modes ?? null),
         fileStatus: combineFileStatus(aggregate?.states ?? null, attachmentCount),
+        searchScore: (row.search_score as number | undefined) ?? null,
+        matchedFields: (row.matched_fields as SearchField[] | undefined) ?? [],
       };
     });
-    const filtered = query.fileStatus
-      ? decorated.filter((record) => record.fileStatus === query.fileStatus)
-      : decorated;
-    const page = filtered.slice(0, query.limit);
-    const nextCursor =
-      filtered.length > query.limit && page.length > 0 ? encodeCursor(page.at(-1)!) : null;
-    return { works: page, nextCursor };
+    return { works: decorated, nextCursor };
+  }
+
+  async rebuildSearchIndex(): Promise<number> {
+    return this.sqlite.transaction(() => {
+      this.sqlite.prepare('DELETE FROM research_work_search').run();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_work_search
+           SELECT work_id, title, abstract, authors, publication, identifiers
+           FROM research_work_search_documents`,
+        )
+        .run();
+      return (
+        this.sqlite.prepare('SELECT COUNT(*) AS count FROM research_work_search').get() as {
+          count: number;
+        }
+      ).count;
+    })();
   }
 
   async listEditions(workId: string): Promise<EditionRecord[]> {
@@ -1629,14 +1924,16 @@ export class SqliteResearchRepository implements ResearchRepository {
     const row = this.sqlite
       .prepare(
         `INSERT INTO research_collections
-         (id, parent_id, name, normalized_name, kind, sort_order, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'manual', ?, ?, ?) RETURNING *`,
+         (id, parent_id, name, normalized_name, kind, query_json, sort_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`,
       )
       .get(
         draft.id,
         draft.parentId,
         draft.name,
         draft.normalizedName,
+        draft.kind ?? 'manual',
+        draft.queryJson ?? null,
         draft.sortOrder,
         timestamp,
         timestamp,

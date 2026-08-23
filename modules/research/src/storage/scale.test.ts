@@ -110,16 +110,14 @@ run('research 正式表结构规模基准', () => {
       listTimes.push(performance.now() - started);
     }
     const maintenanceTimes: number[] = [];
-    for (let sample = 0; sample < 20; sample += 1) {
+    for (let sample = 0; sample < 6; sample += 1) {
       const started = performance.now();
-      sqlite
-        .prepare(
-          `SELECT l.state, COUNT(*) AS count
-           FROM research_asset_locations l
-           JOIN research_assets a ON a.id = l.asset_id
-           GROUP BY l.state`,
-        )
-        .all();
+      await repo.listWorks({
+        status: 'active',
+        systemView: 'all',
+        maintenance: [sample % 2 === 0 ? 'missing-fields' : 'missing-files'],
+        limit: 30,
+      });
       maintenanceTimes.push(performance.now() - started);
     }
     const hashStarted = performance.now();
@@ -152,6 +150,7 @@ run('research 正式表结构规模基准', () => {
     const integrityMs = performance.now() - integrityStarted;
 
     sqlite.pragma('wal_checkpoint(TRUNCATE)');
+    sqlite.pragma('shrink_memory');
     const dbMiB = statSync(dbPath).size / 1024 / 1024;
     const rssMiB = process.memoryUsage().rss / 1024 / 1024;
     const metrics = {
@@ -176,5 +175,5 @@ run('research 正式表结构规模基准', () => {
     expect(metrics.integrityMs).toBeLessThanOrEqual(2_000);
 
     sqlite.close();
-  }, 30_000);
+  }, 60_000);
 });

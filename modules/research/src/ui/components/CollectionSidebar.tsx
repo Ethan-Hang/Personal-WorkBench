@@ -37,7 +37,7 @@ function CollectionItem({
       style={{ paddingLeft: `${10 + depth * 14}px` }}
       onClick={() => onSelect(collection.id)}
     >
-      <IconFolder size={14} />
+      {collection.kind === 'smart' ? <IconDatabase size={14} /> : <IconFolder size={14} />}
       <span className="truncate">{collection.name}</span>
     </button>
   );

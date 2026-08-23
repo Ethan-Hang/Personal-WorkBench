@@ -10,12 +10,18 @@ import {
   IconSearch,
   IconTrash,
 } from '@workbench/ui';
-import type { BulkWorkActionInput, SystemView } from '../../contract.js';
-import type { CollectionView, WorkDetail, WorksPage } from '../api.js';
+import type {
+  BulkWorkActionInput,
+  ResearchSearchAst,
+  SearchSort,
+  SystemView,
+} from '../../contract.js';
+import type { CollectionView, TagView, WorkDetail, WorksPage } from '../api.js';
 import { BulkActionsBar } from './BulkActionsBar.js';
 import { FileStatus, StorageModes } from './FileStatus.js';
 import { LayoutSwitch, type ResearchLayout } from './LayoutSwitch.js';
 import { WorkDetailPanel, type WorkDetailPanelProps } from './WorkDetailPanel.js';
+import { SearchFiltersPanel } from './SearchFiltersPanel.js';
 
 export interface TemplateLibraryViewProps {
   layout: ResearchLayout;
@@ -32,6 +38,11 @@ export interface TemplateLibraryViewProps {
   status: 'active' | 'trashed';
   systemView: SystemView;
   search: string;
+  tags: TagView[];
+  searchFilters: ResearchSearchAst['filters'];
+  searchSort: SearchSort;
+  filtersOpen: boolean;
+  savingSearch: boolean;
   creatingCollection: boolean;
   savingCollections: boolean;
   reconciling: boolean;
@@ -51,6 +62,11 @@ export interface TemplateLibraryViewProps {
   onBulkAction: (action: BulkWorkActionInput['action'], collectionId?: string) => Promise<void>;
   onStatus: (status: 'active' | 'trashed') => void;
   onSearch: (value: string) => void;
+  onToggleFilters: () => void;
+  onSearchFilters: (filters: ResearchSearchAst['filters']) => void;
+  onSearchSort: (sort: SearchSort) => void;
+  onClearSearchFilters: () => void;
+  onSaveSearch: (name: string) => Promise<void>;
   detailActions: Omit<
     WorkDetailPanelProps,
     'detail' | 'loading' | 'collections' | 'selectedCollectionIds' | 'savingCollections' | 'variant'
@@ -90,6 +106,11 @@ export function TemplateLibraryView({
   status,
   systemView,
   search,
+  tags,
+  searchFilters,
+  searchSort,
+  filtersOpen,
+  savingSearch,
   creatingCollection,
   savingCollections,
   reconciling,
@@ -109,6 +130,11 @@ export function TemplateLibraryView({
   onBulkAction,
   onStatus,
   onSearch,
+  onToggleFilters,
+  onSearchFilters,
+  onSearchSort,
+  onClearSearchFilters,
+  onSaveSearch,
   detailActions,
 }: TemplateLibraryViewProps) {
   const [addingCollection, setAddingCollection] = useState(false);
@@ -208,10 +234,13 @@ export function TemplateLibraryView({
                   <input
                     value={search}
                     onChange={(event) => onSearch(event.target.value)}
-                    placeholder="搜索标题或年份"
+                    placeholder="搜索标题、作者、摘要、出版信息或标识符"
                     className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
                   />
                 </label>
+                <Button size="sm" onClick={onToggleFilters}>
+                  {filtersOpen ? '收起筛选' : '筛选'}
+                </Button>
                 <button
                   type="button"
                   onClick={() => {
@@ -239,12 +268,24 @@ export function TemplateLibraryView({
                   <option value="trash">回收站</option>
                 </select>
               </div>
+              <SearchFiltersPanel
+                open={filtersOpen}
+                filters={searchFilters}
+                sort={searchSort}
+                collections={collections.filter((collection) => collection.kind === 'manual')}
+                tags={tags}
+                saving={savingSearch}
+                onChange={onSearchFilters}
+                onSort={onSearchSort}
+                onClear={onClearSearchFilters}
+                onSave={onSaveSearch}
+              />
             </div>
 
             <BulkActionsBar
               selectedCount={selectedWorkIds.length}
-              collections={collections}
-              tags={detailActions.availableTags}
+              collections={collections.filter((collection) => collection.kind === 'manual')}
+              tags={tags}
               status={status}
               onAction={onBulkAction}
             />
@@ -322,6 +363,12 @@ export function TemplateLibraryView({
                                 {work.attachmentCount} 个附件
                               </span>
                             </div>
+                            {work.searchScore !== null && (
+                              <p className="mt-2 text-[10px] text-muted">
+                                匹配 {Math.round(work.searchScore * 100)}% ·{' '}
+                                {work.matchedFields.join(' / ')}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </button>
@@ -366,7 +413,11 @@ export function TemplateLibraryView({
                     }`}
                     style={{ paddingLeft: `${10 + depth * 14}px` }}
                   >
-                    <IconFolder size={13} />
+                    {collection.kind === 'smart' ? (
+                      <IconDatabase size={13} />
+                    ) : (
+                      <IconFolder size={13} />
+                    )}
                     <span className="truncate">{collection.name}</span>
                   </button>
                 ))}
@@ -419,7 +470,7 @@ export function TemplateLibraryView({
               variant="template"
               detail={detail}
               loading={detailLoading}
-              collections={collections}
+              collections={collections.filter((collection) => collection.kind === 'manual')}
               selectedCollectionIds={selectedCollectionIds}
               savingCollections={savingCollections}
             />

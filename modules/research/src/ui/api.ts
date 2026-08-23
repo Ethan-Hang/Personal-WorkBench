@@ -15,6 +15,7 @@ import {
   mergeRecordViewSchema,
   pickPdfResponseSchema,
   relinkLocationResponseSchema,
+  searchIndexRebuildResponseSchema,
   tagCandidatesResponseSchema,
   tagDeletionPreviewSchema,
   tagViewSchema,
@@ -26,6 +27,7 @@ import {
   type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateManualWorkInput,
+  type CreateSavedQueryInput,
   type CreateTagInput,
   type CreateWorkRelationInput,
   type ImportSessionStatus,
@@ -33,6 +35,7 @@ import {
   type MergeTagsInput,
   type MergeWorksInput,
   type PrepareImportInput,
+  type StructuredSearchInput,
   type RelinkLocationResponse,
   type SystemView,
   type UpdateCollectionInput,
@@ -87,6 +90,39 @@ export async function fetchWorks(options: FetchWorksOptions = {}): Promise<Works
 
 export async function fetchWork(id: string): Promise<WorkDetail> {
   return workDetailViewSchema.parse(await apiRequest(RESEARCH_API_V1.work(id)));
+}
+
+export async function postStructuredSearch(input: StructuredSearchInput): Promise<WorksPage> {
+  return worksPageResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workSearch, jsonBody('POST', input)),
+  );
+}
+
+export async function postSavedQuery(input: CreateSavedQueryInput): Promise<CollectionView> {
+  return collectionViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.savedQueries, jsonBody('POST', input)),
+  );
+}
+
+export async function fetchSavedQuery(
+  id: string,
+  options: { cursor?: string; limit?: number } = {},
+): Promise<WorksPage> {
+  const params = new URLSearchParams();
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit) params.set('limit', String(options.limit));
+  const query = params.toString();
+  return worksPageResponseSchema.parse(
+    await apiRequest(
+      query ? `${RESEARCH_API_V1.savedQueryRun(id)}?${query}` : RESEARCH_API_V1.savedQueryRun(id),
+    ),
+  );
+}
+
+export async function postRebuildSearchIndex(): Promise<{ indexedWorks: number }> {
+  return searchIndexRebuildResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.searchIndexRebuild, { method: 'POST' }),
+  );
 }
 
 export async function fetchCollections(): Promise<CollectionsResponse> {

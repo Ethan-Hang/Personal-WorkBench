@@ -1,11 +1,17 @@
 import { Button, IconDatabase, IconPlus, IconRefreshCw, IconSearch } from '@workbench/ui';
-import type { BulkWorkActionInput, SystemView } from '../../contract.js';
-import type { CollectionView, WorkDetail, WorksPage } from '../api.js';
+import type {
+  BulkWorkActionInput,
+  ResearchSearchAst,
+  SearchSort,
+  SystemView,
+} from '../../contract.js';
+import type { CollectionView, TagView, WorkDetail, WorksPage } from '../api.js';
 import { CollectionSidebar } from './CollectionSidebar.js';
 import { BulkActionsBar } from './BulkActionsBar.js';
 import { LayoutSwitch, type ResearchLayout } from './LayoutSwitch.js';
 import { LibraryList } from './LibraryList.js';
 import { WorkDetailPanel, type WorkDetailPanelProps } from './WorkDetailPanel.js';
+import { SearchFiltersPanel } from './SearchFiltersPanel.js';
 
 export interface CompactLibraryViewProps {
   layout: ResearchLayout;
@@ -22,6 +28,11 @@ export interface CompactLibraryViewProps {
   status: 'active' | 'trashed';
   systemView: SystemView;
   search: string;
+  tags: TagView[];
+  searchFilters: ResearchSearchAst['filters'];
+  searchSort: SearchSort;
+  filtersOpen: boolean;
+  savingSearch: boolean;
   creatingCollection: boolean;
   savingCollections: boolean;
   reconciling: boolean;
@@ -41,6 +52,11 @@ export interface CompactLibraryViewProps {
   onBulkAction: (action: BulkWorkActionInput['action'], collectionId?: string) => Promise<void>;
   onStatus: (status: 'active' | 'trashed') => void;
   onSearch: (value: string) => void;
+  onToggleFilters: () => void;
+  onSearchFilters: (filters: ResearchSearchAst['filters']) => void;
+  onSearchSort: (sort: SearchSort) => void;
+  onClearSearchFilters: () => void;
+  onSaveSearch: (name: string) => Promise<void>;
   detailActions: Omit<
     WorkDetailPanelProps,
     'detail' | 'loading' | 'collections' | 'selectedCollectionIds' | 'savingCollections' | 'variant'
@@ -62,6 +78,11 @@ export function CompactLibraryView({
   status,
   systemView,
   search,
+  tags,
+  searchFilters,
+  searchSort,
+  filtersOpen,
+  savingSearch,
   creatingCollection,
   savingCollections,
   reconciling,
@@ -81,6 +102,11 @@ export function CompactLibraryView({
   onBulkAction,
   onStatus,
   onSearch,
+  onToggleFilters,
+  onSearchFilters,
+  onSearchSort,
+  onClearSearchFilters,
+  onSaveSearch,
   detailActions,
 }: CompactLibraryViewProps) {
   return (
@@ -140,21 +166,38 @@ export function CompactLibraryView({
         />
 
         <section className="flex min-w-[360px] flex-1 flex-col border-r border-line bg-surface">
-          <div className="shrink-0 border-b border-line p-3">
-            <label className="flex items-center gap-2 rounded-control border border-line bg-surface-2/45 px-3 py-2 focus-within:border-accent">
-              <IconSearch size={14} className="text-muted" />
-              <input
-                value={search}
-                onChange={(event) => onSearch(event.target.value)}
-                placeholder="按标题或年份筛选"
-                className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
-              />
-            </label>
+          <div className="shrink-0 border-b border-line">
+            <div className="flex gap-2 p-3">
+              <label className="flex min-w-0 flex-1 items-center gap-2 rounded-control border border-line bg-surface-2/45 px-3 py-2 focus-within:border-accent">
+                <IconSearch size={14} className="text-muted" />
+                <input
+                  value={search}
+                  onChange={(event) => onSearch(event.target.value)}
+                  placeholder="搜索标题、作者、摘要、出版信息或标识符"
+                  className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
+                />
+              </label>
+              <Button size="sm" onClick={onToggleFilters}>
+                {filtersOpen ? '收起筛选' : '筛选'}
+              </Button>
+            </div>
+            <SearchFiltersPanel
+              open={filtersOpen}
+              filters={searchFilters}
+              sort={searchSort}
+              collections={collections.filter((collection) => collection.kind === 'manual')}
+              tags={tags}
+              saving={savingSearch}
+              onChange={onSearchFilters}
+              onSort={onSearchSort}
+              onClear={onClearSearchFilters}
+              onSave={onSaveSearch}
+            />
           </div>
           <BulkActionsBar
             selectedCount={selectedWorkIds.length}
-            collections={collections}
-            tags={detailActions.availableTags}
+            collections={collections.filter((collection) => collection.kind === 'manual')}
+            tags={tags}
             status={status}
             onAction={onBulkAction}
           />
@@ -176,7 +219,7 @@ export function CompactLibraryView({
             {...detailActions}
             detail={detail}
             loading={detailLoading}
-            collections={collections}
+            collections={collections.filter((collection) => collection.kind === 'manual')}
             selectedCollectionIds={selectedCollectionIds}
             savingCollections={savingCollections}
           />

@@ -28,6 +28,8 @@ import {
   postReconcile,
   postRelinkLocation,
   postRestoreTag,
+  postSavedQuery,
+  postStructuredSearch,
   postRestoreWork,
   postTrashWork,
   postTag,
@@ -39,6 +41,8 @@ import {
 } from './api.js';
 import type {
   BulkWorkActionInput,
+  ResearchSearchAst,
+  SearchSort,
   SystemView,
   UpdateCollectionInput,
   WorkRelationKind,
@@ -56,6 +60,21 @@ import { TemplateLibraryView } from './components/TemplateLibraryView.js';
 
 const LAYOUT_STORAGE_KEY = 'research_library_layout';
 
+function emptySearchFilters(): ResearchSearchAst['filters'] {
+  return {
+    collectionIds: [],
+    tagIds: [],
+    types: [],
+    yearFrom: null,
+    yearTo: null,
+    attachmentRoles: [],
+    storageModes: [],
+    fileStatuses: [],
+    maintenance: [],
+    relatedWorkId: null,
+  };
+}
+
 function initialLayout(): ResearchLayout {
   if (typeof window === 'undefined') return 'compact';
   return window.localStorage.getItem(LAYOUT_STORAGE_KEY) === 'template' ? 'template' : 'compact';
@@ -69,6 +88,10 @@ export function ResearchLibraryPage() {
   const [status, setStatus] = useState<'active' | 'trashed'>('active');
   const [systemView, setSystemView] = useState<SystemView>('all');
   const [search, setSearch] = useState('');
+  const [searchFilters, setSearchFilters] =
+    useState<ResearchSearchAst['filters']>(emptySearchFilters);
+  const [searchSort, setSearchSort] = useState<SearchSort>('updated-desc');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
   const [selectedWorkIds, setSelectedWorkIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -96,9 +119,40 @@ export function ResearchLibraryPage() {
     queryFn: () => fetchTags({ status: 'all', sort: 'usage' }),
   });
   const worksQuery = useQuery({
-    queryKey: ['research', 'works', status, systemView, selectedCollectionId, search],
-    queryFn: () =>
-      fetchWorks({
+    queryKey: [
+      'research',
+      'works',
+      status,
+      systemView,
+      selectedCollectionId,
+      search,
+      searchFilters,
+      searchSort,
+      collectionsQuery.data,
+    ],
+    queryFn: () => {
+      const selectedCollection = collectionsQuery.data?.collections.find(
+        (collection) => collection.id === selectedCollectionId,
+      );
+      if (status === 'active' && systemView === 'all' && selectedCollection?.kind !== 'smart') {
+        return postStructuredSearch({
+          ast: {
+            version: 1,
+            text: search.trim(),
+            filters: {
+              ...searchFilters,
+              collectionIds:
+                selectedCollection?.kind === 'manual'
+                  ? [...new Set([...searchFilters.collectionIds, selectedCollection.id])]
+                  : searchFilters.collectionIds,
+            },
+            sort: searchSort,
+          },
+          cursor: null,
+          limit: 100,
+        });
+      }
+      return fetchWorks({
         status,
         systemView,
         collectionId:
@@ -107,7 +161,8 @@ export function ResearchLibraryPage() {
             : undefined,
         query: search.trim() || undefined,
         limit: 100,
-      }),
+      });
+    },
   });
   const detailQuery = useQuery({
     queryKey: ['research', 'work', selectedWorkId],
@@ -161,6 +216,34 @@ export function ResearchLibraryPage() {
       await invalidate();
     },
     onError: (cause) => setMessage(cause instanceof Error ? cause.message : '标签保存失败'),
+  });
+  const saveSearchMutation = useMutation({
+    mutationFn: (name: string) =>
+      postSavedQuery({
+        name,
+        parentId: null,
+        ast: {
+          version: 1,
+          text: search.trim(),
+          filters: {
+            ...searchFilters,
+            collectionIds: (() => {
+              const selected = collectionsQuery.data?.collections.find(
+                (collection) => collection.id === selectedCollectionId,
+              );
+              return selected?.kind === 'manual'
+                ? [...new Set([...searchFilters.collectionIds, selected.id])]
+                : searchFilters.collectionIds;
+            })(),
+          },
+          sort: searchSort,
+        },
+      }),
+    onSuccess: async () => {
+      setMessage('查询已保存为智能目录');
+      await invalidate();
+    },
+    onError: (cause) => setMessage(cause instanceof Error ? cause.message : '保存查询失败'),
   });
   const reconcileMutation = useMutation({
     mutationFn: postReconcile,
@@ -365,6 +448,11 @@ export function ResearchLibraryPage() {
     status,
     systemView,
     search,
+    tags: (tagsQuery.data?.tags ?? []).filter((tag) => !tag.trashedAt),
+    searchFilters,
+    searchSort,
+    filtersOpen,
+    savingSearch: saveSearchMutation.isPending,
     creatingCollection: createCollectionMutation.isPending,
     savingCollections: saveCollectionsMutation.isPending,
     reconciling: reconcileMutation.isPending,
@@ -384,7 +472,21 @@ export function ResearchLibraryPage() {
     onBulkAction: runBulkAction,
     onStatus: (next: 'active' | 'trashed') =>
       selectSystemView(next === 'trashed' ? 'trash' : 'all'),
-    onSearch: setSearch,
+    onSearch: (value: string) => {
+      if (!search.trim() && value.trim() && searchSort === 'updated-desc')
+        setSearchSort('relevance');
+      setSearch(value);
+    },
+    onToggleFilters: () => setFiltersOpen((value) => !value),
+    onSearchFilters: setSearchFilters,
+    onSearchSort: setSearchSort,
+    onClearSearchFilters: () => {
+      setSearchFilters(emptySearchFilters());
+      setSearchSort(search.trim() ? 'relevance' : 'updated-desc');
+    },
+    onSaveSearch: async (name: string) => {
+      await saveSearchMutation.mutateAsync(name);
+    },
     detailActions,
   };
 
@@ -393,7 +495,7 @@ export function ResearchLibraryPage() {
       {activeView === 'inbox' ? (
         <ImportInboxPanel
           layout={layout}
-          collections={sharedProps.collections}
+          collections={sharedProps.collections.filter((collection) => collection.kind === 'manual')}
           onLayout={setLayout}
           onLibrary={() => setActiveView('library')}
           onManualWork={() => setManualWorkOpen(true)}
@@ -407,7 +509,7 @@ export function ResearchLibraryPage() {
 
       <ImportDialog
         open={importOpen}
-        collections={sharedProps.collections}
+        collections={sharedProps.collections.filter((collection) => collection.kind === 'manual')}
         onClose={() => setImportOpen(false)}
         onCommitted={() => {
           setMessage('论文已经入库');
@@ -503,7 +605,7 @@ export function ResearchLibraryPage() {
 
       <ManualWorkDialog
         open={manualWorkOpen}
-        collections={sharedProps.collections}
+        collections={sharedProps.collections.filter((collection) => collection.kind === 'manual')}
         busy={manualWorkBusy}
         onClose={() => setManualWorkOpen(false)}
         onCreate={async (input) => {

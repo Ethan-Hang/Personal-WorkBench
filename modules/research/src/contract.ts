@@ -5,6 +5,7 @@ const API_ROOT = '/api/research/v1';
 
 export const RESEARCH_API_V1 = {
   works: `${API_ROOT}/works`,
+  workSearch: `${API_ROOT}/works/search`,
   work: (id: string) => `${API_ROOT}/works/${id}`,
   workCollections: (id: string) => `${API_ROOT}/works/${id}/collections`,
   workTrash: (id: string) => `${API_ROOT}/works/${id}/trash`,
@@ -27,6 +28,9 @@ export const RESEARCH_API_V1 = {
   tagPermanentDelete: (id: string) => `${API_ROOT}/tags/${id}/permanent-delete`,
   tagMerge: `${API_ROOT}/tags/merge`,
   mergeUndo: (id: string) => `${API_ROOT}/merge-records/${id}/undo`,
+  searchIndexRebuild: `${API_ROOT}/search-index/rebuild`,
+  savedQueries: `${API_ROOT}/saved-queries`,
+  savedQueryRun: (id: string) => `${API_ROOT}/saved-queries/${id}/run`,
   editionAttachments: (id: string) => `${API_ROOT}/editions/${id}/attachments`,
   collections: `${API_ROOT}/collections`,
   collection: (id: string) => `${API_ROOT}/collections/${id}`,
@@ -305,6 +309,10 @@ export const workViewSchema = z.object({
   createdAt: instantSchema,
   updatedAt: instantSchema,
   trashedAt: instantSchema.nullable(),
+  searchScore: z.number().min(0).max(1).nullable().default(null),
+  matchedFields: z
+    .array(z.enum(['title', 'abstract', 'authors', 'publication', 'identifiers']))
+    .default([]),
 });
 export type WorkView = z.infer<typeof workViewSchema>;
 
@@ -519,6 +527,84 @@ export const uploadPdfQuerySchema = z.object({
 });
 export type UploadPdfQuery = z.infer<typeof uploadPdfQuerySchema>;
 
+export const SEARCH_SORTS = ['relevance', 'updated-desc', 'title-asc', 'year-desc'] as const;
+export type SearchSort = (typeof SEARCH_SORTS)[number];
+
+export const MAINTENANCE_FILTERS = [
+  'missing-fields',
+  'missing-files',
+  'duplicate-candidates',
+  'metadata-failed',
+  'unfinished-imports',
+] as const;
+export type MaintenanceFilter = (typeof MAINTENANCE_FILTERS)[number];
+
+export const researchSearchFiltersSchema = z
+  .object({
+    collectionIds: z.array(researchIdSchema).max(100).default([]),
+    tagIds: z.array(researchIdSchema).max(100).default([]),
+    types: z.array(z.enum(WORK_TYPES)).max(WORK_TYPES.length).default([]),
+    yearFrom: z.number().int().min(0).max(9999).nullable().default(null),
+    yearTo: z.number().int().min(0).max(9999).nullable().default(null),
+    attachmentRoles: z.array(z.enum(ATTACHMENT_ROLES)).max(ATTACHMENT_ROLES.length).default([]),
+    storageModes: z.array(z.enum(STORAGE_MODES)).max(STORAGE_MODES.length).default([]),
+    fileStatuses: z
+      .array(z.enum(['none', 'available', 'missing', 'changed', 'recycled', 'mixed']))
+      .max(6)
+      .default([]),
+    maintenance: z.array(z.enum(MAINTENANCE_FILTERS)).max(MAINTENANCE_FILTERS.length).default([]),
+    relatedWorkId: researchIdSchema.nullable().default(null),
+  })
+  .strict()
+  .refine(
+    (value) => value.yearFrom === null || value.yearTo === null || value.yearFrom <= value.yearTo,
+    '起始年份不能晚于结束年份',
+  );
+
+export const researchSearchAstSchema = z
+  .object({
+    version: z.literal(1),
+    text: z.string().trim().max(300).default(''),
+    filters: researchSearchFiltersSchema.default({
+      collectionIds: [],
+      tagIds: [],
+      types: [],
+      yearFrom: null,
+      yearTo: null,
+      attachmentRoles: [],
+      storageModes: [],
+      fileStatuses: [],
+      maintenance: [],
+      relatedWorkId: null,
+    }),
+    sort: z.enum(SEARCH_SORTS).default('relevance'),
+  })
+  .strict();
+export type ResearchSearchAst = z.infer<typeof researchSearchAstSchema>;
+
+export const structuredSearchInputSchema = z.object({
+  ast: researchSearchAstSchema,
+  cursor: z.string().min(1).nullable().default(null),
+  limit: z.number().int().min(1).max(100).default(30),
+});
+export type StructuredSearchInput = z.infer<typeof structuredSearchInputSchema>;
+
+export const createSavedQueryInputSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  parentId: researchIdSchema.nullable().default(null),
+  ast: researchSearchAstSchema,
+});
+export type CreateSavedQueryInput = z.infer<typeof createSavedQueryInputSchema>;
+
+export const savedQueryRunQuerySchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const searchIndexRebuildResponseSchema = z.object({
+  indexedWorks: z.number().int().nonnegative(),
+});
+
 export const listWorksQuerySchema = z.object({
   status: z.enum(WORK_STATUSES).default('active'),
   systemView: z.enum(SYSTEM_VIEWS).default('all'),
@@ -598,6 +684,8 @@ export const collectionViewSchema = z.object({
   parentId: researchIdSchema.nullable(),
   name: z.string(),
   sortOrder: z.number().int().nonnegative(),
+  kind: z.enum(['manual', 'smart', 'system']),
+  queryAst: researchSearchAstSchema.nullable(),
   createdAt: instantSchema,
   updatedAt: instantSchema,
 });

@@ -7,7 +7,9 @@ import type {
   ImportItemStage,
   ImportSessionStatus,
   LocationState,
+  MaintenanceFilter,
   MetadataSourceKind,
+  SearchSort,
   StorageMode,
   SystemView,
   WorkRelationKind,
@@ -47,6 +49,8 @@ export interface WorkListRecord extends WorkRecord {
   collectionIds: string[];
   storageModes: StorageMode[];
   fileStatus: 'none' | 'available' | 'missing' | 'changed' | 'recycled' | 'mixed';
+  searchScore: number | null;
+  matchedFields: Array<'title' | 'abstract' | 'authors' | 'publication' | 'identifiers'>;
 }
 
 export interface WorkPage {
@@ -60,6 +64,17 @@ export interface ListWorksQuery {
   collectionId?: string;
   fileStatus?: WorkListRecord['fileStatus'];
   query?: string;
+  collectionIds?: string[];
+  tagIds?: string[];
+  types?: WorkType[];
+  yearFrom?: number | null;
+  yearTo?: number | null;
+  attachmentRoles?: AttachmentRole[];
+  storageModes?: StorageMode[];
+  fileStatuses?: WorkListRecord['fileStatus'][];
+  maintenance?: MaintenanceFilter[];
+  relatedWorkId?: string | null;
+  sort?: SearchSort;
   cursor?: string | null;
   limit: number;
 }
@@ -235,6 +250,8 @@ export interface CollectionDraft {
   name: string;
   normalizedName: string;
   sortOrder: number;
+  kind?: 'manual' | 'smart';
+  queryJson?: string | null;
 }
 
 export interface CollectionMoveDraft {
@@ -579,6 +596,7 @@ export interface ResearchRepository {
   getWork(id: string): Promise<WorkRecord | null>;
   getWorkListRecord(id: string): Promise<WorkListRecord | null>;
   listWorks(query: ListWorksQuery): Promise<WorkPage>;
+  rebuildSearchIndex(): Promise<number>;
   getEdition(id: string): Promise<EditionRecord | null>;
   listEditions(workId: string): Promise<EditionRecord[]>;
   listContributors(editionId: string): Promise<ContributorRecord[]>;

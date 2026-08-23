@@ -2,6 +2,14 @@ import { EmptyState, IconBookOpen } from '@workbench/ui';
 import type { WorksPage } from '../api.js';
 import { FileStatus, StorageModes } from './FileStatus.js';
 
+const matchedFieldLabels = {
+  title: '标题',
+  abstract: '摘要',
+  authors: '作者',
+  publication: '出版信息',
+  identifiers: '标识符',
+} as const;
+
 export function LibraryList({
   works,
   selectedId,
@@ -89,6 +97,12 @@ export function LibraryList({
                   {work.attachmentCount} 个附件
                 </span>
               </div>
+              {work.searchScore !== null && (
+                <p className="mt-2 text-[10px] text-muted">
+                  匹配 {Math.round(work.searchScore * 100)}% ·{' '}
+                  {work.matchedFields.map((field) => matchedFieldLabels[field]).join('、')}
+                </p>
+              )}
             </button>
           </div>
         );
