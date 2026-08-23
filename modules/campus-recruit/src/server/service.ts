@@ -68,6 +68,7 @@ async function applicationView(
     appliedAt: application.appliedAt,
     outcome: application.outcome,
     outcomeAt: application.outcomeAt,
+    shelvedAt: application.shelvedAt,
     salary: application.salary,
     link: application.link,
     notes: application.notes,
@@ -133,6 +134,7 @@ export async function createApplication(
     appliedAt,
     outcome: input.outcome,
     outcomeAt: input.outcome === null ? null : now,
+    shelvedAt: null,
     salary: input.salary,
     link: input.link,
     notes: input.notes,
@@ -177,10 +179,17 @@ export async function updateApplication(
     if (input.outcome === null) changes.outcomeAt = null;
     else if (input.outcome !== existing.outcome) changes.outcomeAt = now;
   }
+  if (input.shelved !== undefined) {
+    // 已经泡着的再标一次不刷新时刻——「从哪天开始没消息」才是有用的那个信息
+    changes.shelvedAt = input.shelved ? (existing.shelvedAt ?? now) : null;
+  }
   const resultingOutcome = input.outcome === undefined ? existing.outcome : input.outcome;
+  const resultingShelved =
+    input.shelved === undefined ? existing.shelvedAt !== null : input.shelved;
   const resultingAppliedAt = input.appliedAt === undefined ? existing.appliedAt : input.appliedAt;
   if (resultingAppliedAt === null) {
-    const hasProgress = resultingOutcome !== null || (await repo.listRounds(id)).length > 0;
+    const hasProgress =
+      resultingOutcome !== null || resultingShelved || (await repo.listRounds(id)).length > 0;
     if (hasProgress) changes.appliedAt = now;
   }
   await repo.updateApplication(id, changes);

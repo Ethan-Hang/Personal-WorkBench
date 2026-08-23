@@ -21,6 +21,7 @@ export interface ApplicationRecord {
   appliedAt: string | null;
   outcome: ApplicationOutcome | null;
   outcomeAt: string | null;
+  shelvedAt: string | null;
   salary: string | null;
   link: string | null;
   notes: string | null;

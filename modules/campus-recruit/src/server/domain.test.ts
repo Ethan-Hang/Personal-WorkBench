@@ -28,7 +28,8 @@ describe('deriveApplicationStatus', () => {
 
   it('uses the highest sequence as the latest round even when it has no schedule', () => {
     const status = deriveApplicationStatus(
-      applicationFixture(),
+      // 投递时间取近期：默认 fixture 投于三个月前，轮次又全是待定，会先被判成泡池子
+      applicationFixture({ appliedAt: '2026-11-20T00:00:00.000Z' }),
       [
         roundFixture({ id: 'r1', sequence: 1, name: '一面', scheduledAt: NOW }),
         roundFixture({ id: 'r2', sequence: 2, name: '二面', scheduledAt: null }),
@@ -54,11 +55,37 @@ describe('deriveApplicationStatus', () => {
     expect(deriveApplicationStatus(exactly, [], '2026-11-30T00:00:00.001Z').code).toBe('shelved');
   });
 
-  it('an unscheduled round prevents shelving', () => {
+  it('全部轮次仍未出结果时照样泡池子——否则自动补的简历初筛会让这条判定永久失效', () => {
     const old = applicationFixture({ appliedAt: '2026-01-01T00:00:00.000Z' });
-    expect(deriveApplicationStatus(old, [roundFixture({ scheduledAt: null })], NOW).code).toBe(
-      'in_progress',
-    );
+    expect(
+      deriveApplicationStatus(old, [roundFixture({ kind: 'screening', name: '简历初筛' })], NOW)
+        .code,
+    ).toBe('shelved');
+  });
+
+  it('只要有一轮出过结果就不是泡池子——流程真的动过', () => {
+    const old = applicationFixture({ appliedAt: '2026-01-01T00:00:00.000Z' });
+    expect(
+      deriveApplicationStatus(old, [roundFixture({ outcome: 'passed', name: '一面' })], NOW).code,
+    ).toBe('in_progress');
+  });
+
+  it('手标的泡池子立刻生效，不必等 90 天', () => {
+    const justApplied = applicationFixture({
+      appliedAt: '2026-11-29T00:00:00.000Z',
+      shelvedAt: '2026-11-29T06:00:00.000Z',
+    });
+    expect(deriveApplicationStatus(justApplied, [], NOW)).toMatchObject({
+      code: 'shelved',
+      label: '泡池子',
+    });
+  });
+
+  it('已挂盖过手标的泡池子——泡着泡着挂了，显示「已挂」更准', () => {
+    const shelvedThenFailed = applicationFixture({ shelvedAt: '2026-11-01T00:00:00.000Z' });
+    expect(
+      deriveApplicationStatus(shelvedThenFailed, [roundFixture({ outcome: 'failed' })], NOW).code,
+    ).toBe('failed');
   });
 
   it.each([

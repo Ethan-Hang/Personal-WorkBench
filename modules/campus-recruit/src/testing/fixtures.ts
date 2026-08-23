@@ -19,6 +19,7 @@ export function applicationFixture(overrides: Partial<ApplicationRecord> = {}): 
     appliedAt: '2026-08-17T01:00:00.000Z',
     outcome: null,
     outcomeAt: null,
+    shelvedAt: null,
     salary: null,
     link: null,
     notes: null,

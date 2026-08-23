@@ -29,6 +29,7 @@ const APPLICATION = {
   appliedAt: null,
   outcome: null,
   outcomeAt: null,
+  shelvedAt: null,
   salary: '20k-30k',
   link: 'https://example.com/jobs/firmware',
   notes: '准备 RTOS 项目说明',

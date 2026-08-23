@@ -24,6 +24,7 @@ function createMockApp(partial: Partial<ApplicationView>): ApplicationView {
     appliedAt: '2026-08-10T10:00:00.000Z',
     outcome: null,
     outcomeAt: null,
+    shelvedAt: null,
     salary: null,
     link: 'https://example.com',
     notes: '重点关注BSP方向',

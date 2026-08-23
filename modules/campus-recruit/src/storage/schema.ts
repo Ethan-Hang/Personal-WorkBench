@@ -25,6 +25,7 @@ export const campusRecruitApplications = sqliteTable(
     appliedAt: text('applied_at'),
     outcome: text('outcome', { enum: APPLICATION_OUTCOMES }),
     outcomeAt: text('outcome_at'),
+    shelvedAt: text('shelved_at'),
     salary: text('salary'),
     link: text('link'),
     notes: text('notes'),

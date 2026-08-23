@@ -16,7 +16,6 @@ import {
 import {
   APPLICATION_PRIORITIES,
   ROUND_KINDS,
-  type ApplicationOutcome,
   type ApplicationPriority,
   type ApplicationView,
   type CreateRoundInput,
@@ -25,6 +24,7 @@ import {
   type UpdateApplicationInput,
   type UpdateRoundInput,
 } from '../../contract.js';
+import { outcomeSelectChange, outcomeSelectValue } from '../utils/outcomeSelect.js';
 import { PriorityBadge } from './PriorityBadge.js';
 import {
   ApplicationStatusChip,
@@ -901,14 +901,10 @@ export function ApplicationTableRow({
               <div className="flex flex-wrap items-center gap-2.5">
                 <label className="text-muted font-medium">终局状态:</label>
                 <select
-                  value={application.outcome ?? ''}
+                  value={outcomeSelectValue(application)}
                   disabled={isBusy}
                   onChange={(e) =>
-                    onUpdateApplication(application.id, {
-                      outcome: (e.target.value === ''
-                        ? null
-                        : e.target.value) as ApplicationOutcome,
-                    })
+                    onUpdateApplication(application.id, outcomeSelectChange(e.target.value))
                   }
                   className={`${controlClass} py-0.5 text-[12px]`}
                 >
@@ -917,6 +913,7 @@ export function ApplicationTableRow({
                   <option value="offer">Offer (正式录用)</option>
                   <option value="rejected">已挂 / 未通过</option>
                   <option value="declined">已拒绝</option>
+                  <option value="shelved">泡池子 / 挂起</option>
                 </select>
 
                 <button

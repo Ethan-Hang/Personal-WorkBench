@@ -93,6 +93,31 @@ describe('campus recruit service', () => {
     expect(updated).toMatchObject({ applyEmail: null, applyPhone: '13900139000' });
   });
 
+  it('手标泡池子记下时刻并顺带补齐投递时间，撤销时清掉', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const shelved = await updateApplication(h.ctx, h.repo, created.id, { shelved: true }, OPTS);
+    expect(shelved).toMatchObject({ shelvedAt: NOW, appliedAt: NOW });
+    expect(shelved.status.code).toBe('shelved');
+
+    const kept = await updateApplication(
+      h.ctx,
+      h.repo,
+      created.id,
+      { shelved: true },
+      {
+        ...OPTS,
+        now: LATER,
+      },
+    );
+    expect(kept.shelvedAt).toBe(NOW);
+
+    const revived = await updateApplication(h.ctx, h.repo, created.id, { shelved: false }, OPTS);
+    expect(revived.shelvedAt).toBeNull();
+    expect(revived.status.code).toBe('applied');
+  });
+
   it('marking applied completes the deadline projection', async () => {
     const h = makeCampusHarness();
     const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);

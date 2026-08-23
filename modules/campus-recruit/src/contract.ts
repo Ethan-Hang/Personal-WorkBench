@@ -88,7 +88,12 @@ export const createApplicationInputSchema = z.object({
 export type CreateApplicationInput = z.input<typeof createApplicationInputSchema>;
 export type CreateApplicationData = z.output<typeof createApplicationInputSchema>;
 
-export const updateApplicationInputSchema = z.object(applicationFieldSchemas).partial();
+export const updateApplicationInputSchema = z
+  .object(applicationFieldSchemas)
+  .partial()
+  // 泡池子刻意不是 outcome：它不是终局，撤销它也不该是「清空终局结果」。
+  // 前端只表达意图，落成哪个时刻由服务端决定。
+  .extend({ shelved: z.boolean().optional() });
 export type UpdateApplicationInput = z.infer<typeof updateApplicationInputSchema>;
 
 const roundFieldSchemas = {
@@ -149,6 +154,7 @@ export const applicationViewSchema = z.object({
   appliedAt: instantSchema.nullable(),
   outcome: z.enum(APPLICATION_OUTCOMES).nullable(),
   outcomeAt: instantSchema.nullable(),
+  shelvedAt: instantSchema.nullable(),
   salary: z.string().nullable(),
   link: z.string().nullable(),
   notes: z.string().nullable(),
