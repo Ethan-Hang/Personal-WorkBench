@@ -378,6 +378,8 @@ function ProfileForm({
     city: application.city ?? '',
     channel: application.channel ?? '',
     referral: application.referral ?? '',
+    applyEmail: application.applyEmail ?? '',
+    applyPhone: application.applyPhone ?? '',
     priority: application.priority,
     applyDeadlineDate: application.applyDeadlineDate ?? '',
     salary: application.salary ?? '',
@@ -394,6 +396,8 @@ function ProfileForm({
       city: application.city ?? '',
       channel: application.channel ?? '',
       referral: application.referral ?? '',
+      applyEmail: application.applyEmail ?? '',
+      applyPhone: application.applyPhone ?? '',
       priority: application.priority,
       applyDeadlineDate: application.applyDeadlineDate ?? '',
       salary: application.salary ?? '',
@@ -413,6 +417,8 @@ function ProfileForm({
       city: nullableText(form.city),
       channel: nullableText(form.channel),
       referral: nullableText(form.referral),
+      applyEmail: nullableText(form.applyEmail),
+      applyPhone: nullableText(form.applyPhone),
       priority: form.priority,
       applyDeadlineDate: form.applyDeadlineDate === '' ? null : form.applyDeadlineDate,
       salary: nullableText(form.salary),
@@ -519,6 +525,25 @@ function ProfileForm({
             value={form.industry}
             onChange={(e) => set('industry', e.target.value)}
             placeholder="例如：消费电子 / 新能源"
+            className={controlClass}
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="投递邮箱">
+          <input
+            value={form.applyEmail}
+            onChange={(e) => set('applyEmail', e.target.value)}
+            placeholder="投这家用的邮箱"
+            className={controlClass}
+          />
+        </Field>
+        <Field label="投递手机号">
+          <input
+            value={form.applyPhone}
+            onChange={(e) => set('applyPhone', e.target.value)}
+            placeholder="投这家用的手机号"
             className={controlClass}
           />
         </Field>

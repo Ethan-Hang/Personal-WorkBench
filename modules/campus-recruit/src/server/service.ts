@@ -61,6 +61,8 @@ async function applicationView(
     city: application.city,
     channel: application.channel,
     referral: application.referral,
+    applyEmail: application.applyEmail,
+    applyPhone: application.applyPhone,
     priority: application.priority,
     applyDeadlineDate: application.applyDeadlineDate,
     appliedAt: application.appliedAt,
@@ -124,6 +126,8 @@ export async function createApplication(
     city: input.city,
     channel: input.channel,
     referral: input.referral,
+    applyEmail: input.applyEmail,
+    applyPhone: input.applyPhone,
     priority: input.priority,
     applyDeadlineDate: input.applyDeadlineDate,
     appliedAt,
@@ -158,6 +162,8 @@ export async function updateApplication(
   if (input.city !== undefined) changes.city = input.city;
   if (input.channel !== undefined) changes.channel = input.channel;
   if (input.referral !== undefined) changes.referral = input.referral;
+  if (input.applyEmail !== undefined) changes.applyEmail = input.applyEmail;
+  if (input.applyPhone !== undefined) changes.applyPhone = input.applyPhone;
   if (input.priority !== undefined) changes.priority = input.priority;
   if (input.applyDeadlineDate !== undefined) {
     changes.applyDeadlineDate = input.applyDeadlineDate;

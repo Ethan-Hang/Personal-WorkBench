@@ -17,6 +17,8 @@ function createMockApp(partial: Partial<ApplicationView>): ApplicationView {
     city: '深圳',
     channel: '官网直投',
     referral: 'REF123',
+    applyEmail: null,
+    applyPhone: null,
     priority: 'S',
     applyDeadlineDate: '2026-09-15',
     appliedAt: '2026-08-10T10:00:00.000Z',

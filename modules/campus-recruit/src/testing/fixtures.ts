@@ -12,6 +12,8 @@ export function applicationFixture(overrides: Partial<ApplicationRecord> = {}): 
     city: null,
     channel: null,
     referral: null,
+    applyEmail: null,
+    applyPhone: null,
     priority: 'B',
     applyDeadlineDate: null,
     appliedAt: '2026-08-17T01:00:00.000Z',

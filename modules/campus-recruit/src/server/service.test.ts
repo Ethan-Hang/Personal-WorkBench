@@ -64,6 +64,35 @@ describe('campus recruit service', () => {
     ]);
   });
 
+  it('往返存取投递用的邮箱与手机号——回头找验证码时要查的是这一套账号', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(
+      h.ctx,
+      h.repo,
+      createApplicationInputSchema.parse({
+        ...pendingApplicationInput(),
+        applyEmail: '校园招聘邮箱 zhaopin@example.com',
+        applyPhone: '13800138000',
+      }),
+      OPTS,
+    );
+
+    expect(created).toMatchObject({
+      applyEmail: '校园招聘邮箱 zhaopin@example.com',
+      applyPhone: '13800138000',
+    });
+
+    const updated = await updateApplication(
+      h.ctx,
+      h.repo,
+      created.id,
+      { applyEmail: null, applyPhone: '13900139000' },
+      OPTS,
+    );
+
+    expect(updated).toMatchObject({ applyEmail: null, applyPhone: '13900139000' });
+  });
+
   it('marking applied completes the deadline projection', async () => {
     const h = makeCampusHarness();
     const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);

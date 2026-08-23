@@ -22,6 +22,8 @@ const APPLICATION = {
   city: '深圳',
   channel: '官网',
   referral: null,
+  applyEmail: 'campus@example.com',
+  applyPhone: '13800138000',
   priority: 'S',
   applyDeadlineDate: '2026-09-01',
   appliedAt: null,

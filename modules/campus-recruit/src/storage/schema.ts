@@ -18,6 +18,8 @@ export const campusRecruitApplications = sqliteTable(
     city: text('city'),
     channel: text('channel'),
     referral: text('referral'),
+    applyEmail: text('apply_email'),
+    applyPhone: text('apply_phone'),
     priority: text('priority', { enum: APPLICATION_PRIORITIES }).notNull().default('B'),
     applyDeadlineDate: text('apply_deadline_date'),
     appliedAt: text('applied_at'),

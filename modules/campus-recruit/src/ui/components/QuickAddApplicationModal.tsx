@@ -25,6 +25,8 @@ const INITIAL_FORM = {
   companyType: '',
   industry: '',
   referral: '',
+  applyEmail: '',
+  applyPhone: '',
   salary: '',
   link: '',
 };
@@ -60,6 +62,8 @@ export function QuickAddApplicationModal({
         companyType: nullableText(form.companyType),
         industry: nullableText(form.industry),
         referral: nullableText(form.referral),
+        applyEmail: nullableText(form.applyEmail),
+        applyPhone: nullableText(form.applyPhone),
         salary: nullableText(form.salary),
         link: nullableText(form.link),
       });
@@ -215,6 +219,25 @@ export function QuickAddApplicationModal({
                     value={form.salary}
                     onChange={(e) => set('salary', e.target.value)}
                     placeholder="例如：25k·16薪 + 签字费"
+                    className={controlClass}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="投递邮箱">
+                  <input
+                    value={form.applyEmail}
+                    onChange={(e) => set('applyEmail', e.target.value)}
+                    placeholder="投这家用的邮箱"
+                    className={controlClass}
+                  />
+                </Field>
+                <Field label="投递手机号">
+                  <input
+                    value={form.applyPhone}
+                    onChange={(e) => set('applyPhone', e.target.value)}
+                    placeholder="投这家用的手机号"
                     className={controlClass}
                   />
                 </Field>

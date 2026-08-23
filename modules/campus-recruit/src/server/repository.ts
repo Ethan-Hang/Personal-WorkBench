@@ -14,6 +14,8 @@ export interface ApplicationRecord {
   city: string | null;
   channel: string | null;
   referral: string | null;
+  applyEmail: string | null;
+  applyPhone: string | null;
   priority: ApplicationPriority;
   applyDeadlineDate: string | null;
   appliedAt: string | null;

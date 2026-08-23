@@ -458,6 +458,15 @@ function FullProfileViewCard({
         </div>
 
         <div>
+          <dt className="text-muted font-medium">投递账号</dt>
+          <dd className="mt-0.5 font-medium text-ink">
+            {application.applyEmail || application.applyPhone
+              ? [application.applyEmail, application.applyPhone].filter(Boolean).join(' · ')
+              : '未填写'}
+          </dd>
+        </div>
+
+        <div>
           <dt className="text-muted font-medium">网申截止时间</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {application.applyDeadlineDate ? (
@@ -543,6 +552,8 @@ function InlineProfileEditForm({
     city: application.city ?? '',
     channel: application.channel ?? '',
     referral: application.referral ?? '',
+    applyEmail: application.applyEmail ?? '',
+    applyPhone: application.applyPhone ?? '',
     priority: application.priority,
     applyDeadlineDate: application.applyDeadlineDate ?? '',
     salary: application.salary ?? '',
@@ -561,6 +572,8 @@ function InlineProfileEditForm({
       city: nullableText(form.city),
       channel: nullableText(form.channel),
       referral: nullableText(form.referral),
+      applyEmail: nullableText(form.applyEmail),
+      applyPhone: nullableText(form.applyPhone),
       priority: form.priority,
       applyDeadlineDate: form.applyDeadlineDate === '' ? null : form.applyDeadlineDate,
       salary: nullableText(form.salary),
@@ -669,6 +682,25 @@ function InlineProfileEditForm({
             value={form.referral}
             onChange={(e) => set('referral', e.target.value)}
             placeholder="例如：NTAXXXX"
+            className={controlClass}
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="投递邮箱">
+          <input
+            value={form.applyEmail}
+            onChange={(e) => set('applyEmail', e.target.value)}
+            placeholder="投这家用的邮箱"
+            className={controlClass}
+          />
+        </Field>
+        <Field label="投递手机号">
+          <input
+            value={form.applyPhone}
+            onChange={(e) => set('applyPhone', e.target.value)}
+            placeholder="投这家用的手机号"
             className={controlClass}
           />
         </Field>
