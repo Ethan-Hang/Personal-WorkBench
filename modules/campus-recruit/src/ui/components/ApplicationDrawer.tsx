@@ -497,7 +497,7 @@ function ProfileForm({
         </Field>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Field label="投递渠道">
           <input
             value={form.channel}
@@ -511,6 +511,14 @@ function ProfileForm({
             value={form.referral}
             onChange={(e) => set('referral', e.target.value)}
             placeholder="例如：NTAXXXXX"
+            className={controlClass}
+          />
+        </Field>
+        <Field label="行业">
+          <input
+            value={form.industry}
+            onChange={(e) => set('industry', e.target.value)}
+            placeholder="例如：消费电子 / 新能源"
             className={controlClass}
           />
         </Field>
