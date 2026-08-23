@@ -330,12 +330,28 @@ drizzle 的迁移器用**一张表里的一个全局水位**判断某条迁移�
 `runMigrationsFrom` 因此按目录派生专属记账表。回归测试在
 `packages/data/src/module-migrations.test.ts`。**新增带迁移的模块时不要合并这些表。**
 
+**改模块表前先看它的 `migrations/meta/` 里有没有 snapshot。** 手写的首份迁移通常没有，
+drizzle-kit 于是拿不到基线，`generate` 出来的是**整份 CREATE TABLE**——在已有库上必然
+`table already exists`，而且它不会报错，是你得自己看一眼生成物。做法是把生成的 SQL 改回
+真正的增量、保留同时生成的 snapshot，下一份就能正常 diff 了（`campus-recruit` 的 0001
+就是这么修的，文件顶部有说明）。
+
 ### 领域错误要落成 4xx
 
 三个新子系统的校验放在 service 而非 route（为了能被集成测试直接覆盖），代价是抛出的
 错误默认会落到统一错误出口变成 **500**——冒烟时标签重名就报成了服务器故障。
 `@workbench/http-kit` 的 `DomainError` + `toHttp` 是那座桥（2026-08-22 由四个模块各写一份收敛而来，见 ADR-0024）。
 **未知错误必须继续冒泡**，否则拿不到请求编号也进不了日志。
+
+### 秋招的两条状态语义
+
+- **「泡池子」是 `shelved_at` 一列，不是 `outcome` 的取值**（ADR-0026）。手标为主、
+  90 天派生兜底。前端那个下拉把 `outcome` 与 `shelved` 两个互斥概念合在一起，
+  **选中一个必须显式清掉另一个**；映射逻辑在 `ui/utils/outcomeSelect.ts`（`.ts` 才进
+  Vitest 收集范围，放进 `.tsx` 组件就没有测试护着）。
+- **点「标记已投递」会自动补一轮待定的「简历初筛」**（零轮次时才补，幂等）。因此
+  **任何「这条投递有没有轮次」的判断都已经失真**，要问的是「有没有一轮出过结果」——
+  自动泡池子判定就是为此从「轮次数为 0」改成「全部轮次仍 pending」的。
 
 ### 回收站借用了 `cancelled`
 
@@ -524,7 +540,7 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
 
 1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
 2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-3. `docs/adr/` — 二十五条架构决策记录（编号至 0025；0014 有历史撞号，已于 2026-08-22 拆解）。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+3. `docs/adr/` — 二十六条架构决策记录（编号至 0026；0014 有历史撞号，已于 2026-08-22 拆解）。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 
