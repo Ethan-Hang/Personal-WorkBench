@@ -109,7 +109,7 @@ export function CompactLibraryView({
               <input
                 value={search}
                 onChange={(event) => onSearch(event.target.value)}
-                placeholder="按标题、作者或年份筛选"
+                placeholder="按标题或年份筛选"
                 className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
               />
             </label>

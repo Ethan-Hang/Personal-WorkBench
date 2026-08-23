@@ -173,7 +173,7 @@ export function TemplateLibraryView({
                   <input
                     value={search}
                     onChange={(event) => onSearch(event.target.value)}
-                    placeholder="搜索标题、作者或年份"
+                    placeholder="搜索标题或年份"
                     className="min-w-0 flex-1 bg-transparent text-xs text-ink outline-none placeholder:text-muted"
                   />
                 </label>

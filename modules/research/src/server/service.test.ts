@@ -169,6 +169,29 @@ describe('ResearchService 导入闭环', () => {
       isUserConfirmed: true,
       isSelected: true,
     });
+
+    const attachment = detail.editions[0]!.attachments[0]!;
+    const managedObjectPath = attachment.asset.locations[0]!.resolvedPath;
+    const afterDirectoryRemoval = await service.setWorkCollections(committed.workId, [
+      collectionA.id,
+    ]);
+    expect(afterDirectoryRemoval.work.collectionIds).toEqual([collectionA.id]);
+    expect(afterDirectoryRemoval.work.attachmentCount).toBe(1);
+    await expect(access(managedObjectPath)).resolves.toBeUndefined();
+
+    await service.trashWork(committed.workId);
+    expect((await service.getWork(committed.workId)).work.status).toBe('trashed');
+    await expect(service.restoreWork(committed.workId)).resolves.toMatchObject({
+      work: { work: { status: 'active' } },
+      missingLocations: [],
+    });
+
+    await service.recycleAttachment(attachment.id);
+    expect((await service.getWork(committed.workId)).editions[0]?.attachments[0]?.status).toBe(
+      'recycled',
+    );
+    await expect(access(managedObjectPath)).resolves.toBeUndefined();
+    await expect(access(source)).resolves.toBeUndefined();
     expect((await repo.getImportSession(session.id))?.status).toBe('completed');
     expect(
       sqlite
