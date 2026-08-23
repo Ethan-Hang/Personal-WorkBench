@@ -1,4 +1,4 @@
-import { Button, IconPlus, IconRefreshCw, IconSearch } from '@workbench/ui';
+import { Button, IconDatabase, IconPlus, IconRefreshCw, IconSearch } from '@workbench/ui';
 import type { CollectionView, WorkDetail, WorksPage } from '../api.js';
 import { CollectionSidebar } from './CollectionSidebar.js';
 import { LayoutSwitch, type ResearchLayout } from './LayoutSwitch.js';
@@ -23,6 +23,8 @@ export interface CompactLibraryViewProps {
   reconciling: boolean;
   onLayout: (layout: ResearchLayout) => void;
   onImport: () => void;
+  onInbox: () => void;
+  onManualWork: () => void;
   onReconcile: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
@@ -53,6 +55,8 @@ export function CompactLibraryView({
   reconciling,
   onLayout,
   onImport,
+  onInbox,
+  onManualWork,
   onReconcile,
   onCreateCollection,
   onSelectCollection,
@@ -71,6 +75,12 @@ export function CompactLibraryView({
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <LayoutSwitch value={layout} onChange={onLayout} />
+          <Button size="sm" icon={<IconDatabase size={13} />} onClick={onInbox}>
+            导入箱
+          </Button>
+          <Button size="sm" onClick={onManualWork}>
+            手工记录
+          </Button>
           <Button
             size="sm"
             icon={<IconRefreshCw size={13} />}

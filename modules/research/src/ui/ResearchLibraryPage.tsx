@@ -6,8 +6,10 @@ import {
   fetchDeletionPreview,
   fetchWork,
   fetchWorks,
+  postAddLocalAttachment,
   postCheckLocation,
   postCollection,
+  postCreateManualWork,
   postPermanentDelete,
   postReconcile,
   postRelinkLocation,
@@ -16,8 +18,11 @@ import {
   putWorkCollections,
 } from './api.js';
 import { CompactLibraryView } from './components/CompactLibraryView.js';
+import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
+import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
+import { ManualWorkDialog } from './components/ManualWorkDialog.js';
 import { TemplateLibraryView } from './components/TemplateLibraryView.js';
 
 const LAYOUT_STORAGE_KEY = 'research_library_layout';
@@ -30,11 +35,16 @@ function initialLayout(): ResearchLayout {
 export function ResearchLibraryPage() {
   const queryClient = useQueryClient();
   const [layout, setLayout] = useState<ResearchLayout>(initialLayout);
+  const [activeView, setActiveView] = useState<'library' | 'inbox'>('library');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [status, setStatus] = useState<'active' | 'trashed'>('active');
   const [search, setSearch] = useState('');
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [manualWorkOpen, setManualWorkOpen] = useState(false);
+  const [manualWorkBusy, setManualWorkBusy] = useState(false);
+  const [attachmentEditionId, setAttachmentEditionId] = useState<string | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -175,6 +185,7 @@ export function ResearchLibraryPage() {
         void run(() => deleteAttachment(id), '附件引用已移除');
       }
     },
+    onAddAttachment: (editionId: string) => setAttachmentEditionId(editionId),
     onTrashWork: (id: string) => {
       void run(() => postTrashWork(id), '作品已移入回收站');
     },
@@ -204,6 +215,8 @@ export function ResearchLibraryPage() {
     reconciling: reconcileMutation.isPending,
     onLayout: setLayout,
     onImport: () => setImportOpen(true),
+    onInbox: () => setActiveView('inbox'),
+    onManualWork: () => setManualWorkOpen(true),
     onReconcile: () => reconcileMutation.mutate(),
     onCreateCollection: createCollection,
     onSelectCollection: setSelectedCollectionId,
@@ -215,7 +228,16 @@ export function ResearchLibraryPage() {
 
   return (
     <>
-      {layout === 'compact' ? (
+      {activeView === 'inbox' ? (
+        <ImportInboxPanel
+          layout={layout}
+          collections={sharedProps.collections}
+          onLayout={setLayout}
+          onLibrary={() => setActiveView('library')}
+          onManualWork={() => setManualWorkOpen(true)}
+          onChanged={invalidate}
+        />
+      ) : layout === 'compact' ? (
         <CompactLibraryView {...sharedProps} />
       ) : (
         <TemplateLibraryView {...sharedProps} />
@@ -228,6 +250,45 @@ export function ResearchLibraryPage() {
         onCommitted={() => {
           setMessage('论文已经入库');
           void invalidate();
+        }}
+      />
+
+      <ManualWorkDialog
+        open={manualWorkOpen}
+        collections={sharedProps.collections}
+        busy={manualWorkBusy}
+        onClose={() => setManualWorkOpen(false)}
+        onCreate={async (input) => {
+          setManualWorkBusy(true);
+          try {
+            const created = await postCreateManualWork(input);
+            setSelectedWorkId(created.work.id);
+            setStatus('active');
+            setActiveView('library');
+            setManualWorkOpen(false);
+            setMessage('手工记录已经创建');
+            await invalidate();
+          } finally {
+            setManualWorkBusy(false);
+          }
+        }}
+      />
+
+      <AddAttachmentDialog
+        open={attachmentEditionId !== null}
+        busy={attachmentBusy}
+        onClose={() => setAttachmentEditionId(null)}
+        onAdd={async (input) => {
+          if (!attachmentEditionId) return;
+          setAttachmentBusy(true);
+          try {
+            await postAddLocalAttachment(attachmentEditionId, input);
+            setAttachmentEditionId(null);
+            setMessage('附件已经添加');
+            await invalidate();
+          } finally {
+            setAttachmentBusy(false);
+          }
         }}
       />
     </>

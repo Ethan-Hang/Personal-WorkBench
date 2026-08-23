@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Button, Chip, Field, IconAlertCircle, IconCheck, controlClass } from '@workbench/ui';
-import type { ConfirmImportInput, MetadataSourceKind, WorkType } from '../../contract.js';
+import type {
+  AttachmentRole,
+  ConfirmImportInput,
+  MetadataSourceKind,
+  WorkType,
+} from '../../contract.js';
 import type { ImportInspectionItem } from '../api.js';
 
 type Fields = ConfirmImportInput['fields'];
@@ -53,11 +58,13 @@ export function MetadataReview({
   collectionIds,
   busy,
   onConfirm,
+  primaryLabel = '确认入库',
 }: {
   item: ImportInspectionItem;
   collectionIds: string[];
   busy: boolean;
   onConfirm: (input: ConfirmImportInput) => Promise<void>;
+  primaryLabel?: string;
 }) {
   const titleInitial = initialField(item, 'title');
   const authorsInitial = initialField(item, 'authors');
@@ -90,6 +97,7 @@ export function MetadataReview({
   const [decision, setDecision] = useState<ConfirmImportInput['duplicateDecision']>('new-work');
   const [targetWorkId, setTargetWorkId] = useState<string | null>(null);
   const [targetEditionId, setTargetEditionId] = useState<string | null>(null);
+  const [attachmentRole, setAttachmentRole] = useState<AttachmentRole>('primary-pdf');
 
   const identifierMatches = useMemo(() => {
     const seen = new Set<string>();
@@ -130,6 +138,7 @@ export function MetadataReview({
       targetWorkId,
       targetEditionId,
       collectionIds,
+      attachmentRole,
       fields,
       requestId: crypto.randomUUID(),
     });
@@ -154,7 +163,9 @@ export function MetadataReview({
         )}
       </section>
 
-      {(item.exactAssetUsages.length > 0 || identifierMatches.length > 0) && (
+      {(item.exactAssetUsages.length > 0 ||
+        item.batchDuplicateItemIds.length > 0 ||
+        identifierMatches.length > 0) && (
         <section className="rounded-control border border-warning/25 bg-warning-soft/55 p-3">
           <div className="flex items-start gap-2 text-warning">
             <IconAlertCircle size={15} className="mt-0.5 shrink-0" />
@@ -163,7 +174,9 @@ export function MetadataReview({
               <p className="mt-1 text-[11px] leading-5">
                 {item.exactAssetUsages.length > 0
                   ? '相同文件已经入库，可挂回现有版本。'
-                  : '检测到相同标识符但文件内容不同，请确认它是新版本还是新作品。'}
+                  : item.batchDuplicateItemIds.length > 0
+                    ? `当前批次还有 ${item.batchDuplicateItemIds.length} 个相同内容文件，请决定保留方式。`
+                    : '检测到相同标识符但文件内容不同，请确认它是新版本还是新作品。'}
               </p>
             </div>
           </div>
@@ -311,6 +324,20 @@ export function MetadataReview({
             ))}
           </select>
         </Field>
+        <Field label="附件角色">
+          <select
+            className={controlClass}
+            value={attachmentRole}
+            onChange={(event) => setAttachmentRole(event.target.value as AttachmentRole)}
+          >
+            <option value="primary-pdf">主 PDF</option>
+            <option value="supplement">补充材料</option>
+            <option value="dataset">数据集</option>
+            <option value="code">代码</option>
+            <option value="web-snapshot">网页快照</option>
+            <option value="other">其他</option>
+          </select>
+        </Field>
         <Field label={`刊物 / 会议 · ${SOURCE_LABELS[publicationTitle.sourceKind]}`}>
           <input
             className={controlClass}
@@ -369,7 +396,7 @@ export function MetadataReview({
           disabled={busy || String(title.value).trim() === ''}
           onClick={() => submit()}
         >
-          确认入库
+          {primaryLabel}
         </Button>
       </div>
     </div>

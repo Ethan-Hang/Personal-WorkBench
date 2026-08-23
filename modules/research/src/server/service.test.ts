@@ -475,3 +475,160 @@ describe('ResearchService 导入闭环', () => {
     second.sqlite.close();
   });
 });
+
+describe('ResearchService A2 导入箱', () => {
+  it('创建无附件记录后可以追加不假设可阅读的通用附件', async () => {
+    const { service, sources } = await harness();
+    const collection = await service.createCollection({ name: 'Manual records' });
+
+    const created = await service.createManualWork({
+      title: 'Dataset without a paper',
+      type: 'unknown',
+      year: null,
+      authors: ['Grace Hopper'],
+      editionKind: 'unknown',
+      publicationTitle: null,
+      publisher: null,
+      identifiers: [{ scheme: 'url', value: 'https://example.test/dataset' }],
+      collectionIds: [collection.id],
+    });
+
+    expect(created.work).toMatchObject({
+      title: 'Dataset without a paper',
+      type: 'unknown',
+      attachmentCount: 0,
+      collectionIds: [collection.id],
+      fileStatus: 'none',
+    });
+    expect(created.editions[0]).toMatchObject({
+      contributors: [expect.objectContaining({ displayName: 'Grace Hopper' })],
+      identifiers: [{ scheme: 'url', value: 'https://example.test/dataset' }],
+      attachments: [],
+    });
+
+    const dataset = join(sources, 'measurements.csv');
+    await writeFile(dataset, 'sample,value\nA,42\n');
+    const withDataset = await service.addLocalAttachment(created.editions[0]!.id, {
+      path: dataset,
+      storageMode: 'managed',
+      role: 'dataset',
+      displayName: 'measurements.csv',
+      mimeType: 'text/csv',
+    });
+
+    expect(withDataset.editions[0]!.attachments).toEqual([
+      expect.objectContaining({
+        role: 'dataset',
+        displayName: 'measurements.csv',
+        asset: expect.objectContaining({ mimeType: 'text/csv' }),
+      }),
+    ]);
+    await expect(access(dataset)).resolves.toBeUndefined();
+  });
+
+  it('批次保存逐项决定，单条失败不会回滚已经提交的条目', async () => {
+    const { service, sources } = await harness();
+    const firstPath = await pdf(join(sources, 'batch-first.pdf'), { title: 'Batch First' });
+    const secondPath = await pdf(join(sources, 'batch-second.pdf'), { title: 'Batch Second' });
+    const session = await service.prepareImport({
+      files: [
+        { path: firstPath, storageMode: 'managed' },
+        { path: secondPath, storageMode: 'managed' },
+      ],
+      requestId: 'batch-partial',
+    });
+    const inspection = await service.inspectImport(session.id, {
+      allowExternal: false,
+      forceRefresh: false,
+    });
+    const decisionFor = (index: number, collectionIds: string[]) => {
+      const candidate = inspection.items[index]!;
+      const title = candidate.localSuggestions.find((value) => value.fieldName === 'title')!;
+      return {
+        itemId: candidate.item.id,
+        duplicateDecision: 'new-work' as const,
+        collectionIds,
+        fields: {
+          title: {
+            value: title.value,
+            sourceKind: title.sourceKind,
+            sourceRecordId: title.sourceRecordId,
+          },
+          type: { value: 'article', sourceKind: 'user' as const, sourceRecordId: null },
+        },
+        requestId: `decision-${index}`,
+      };
+    };
+    const firstDecision = decisionFor(0, []);
+    const failedDecision = decisionFor(1, ['missing-collection']);
+    await service.saveImportDecision(session.id, firstDecision.itemId, firstDecision);
+    await service.saveImportDecision(session.id, failedDecision.itemId, failedDecision);
+
+    const result = await service.commitImportSession(session.id);
+
+    expect(result.results).toEqual([
+      expect.objectContaining({ itemId: firstDecision.itemId, status: 'committed' }),
+      expect.objectContaining({ itemId: failedDecision.itemId, status: 'failed' }),
+    ]);
+    expect((await service.listWorks({ status: 'active', limit: 30 })).works).toHaveLength(1);
+    expect(result.session).toMatchObject({
+      status: 'awaiting-confirmation',
+      items: [
+        expect.objectContaining({ id: firstDecision.itemId, stage: 'available' }),
+        expect.objectContaining({
+          id: failedDecision.itemId,
+          stage: 'awaiting-confirmation',
+          hasDecision: true,
+        }),
+      ],
+    });
+
+    const correctedDecision = decisionFor(1, []);
+    await service.saveImportDecision(session.id, correctedDecision.itemId, correctedDecision);
+    const retried = await service.commitImportSession(session.id);
+    expect(retried.session.status).toBe('completed');
+    expect((await service.listWorks({ status: 'active', limit: 30 })).works).toHaveLength(2);
+  });
+
+  it('异步识别可轮询恢复，失败条目补齐文件后可以单独重试', async () => {
+    const { service, sources } = await harness();
+    const missingPath = join(sources, 'arrives-later.pdf');
+    const readyPath = await pdf(join(sources, 'ready.pdf'), { title: 'Ready' });
+    const session = await service.prepareImport({
+      files: [
+        { path: missingPath, storageMode: 'linked' },
+        { path: readyPath, storageMode: 'linked' },
+      ],
+      requestId: 'batch-recovery',
+    });
+
+    await service.startImportInspection(session.id, {
+      allowExternal: false,
+      forceRefresh: false,
+    });
+    await expect
+      .poll(async () => (await service.getImportSession(session.id)).status)
+      .toBe('awaiting-confirmation');
+    const afterInspection = await service.getImportInspection(session.id);
+    expect(afterInspection.items.map((item) => item.item.stage)).toEqual([
+      'failed',
+      'awaiting-confirmation',
+    ]);
+
+    await pdf(missingPath, { title: 'Arrived Later' });
+    await service.retryImportItem(session.id, afterInspection.items[0]!.item.id, {
+      allowExternal: false,
+      forceRefresh: false,
+    });
+    expect((await service.getImportInspection(session.id)).items[0]!.item.stage).toBe(
+      'awaiting-confirmation',
+    );
+    expect((await service.listImportSessions('awaiting-confirmation', 10)).sessions).toEqual([
+      expect.objectContaining({ id: session.id }),
+    ]);
+
+    const cancelled = await service.cancelImportSession(session.id);
+    expect(cancelled.status).toBe('cancelled');
+    expect(cancelled.items.every((item) => item.stage === 'cancelled')).toBe(true);
+  });
+});

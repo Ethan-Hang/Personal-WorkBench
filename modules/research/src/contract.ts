@@ -11,6 +11,8 @@ export const RESEARCH_API_V1 = {
   workRestore: (id: string) => `${API_ROOT}/works/${id}/restore`,
   workDeletionPreview: (id: string) => `${API_ROOT}/works/${id}/deletion-preview`,
   workPermanentDelete: (id: string) => `${API_ROOT}/works/${id}/permanent-delete`,
+  workManual: `${API_ROOT}/works/manual`,
+  editionAttachments: (id: string) => `${API_ROOT}/editions/${id}/attachments`,
   collections: `${API_ROOT}/collections`,
   collection: (id: string) => `${API_ROOT}/collections/${id}`,
   importSessions: `${API_ROOT}/import-sessions`,
@@ -18,7 +20,15 @@ export const RESEARCH_API_V1 = {
   importPickFiles: `${API_ROOT}/import-sessions/pick-files`,
   importUpload: `${API_ROOT}/import-sessions/upload`,
   importInspect: (id: string) => `${API_ROOT}/import-sessions/${id}/inspect`,
+  importInspectAsync: (id: string) => `${API_ROOT}/import-sessions/${id}/inspect-async`,
+  importInspection: (id: string) => `${API_ROOT}/import-sessions/${id}/inspection`,
   importConfirm: (id: string) => `${API_ROOT}/import-sessions/${id}/confirm`,
+  importCommit: (id: string) => `${API_ROOT}/import-sessions/${id}/commit`,
+  importCancel: (id: string) => `${API_ROOT}/import-sessions/${id}/cancel`,
+  importItemDecision: (sessionId: string, itemId: string) =>
+    `${API_ROOT}/import-sessions/${sessionId}/items/${itemId}/decision`,
+  importItemRetry: (sessionId: string, itemId: string) =>
+    `${API_ROOT}/import-sessions/${sessionId}/items/${itemId}/retry`,
   locationCheck: (id: string) => `${API_ROOT}/locations/${id}/check`,
   locationRelink: (id: string) => `${API_ROOT}/locations/${id}/relink`,
   attachment: (id: string) => `${API_ROOT}/attachments/${id}`,
@@ -285,6 +295,7 @@ export const importItemViewSchema = z.object({
   assetId: researchIdSchema.nullable(),
   workId: researchIdSchema.nullable(),
   editionId: researchIdSchema.nullable(),
+  hasDecision: z.boolean().default(false),
   error: researchErrorSchema.nullable(),
   createdAt: instantSchema,
   updatedAt: instantSchema,
@@ -321,6 +332,7 @@ export const confirmImportInputSchema = z.object({
   targetWorkId: researchIdSchema.nullish(),
   targetEditionId: researchIdSchema.nullish(),
   collectionIds: z.array(researchIdSchema).max(100).default([]),
+  attachmentRole: z.enum(ATTACHMENT_ROLES).optional(),
   fields: z.record(
     z.string(),
     z.object({
@@ -338,6 +350,27 @@ export const inspectImportInputSchema = z.object({
   forceRefresh: z.boolean().default(false),
 });
 export type InspectImportInput = z.infer<typeof inspectImportInputSchema>;
+
+export const listImportSessionsQuerySchema = z.object({
+  status: z.enum(IMPORT_SESSION_STATUSES).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const importSessionsResponseSchema = z.object({
+  sessions: z.array(importSessionViewSchema),
+});
+
+export const importCommitResultSchema = z.object({
+  session: importSessionViewSchema,
+  results: z.array(
+    z.object({
+      itemId: researchIdSchema,
+      status: z.enum(['committed', 'discarded', 'failed']),
+      workId: researchIdSchema.nullable(),
+      message: z.string().nullable(),
+    }),
+  ),
+});
 
 export const metadataCandidateSchema = z.object({
   provider: z.enum(['crossref', 'datacite', 'arxiv', 'openalex']),
@@ -390,6 +423,7 @@ export const importInspectionItemSchema = z.object({
       role: z.enum(ATTACHMENT_ROLES),
     }),
   ),
+  batchDuplicateItemIds: z.array(researchIdSchema).default([]),
   identifierMatches: z.array(
     z.object({
       workId: researchIdSchema,
@@ -442,6 +476,36 @@ export const worksPageResponseSchema = z.object({
   works: z.array(workViewSchema),
   nextCursor: z.string().nullable(),
 });
+
+export const createManualWorkInputSchema = z.object({
+  title: z.string().trim().min(1).max(1_000),
+  type: z.enum(WORK_TYPES).default('unknown'),
+  year: z.number().int().min(0).max(9999).nullable().default(null),
+  authors: z.array(z.string().trim().min(1).max(300)).max(100).default([]),
+  editionKind: z.enum(EDITION_KINDS).default('unknown'),
+  publicationTitle: z.string().trim().max(1_000).nullable().default(null),
+  publisher: z.string().trim().max(1_000).nullable().default(null),
+  identifiers: z
+    .array(
+      z.object({
+        scheme: z.enum(IDENTIFIER_SCHEMES),
+        value: z.string().trim().min(1).max(1_000),
+      }),
+    )
+    .max(100)
+    .default([]),
+  collectionIds: z.array(researchIdSchema).max(100).default([]),
+});
+export type CreateManualWorkInput = z.infer<typeof createManualWorkInputSchema>;
+
+export const addLocalAttachmentInputSchema = z.object({
+  path: z.string().min(1),
+  storageMode: z.enum(STORAGE_MODES),
+  role: z.enum(ATTACHMENT_ROLES).default('other'),
+  displayName: z.string().trim().min(1).max(500).optional(),
+  mimeType: z.string().trim().min(1).max(200).default('application/octet-stream'),
+});
+export type AddLocalAttachmentInput = z.infer<typeof addLocalAttachmentInputSchema>;
 
 export const createCollectionInputSchema = z.object({
   name: z.string().trim().min(1).max(100),

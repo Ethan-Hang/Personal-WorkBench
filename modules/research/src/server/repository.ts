@@ -392,12 +392,39 @@ export interface CommitImportResult {
   reusedAttachment: boolean;
 }
 
+export interface ManualWorkDraft {
+  work: WorkDraft;
+  edition: EditionDraft;
+  contributors: ContributorDraft[];
+  identifiers: IdentifierDraft[];
+  assertions: Array<Omit<MetadataAssertionDraft, 'entityId'>>;
+  collections: Array<{ entryId: string; collectionId: string }>;
+}
+
+export interface ManualWorkResult {
+  workId: string;
+  editionId: string;
+}
+
+export interface AttachmentDraft {
+  id: string;
+  editionId: string;
+  assetId: string;
+  role: AttachmentRole;
+  displayName: string;
+}
+
 export interface ResearchRepository {
   createImportSession(draft: ImportSessionDraft): Promise<ImportSessionRecord>;
   getImportSession(id: string): Promise<ImportSessionRecord | null>;
   getImportSessionByRequestId(requestId: string): Promise<ImportSessionRecord | null>;
+  listImportSessions(
+    status: ImportSessionStatus | undefined,
+    limit: number,
+  ): Promise<ImportSessionRecord[]>;
   updateImportItem(id: string, changes: ImportItemChanges): Promise<ImportItemRecord | null>;
   setImportSessionStatus(id: string, status: ImportSessionStatus): Promise<boolean>;
+  cancelImportSession(id: string): Promise<ImportSessionRecord | null>;
 
   findAssetByHash(contentHash: string): Promise<AssetRecord | null>;
   getAsset(id: string): Promise<AssetRecord | null>;
@@ -438,6 +465,8 @@ export interface ResearchRepository {
   putMetadataCache(draft: MetadataCacheDraft): Promise<MetadataCacheRecord>;
 
   commitImport(draft: CommitImportDraft): Promise<CommitImportResult>;
+  createManualWork(draft: ManualWorkDraft): Promise<ManualWorkResult>;
+  addAttachment(draft: AttachmentDraft): Promise<AttachmentRecord>;
   getWork(id: string): Promise<WorkRecord | null>;
   getWorkListRecord(id: string): Promise<WorkListRecord | null>;
   listWorks(query: ListWorksQuery): Promise<WorkPage>;

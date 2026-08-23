@@ -395,13 +395,13 @@ node .\scripts\research-windows-file-semantics.mjs --root "\\server\share\resear
 
 **提交：** `feat(research): add inbox and batch ingestion`
 
-- [ ] 扩展 ImportSession 支持最多 200 个条目、逐条进度、取消、失败重试和批次恢复。
-- [ ] 批量路径选择复用本地 server 文件选择器多选能力；managed 上传保留逐文件流式入口。
-- [ ] 导入箱保存草稿、候选重复、元数据待确认和失败状态；未确认草稿不出现在正式文献库。
-- [ ] 支持创建无附件 Work、手工元数据记录和 `unknown` 类型；后续可追加 Edition 与附件。
-- [ ] 支持 PDF、supplement、dataset、code、web_snapshot、other 等通用附件角色，不假设每个附件都可阅读。
-- [ ] 200 个生成小文件覆盖整批确认、部分失败、取消、重启恢复和重复候选分组。
-- [ ] UI 提供批次级筛选、逐项修正和明确的“提交已确认条目”，不因一条失败回滚整批已确认项。
+- [x] 扩展 ImportSession 支持最多 200 个条目、逐条进度、取消、失败重试和批次恢复。
+- [x] 批量路径选择复用本地 server 文件选择器多选能力；managed 上传保留逐文件流式入口。
+- [x] 导入箱保存草稿、候选重复、元数据待确认和失败状态；未确认草稿不出现在正式文献库。
+- [x] 支持创建无附件 Work、手工元数据记录和 `unknown` 类型；后续可追加 Edition 与附件。
+- [x] 支持 PDF、supplement、dataset、code、web-snapshot、other 等通用附件角色，不假设每个附件都可阅读。
+- [x] 200 个生成小文件覆盖整批确认、部分失败、取消、重启恢复和重复候选分组。
+- [x] UI 提供批次级筛选、逐项修正和明确的“提交已确认条目”，不因一条失败回滚整批已确认项；紧凑版与留白版共用同一控制层。
 
 **验证：**
 
@@ -409,6 +409,8 @@ node .\scripts\research-windows-file-semantics.mjs --root "\\server\share\resear
 npx vitest run modules/research/src/ingest modules/research/src/server/batch-routes.test.ts
 RUN_RESEARCH_BATCH=1 npx vitest run modules/research/src/ingest/batch-acceptance.test.ts
 ```
+
+**验收记录（2026-08-23，macOS）：** 默认 research 模块 16 个测试文件通过、4 个 opt-in 文件跳过，共 115 项通过；200 文件专项 1 项通过，耗时 34.31 秒。专项包含 20 组相同内容、1 条先失败后由新 service 实例重试、200 条整批确认，以及取消批次的重启后状态检查。生产 Vite 构建通过。Windows 的批量选择、取消占用文件和路径语义仍按平台测试说明待测。
 
 ### Task 10：完成层级目录和作品关系
 

@@ -5,7 +5,9 @@ import {
   ATTACHMENT_ROLES,
   RESEARCH_ERROR_CODES,
   WORK_TYPES,
+  type AddLocalAttachmentInput,
   type ConfirmImportInput,
+  type CreateManualWorkInput,
   type ImportItemView,
   type ImportSessionView,
   type InspectImportInput,
@@ -112,6 +114,18 @@ function normalizeTitle(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
+function normalizeIdentifierValue(scheme: string, value: string): string | null {
+  if (scheme === 'doi') return normalizeDoi(value);
+  if (scheme === 'arxiv') return normalizeArxivId(value);
+  const normalized = value.trim().toLocaleLowerCase();
+  return normalized || null;
+}
+
+function throwIfInspectionCancelled(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw new FileLifecycleError('导入识别已取消', 'IMPORT_CANCELLED', 'inspect', false, 'ABORT_ERR');
+}
+
 function toImportView(record: ImportItemRecord): ImportItemView {
   const code = RESEARCH_ERROR_CODES.includes(record.errorCode as ResearchErrorCode)
     ? (record.errorCode as ResearchErrorCode)
@@ -125,6 +139,7 @@ function toImportView(record: ImportItemRecord): ImportItemView {
     assetId: record.assetId,
     workId: record.workId,
     editionId: record.editionId,
+    hasDecision: record.decisionJson !== null,
     error:
       record.errorCode === null
         ? null
@@ -214,6 +229,10 @@ export class ResearchService {
   private readonly clock: () => Date;
   private readonly createId: () => string;
   private readonly deletionTokens = new Map<string, DeletionToken>();
+  private readonly inspectionJobs = new Map<
+    string,
+    { controller: AbortController; promise: Promise<unknown> }
+  >();
   private mutationQueue: Promise<void> = Promise.resolve();
 
   constructor(dependencies: ResearchServiceDependencies) {
@@ -298,6 +317,11 @@ export class ResearchService {
     const session = await this.repository.getImportSession(id);
     if (!session) throw notFound('导入会话不存在');
     return toImportSessionView(session);
+  }
+
+  async listImportSessions(status: ImportSessionView['status'] | undefined, limit: number) {
+    const sessions = await this.repository.listImportSessions(status, limit);
+    return { sessions: sessions.map(toImportSessionView) };
   }
 
   private async persistSources(sources: ProviderResult[]): Promise<Map<string, string>> {
@@ -400,13 +424,16 @@ export class ResearchService {
   private async inspectItem(
     item: ImportItemRecord,
     input: InspectImportInput,
+    signal?: AbortSignal,
   ): Promise<InspectionPayload> {
+    throwIfInspectionCancelled(signal);
     if (item.candidateJson) {
       const existing = parsePayload(item);
       if (!input.allowExternal || (existing.externalAttempted && !input.forceRefresh)) {
         return existing;
       }
       const refreshed = await this.addExternalMetadataSafely(existing, input.forceRefresh);
+      throwIfInspectionCancelled(signal);
       await this.repository.updateImportItem(item.id, {
         stage: 'awaiting-confirmation',
         candidateJson: JSON.stringify(refreshed),
@@ -431,7 +458,7 @@ export class ResearchService {
         item.storageMode === 'managed'
           ? await (async () => {
               const stored = await this.contentStore
-                .ingestManaged(sourcePath)
+                .ingestManaged(sourcePath, { signal })
                 .finally(() =>
                   stagedUploadPath
                     ? this.contentStore.discardStagedUpload(stagedUploadPath)
@@ -460,7 +487,7 @@ export class ResearchService {
               );
             })()
           : await (async () => {
-              const stored = await this.contentStore.inspectLinked(sourcePath);
+              const stored = await this.contentStore.inspectLinked(sourcePath, { signal });
               return this.repository.storeAsset(
                 {
                   id: this.createId(),
@@ -492,8 +519,9 @@ export class ResearchService {
       let extraction = null;
       let extractionWarning: string | undefined;
       try {
-        extraction = await extractPdfMetadata(parsePath);
+        extraction = await extractPdfMetadata(parsePath, { signal });
       } catch (error) {
+        if (error instanceof PdfExtractionError && error.code === 'IMPORT_CANCELLED') throw error;
         if (error instanceof PdfExtractionError) extractionWarning = error.message;
         else throw error;
       }
@@ -562,6 +590,7 @@ export class ResearchService {
       if (input.allowExternal) {
         payload = await this.addExternalMetadataSafely(payload, input.forceRefresh);
       }
+      throwIfInspectionCancelled(signal);
       await this.repository.updateImportItem(item.id, {
         stage: 'awaiting-confirmation',
         assetId: asset.asset.id,
@@ -570,68 +599,249 @@ export class ResearchService {
       return payload;
     } catch (error) {
       const known = error instanceof FileLifecycleError ? error : null;
+      const cancelled =
+        (error instanceof PdfExtractionError && error.code === 'IMPORT_CANCELLED') ||
+        known?.code === 'IMPORT_CANCELLED';
       await this.repository.updateImportItem(item.id, {
-        stage: 'failed',
-        errorCode: known?.code ?? 'FILE_IO',
+        stage: cancelled ? 'cancelled' : 'failed',
+        errorCode: known?.code ?? (cancelled ? 'IMPORT_CANCELLED' : 'FILE_IO'),
         errorDetail: error instanceof Error ? error.message : String(error),
-        retryable: known?.retryable ?? true,
+        retryable: cancelled ? false : (known?.retryable ?? true),
       });
       throw error;
     }
   }
 
-  async inspectImport(sessionId: string, input: InspectImportInput) {
+  private failedInspectionPayload(item: ImportItemRecord): InspectionPayload {
+    return {
+      asset: null,
+      localSuggestions: [],
+      identifiers: [],
+      externalCandidates: [],
+      exactAssetUsages: [],
+      identifierMatches: [],
+      warnings: [item.errorDetail ?? '导入尚未完成识别'],
+      disclosure: { services: [], sentFields: [], sendsPdf: false },
+      externalAttempted: false,
+    };
+  }
+
+  async getImportInspection(sessionId: string) {
     const session = await this.repository.getImportSession(sessionId);
     if (!session) throw notFound('导入会话不存在');
-    await this.repository.setImportSessionStatus(sessionId, 'inspecting');
-    const results: Array<{ item: ImportItemRecord; payload: InspectionPayload }> = [];
-    for (const original of session.items) {
+    const results = session.items.map((item) => {
+      if (!item.candidateJson) return { item, payload: this.failedInspectionPayload(item) };
       try {
-        const payload = await this.inspectItem(original, input);
-        const item = (await this.repository.getImportSession(sessionId))?.items.find(
-          (value) => value.id === original.id,
-        );
-        if (item) results.push({ item, payload });
-      } catch {
-        const item = (await this.repository.getImportSession(sessionId))?.items.find(
-          (value) => value.id === original.id,
-        );
-        if (item) {
-          results.push({
-            item,
-            payload: {
-              asset: null,
-              localSuggestions: [],
-              identifiers: [],
-              externalCandidates: [],
-              exactAssetUsages: [],
-              identifierMatches: [],
-              warnings: [item.errorDetail ?? '导入失败'],
-              disclosure: { services: [], sentFields: [], sendsPdf: false },
-              externalAttempted: false,
-            },
-          });
-        }
+        return { item, payload: parsePayload(item) };
+      } catch (error) {
+        return {
+          item,
+          payload: {
+            ...this.failedInspectionPayload(item),
+            warnings: [error instanceof Error ? error.message : String(error)],
+          },
+        };
       }
-    }
-    await this.repository.setImportSessionStatus(sessionId, 'awaiting-confirmation');
+    });
     const services = new Set<MetadataLookupResult['disclosure']['services'][number]>();
     const sentFields = new Set<MetadataLookupResult['disclosure']['sentFields'][number]>();
+    let externalEnabled = false;
     for (const result of results) {
       result.payload.disclosure.services.forEach((value) => services.add(value));
       result.payload.disclosure.sentFields.forEach((value) => sentFields.add(value));
+      externalEnabled ||= result.payload.externalAttempted;
+    }
+    const batchItemsByAsset = new Map<string, string[]>();
+    for (const { item, payload } of results) {
+      const assetId = payload.asset?.id ?? item.assetId;
+      if (!assetId) continue;
+      const group = batchItemsByAsset.get(assetId) ?? [];
+      group.push(item.id);
+      batchItemsByAsset.set(assetId, group);
     }
     return {
       sessionId,
-      status: 'awaiting-confirmation' as const,
-      items: results.map(({ item, payload }) => ({ item: toImportView(item), ...payload })),
+      status: session.status,
+      items: results.map(({ item, payload }) => ({
+        item: toImportView(item),
+        ...payload,
+        batchDuplicateItemIds: (
+          batchItemsByAsset.get(payload.asset?.id ?? item.assetId ?? '') ?? []
+        ).filter((itemId) => itemId !== item.id),
+      })),
       disclosure: {
-        externalEnabled: input.allowExternal,
+        externalEnabled,
         services: [...services],
         sentFields: [...sentFields],
         sendsPdf: false as const,
       },
     };
+  }
+
+  private async runImportInspection(
+    sessionId: string,
+    input: InspectImportInput,
+    signal?: AbortSignal,
+  ) {
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    for (const original of session.items) {
+      if (signal?.aborted) break;
+      if (original.stage === 'available' || original.stage === 'cancelled') continue;
+      try {
+        await this.inspectItem(original, input, signal);
+      } catch {
+        // 单条失败留在导入箱，继续处理同批其他条目。
+      }
+    }
+    const current = await this.repository.getImportSession(sessionId);
+    if (current && current.status !== 'cancelled') {
+      await this.repository.setImportSessionStatus(sessionId, 'awaiting-confirmation');
+    }
+    return this.getImportInspection(sessionId);
+  }
+
+  async inspectImport(sessionId: string, input: InspectImportInput) {
+    if (this.inspectionJobs.has(sessionId)) throw conflict('该导入批次正在识别');
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    if (session.status === 'cancelled' || session.status === 'completed') {
+      throw conflict('该导入批次已经结束');
+    }
+    await this.repository.setImportSessionStatus(sessionId, 'inspecting');
+    return this.runImportInspection(sessionId, input);
+  }
+
+  async startImportInspection(sessionId: string, input: InspectImportInput) {
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    if (this.inspectionJobs.has(sessionId)) return toImportSessionView(session);
+    if (session.status === 'cancelled' || session.status === 'completed') {
+      throw conflict('该导入批次已经结束');
+    }
+    await this.repository.setImportSessionStatus(sessionId, 'inspecting');
+    const controller = new AbortController();
+    const promise = this.runImportInspection(sessionId, input, controller.signal).finally(() => {
+      this.inspectionJobs.delete(sessionId);
+    });
+    this.inspectionJobs.set(sessionId, { controller, promise });
+    void promise.catch(async () => {
+      const current = await this.repository.getImportSession(sessionId);
+      if (current?.status !== 'cancelled') {
+        await this.repository.setImportSessionStatus(sessionId, 'failed');
+      }
+    });
+    return this.getImportSession(sessionId);
+  }
+
+  async retryImportItem(sessionId: string, itemId: string, input: InspectImportInput) {
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    const item = session.items.find((value) => value.id === itemId);
+    if (!item) throw notFound('导入条目不存在');
+    if (item.stage !== 'failed' || !item.retryable) throw conflict('该导入条目不能重试');
+    const reset = await this.repository.updateImportItem(item.id, {
+      stage: 'selected',
+      errorCode: null,
+      errorDetail: null,
+      retryable: false,
+      candidateJson: null,
+    });
+    if (!reset) throw notFound('导入条目不存在');
+    await this.inspectItem(reset, input);
+    await this.repository.setImportSessionStatus(sessionId, 'awaiting-confirmation');
+    return this.getImportInspection(sessionId);
+  }
+
+  async cancelImportSession(sessionId: string) {
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    if (session.status === 'completed') throw conflict('已完成的导入批次不能取消');
+    if (session.status === 'cancelled') return toImportSessionView(session);
+    this.inspectionJobs.get(sessionId)?.controller.abort();
+    for (const item of session.items) {
+      if (!item.sourcePath.startsWith(MANAGED_UPLOAD_PREFIX)) continue;
+      await this.contentStore
+        .discardStagedUpload(item.sourcePath.slice(MANAGED_UPLOAD_PREFIX.length))
+        .catch(() => undefined);
+    }
+    const cancelled = await this.repository.cancelImportSession(sessionId);
+    if (!cancelled) throw notFound('导入会话不存在');
+    return toImportSessionView(cancelled);
+  }
+
+  async saveImportDecision(sessionId: string, itemId: string, input: ConfirmImportInput) {
+    if (input.itemId !== itemId) throw invalid('条目 ID 与决定不一致');
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    const item = session.items.find((value) => value.id === itemId);
+    if (!item) throw notFound('导入条目不存在');
+    if (item.stage !== 'awaiting-confirmation') throw conflict('该条目尚不能保存决定');
+    await this.repository.updateImportItem(itemId, {
+      decisionJson: JSON.stringify({ state: 'pending', input }),
+      errorCode: null,
+      errorDetail: null,
+      retryable: false,
+    });
+    return this.getImportSession(sessionId);
+  }
+
+  async commitImportSession(sessionId: string) {
+    const session = await this.repository.getImportSession(sessionId);
+    if (!session) throw notFound('导入会话不存在');
+    if (session.status === 'cancelled') throw conflict('该导入批次已经取消');
+    if (session.status === 'inspecting' || this.inspectionJobs.has(sessionId)) {
+      throw conflict('导入识别仍在进行');
+    }
+    await this.repository.setImportSessionStatus(sessionId, 'committing');
+    const results: Array<{
+      itemId: string;
+      status: 'committed' | 'discarded' | 'failed';
+      workId: string | null;
+      message: string | null;
+    }> = [];
+    for (const item of session.items) {
+      if (!item.decisionJson || item.stage !== 'awaiting-confirmation') continue;
+      try {
+        const saved = JSON.parse(item.decisionJson) as {
+          state?: unknown;
+          input?: ConfirmImportInput;
+        };
+        if (saved.state !== 'pending' || !saved.input) throw new Error('保存的决定无效');
+        const committed = await this.confirmImport(sessionId, saved.input);
+        if ('discarded' in committed) {
+          results.push({ itemId: item.id, status: 'discarded', workId: null, message: null });
+        } else if ('deferred' in committed) {
+          continue;
+        } else {
+          results.push({
+            itemId: item.id,
+            status: 'committed',
+            workId: committed.workId,
+            message: null,
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.repository.updateImportItem(item.id, {
+          stage: 'awaiting-confirmation',
+          errorCode: 'CONFLICT',
+          errorDetail: message,
+          retryable: true,
+        });
+        results.push({ itemId: item.id, status: 'failed', workId: null, message });
+      }
+    }
+    const current = await this.repository.getImportSession(sessionId);
+    if (!current) throw notFound('导入会话不存在');
+    const complete = current.items.every(
+      (item) => item.stage === 'available' || item.stage === 'cancelled',
+    );
+    await this.repository.setImportSessionStatus(
+      sessionId,
+      complete ? 'completed' : 'awaiting-confirmation',
+    );
+    return { session: await this.getImportSession(sessionId), results };
   }
 
   async confirmImport(
@@ -645,6 +855,14 @@ export class ResearchService {
     if (input.duplicateDecision === 'defer') return { deferred: true };
     if (input.duplicateDecision === 'discard') {
       await this.repository.updateImportItem(item.id, { stage: 'cancelled' });
+      const current = await this.repository.getImportSession(sessionId);
+      if (
+        current?.items.every(
+          (currentItem) => currentItem.stage === 'available' || currentItem.stage === 'cancelled',
+        )
+      ) {
+        await this.repository.setImportSessionStatus(sessionId, 'completed');
+      }
       return { discarded: true };
     }
     if (!item.assetId) throw conflict('文件尚未完成安全存储');
@@ -772,7 +990,7 @@ export class ResearchService {
       attachment: {
         id: this.createId(),
         assetId: item.assetId,
-        role: 'primary-pdf',
+        role: input.attachmentRole ?? 'primary-pdf',
         displayName: item.fileName,
       },
       contributors: authors.map((displayName, sequence) => ({
@@ -900,6 +1118,128 @@ export class ResearchService {
     };
   }
 
+  async createManualWork(input: CreateManualWorkInput): Promise<WorkDetailView> {
+    const workId = this.createId();
+    const editionId = this.createId();
+    const observedAt = this.instant();
+    const identifiers = input.identifiers.flatMap((identifier) => {
+      const normalizedValue = normalizeIdentifierValue(identifier.scheme, identifier.value);
+      return normalizedValue
+        ? [
+            {
+              id: this.createId(),
+              entityType: 'edition' as const,
+              scheme: identifier.scheme,
+              value: identifier.value,
+              normalizedValue,
+              sourceRecordId: null,
+            },
+          ]
+        : [];
+    });
+    const assertion = (
+      entityType: 'work' | 'edition',
+      fieldName: string,
+      value: unknown,
+    ): Omit<MetadataAssertionDraft, 'entityId'> => ({
+      id: this.createId(),
+      entityType,
+      fieldName,
+      value,
+      normalizedValue: typeof value === 'string' ? value.trim().toLocaleLowerCase() : null,
+      sourceKind: 'user',
+      sourceRecordId: null,
+      observedAt,
+      isUserConfirmed: true,
+    });
+    await this.repository.createManualWork({
+      work: {
+        id: workId,
+        type: input.type,
+        title: input.title,
+        titleSort: normalizeTitle(input.title),
+        year: input.year,
+      },
+      edition: {
+        id: editionId,
+        kind: input.editionKind,
+        title: input.title,
+        publicationTitle: input.publicationTitle,
+        publisher: input.publisher,
+      },
+      contributors: input.authors.map((displayName, sequence) => ({
+        id: this.createId(),
+        displayName,
+        sequence,
+      })),
+      identifiers,
+      assertions: [
+        assertion('work', 'title', input.title),
+        assertion('work', 'type', input.type),
+        ...(input.year === null ? [] : [assertion('work', 'year', input.year)]),
+        ...(input.authors.length === 0 ? [] : [assertion('work', 'authors', input.authors)]),
+        ...(input.publicationTitle === null
+          ? []
+          : [assertion('edition', 'publicationTitle', input.publicationTitle)]),
+        ...(input.publisher === null ? [] : [assertion('edition', 'publisher', input.publisher)]),
+      ],
+      collections: input.collectionIds.map((collectionId) => ({
+        entryId: this.createId(),
+        collectionId,
+      })),
+    });
+    return this.getWork(workId);
+  }
+
+  async addLocalAttachment(
+    editionId: string,
+    input: AddLocalAttachmentInput,
+  ): Promise<WorkDetailView> {
+    const edition = await this.repository.getEdition(editionId);
+    if (!edition) throw notFound('版本不存在');
+    const stored =
+      input.storageMode === 'managed'
+        ? input.mimeType === 'application/pdf'
+          ? await this.contentStore.ingestManaged(input.path)
+          : await this.contentStore.ingestManagedFile(input.path, input.mimeType)
+        : input.mimeType === 'application/pdf'
+          ? await this.contentStore.inspectLinked(input.path)
+          : await this.contentStore.inspectLinkedFile(input.path, input.mimeType);
+    const location =
+      'objectPath' in stored
+        ? { resolvedPath: stored.objectPath, objectKey: stored.objectKey }
+        : { resolvedPath: stored.resolvedPath, objectKey: null };
+    const persisted = await this.repository.storeAsset(
+      {
+        id: this.createId(),
+        contentHash: stored.contentHash,
+        byteSize: stored.byteSize,
+        mimeType: stored.mimeType,
+      },
+      {
+        id: this.createId(),
+        mode: input.storageMode,
+        originalPath: stored.originalPath,
+        resolvedPath: location.resolvedPath,
+        objectKey: location.objectKey,
+        state: 'available',
+        deviceId: stored.sourceIdentity.deviceId,
+        fileId: stored.sourceIdentity.fileId,
+        observedSize: stored.byteSize,
+        observedMtimeMs: stored.sourceIdentity.mtimeMs,
+        lastCheckedAt: this.instant(),
+      },
+    );
+    await this.repository.addAttachment({
+      id: this.createId(),
+      editionId,
+      assetId: persisted.asset.id,
+      role: input.role,
+      displayName: input.displayName ?? basename(input.path),
+    });
+    return this.getWork(edition.workId);
+  }
+
   async listCollections() {
     const collections = await this.repository.listCollections();
     return { collections: collections.map(this.collectionView) };
@@ -976,7 +1316,7 @@ export class ResearchService {
     if (location.mode !== 'linked') throw invalid('托管位置不能重新定位为外部路径');
     const asset = await this.repository.getAsset(location.assetId);
     if (!asset) throw conflict('文件位置引用的 Asset 不存在');
-    const inspected = await this.contentStore.relink(path, asset.contentHash);
+    const inspected = await this.contentStore.relinkFile(path, asset.contentHash, asset.mimeType);
     if (inspected.matchesExpectedAsset) {
       const updated = await this.repository.relinkLocation(
         id,

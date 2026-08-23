@@ -5,13 +5,18 @@ import {
   collectionViewSchema,
   collectionsResponseSchema,
   deletionPreviewSchema,
+  importCommitResultSchema,
   importInspectionResponseSchema,
   importSessionViewSchema,
+  importSessionsResponseSchema,
   pickPdfResponseSchema,
   relinkLocationResponseSchema,
   workDetailViewSchema,
   worksPageResponseSchema,
+  type AddLocalAttachmentInput,
   type ConfirmImportInput,
+  type CreateManualWorkInput,
+  type ImportSessionStatus,
   type InspectImportInput,
   type PrepareImportInput,
   type RelinkLocationResponse,
@@ -23,8 +28,10 @@ export type WorkDetail = z.infer<typeof workDetailViewSchema>;
 export type CollectionsResponse = z.infer<typeof collectionsResponseSchema>;
 export type CollectionView = z.infer<typeof collectionViewSchema>;
 export type ImportSession = z.infer<typeof importSessionViewSchema>;
+export type ImportSessions = z.infer<typeof importSessionsResponseSchema>;
 export type ImportInspection = z.infer<typeof importInspectionResponseSchema>;
 export type ImportInspectionItem = ImportInspection['items'][number];
+export type ImportCommitResult = z.infer<typeof importCommitResultSchema>;
 export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
 
 export interface FetchWorksOptions {
@@ -88,6 +95,27 @@ export async function postPrepareImport(input: PrepareImportInput): Promise<Impo
   );
 }
 
+export async function fetchImportSessions(
+  options: {
+    status?: ImportSessionStatus;
+    limit?: number;
+  } = {},
+): Promise<ImportSessions> {
+  const params = new URLSearchParams();
+  if (options.status) params.set('status', options.status);
+  if (options.limit) params.set('limit', String(options.limit));
+  const query = params.toString();
+  return importSessionsResponseSchema.parse(
+    await apiRequest(
+      query ? `${RESEARCH_API_V1.importSessions}?${query}` : RESEARCH_API_V1.importSessions,
+    ),
+  );
+}
+
+export async function fetchImportSession(sessionId: string): Promise<ImportSession> {
+  return importSessionViewSchema.parse(await apiRequest(RESEARCH_API_V1.importSession(sessionId)));
+}
+
 export async function postUploadPdf(file: File, requestId: string): Promise<ImportSession> {
   const params = new URLSearchParams({ fileName: file.name, requestId });
   return importSessionViewSchema.parse(
@@ -108,11 +136,73 @@ export async function postInspectImport(
   );
 }
 
+export async function postStartImportInspection(
+  sessionId: string,
+  input: InspectImportInput,
+): Promise<ImportSession> {
+  return importSessionViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.importInspectAsync(sessionId), jsonBody('POST', input)),
+  );
+}
+
+export async function fetchImportInspection(sessionId: string): Promise<ImportInspection> {
+  return importInspectionResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.importInspection(sessionId)),
+  );
+}
+
+export async function putImportDecision(
+  sessionId: string,
+  itemId: string,
+  input: ConfirmImportInput,
+): Promise<ImportSession> {
+  return importSessionViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.importItemDecision(sessionId, itemId), jsonBody('PUT', input)),
+  );
+}
+
+export async function postRetryImportItem(
+  sessionId: string,
+  itemId: string,
+  input: InspectImportInput,
+): Promise<ImportInspection> {
+  return importInspectionResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.importItemRetry(sessionId, itemId), jsonBody('POST', input)),
+  );
+}
+
+export async function postCommitImport(sessionId: string): Promise<ImportCommitResult> {
+  return importCommitResultSchema.parse(
+    await apiRequest(RESEARCH_API_V1.importCommit(sessionId), { method: 'POST' }),
+  );
+}
+
+export async function postCancelImport(sessionId: string): Promise<ImportSession> {
+  return importSessionViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.importCancel(sessionId), { method: 'POST' }),
+  );
+}
+
 export async function postConfirmImport(
   sessionId: string,
   input: ConfirmImportInput,
 ): Promise<unknown> {
   return apiRequest(RESEARCH_API_V1.importConfirm(sessionId), jsonBody('POST', input));
+}
+
+export async function postCreateManualWork(input: CreateManualWorkInput): Promise<WorkDetail> {
+  return workDetailViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workManual, jsonBody('POST', input)),
+  );
+}
+
+export async function postAddLocalAttachment(
+  editionId: string,
+  input: AddLocalAttachmentInput,
+): Promise<WorkDetail> {
+  return workDetailViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.editionAttachments(editionId), jsonBody('POST', input)),
+  );
 }
 
 export async function postCheckLocation(id: string): Promise<unknown> {

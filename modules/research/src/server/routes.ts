@@ -3,9 +3,12 @@ import { z } from 'zod';
 import { defineRoute } from '@workbench/http-kit';
 import {
   RESEARCH_API_V1,
+  addLocalAttachmentInputSchema,
   confirmImportInputSchema,
   createCollectionInputSchema,
+  createManualWorkInputSchema,
   inspectImportInputSchema,
+  listImportSessionsQuerySchema,
   listWorksQuerySchema,
   permanentDeleteInputSchema,
   pickPdfInputSchema,
@@ -17,6 +20,10 @@ import {
 import type { ResearchService } from './service.js';
 
 const idParams = z.object({ id: z.string().min(1) });
+const importItemParams = z.object({
+  sessionId: z.string().min(1),
+  itemId: z.string().min(1),
+});
 const uploadStreamSchema = z.custom<AsyncIterable<Uint8Array>>(
   (value) =>
     typeof value === 'object' &&
@@ -37,6 +44,19 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
   app.get(
     RESEARCH_API_V1.work(':id'),
     defineRoute({ params: idParams }, ({ params }) => service.getWork(params.id)),
+  );
+  app.post(
+    RESEARCH_API_V1.workManual,
+    defineRoute({ body: createManualWorkInputSchema, status: 201 }, ({ body }) =>
+      service.createManualWork(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.editionAttachments(':id'),
+    defineRoute(
+      { params: idParams, body: addLocalAttachmentInputSchema, status: 201 },
+      ({ params, body }) => service.addLocalAttachment(params.id, body),
+    ),
   );
   app.put(
     RESEARCH_API_V1.workCollections(':id'),
@@ -86,6 +106,12 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
       service.prepareImport(body),
     ),
   );
+  app.get(
+    RESEARCH_API_V1.importSessions,
+    defineRoute({ query: listImportSessionsQuerySchema }, ({ query }) =>
+      service.listImportSessions(query.status, query.limit),
+    ),
+  );
   app.post(
     RESEARCH_API_V1.importUpload,
     defineRoute(
@@ -102,6 +128,37 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     defineRoute({ params: idParams, body: inspectImportInputSchema }, ({ params, body }) =>
       service.inspectImport(params.id, body),
     ),
+  );
+  app.post(
+    RESEARCH_API_V1.importInspectAsync(':id'),
+    defineRoute(
+      { params: idParams, body: inspectImportInputSchema, status: 202 },
+      ({ params, body }) => service.startImportInspection(params.id, body),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.importInspection(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.getImportInspection(params.id)),
+  );
+  app.put(
+    RESEARCH_API_V1.importItemDecision(':sessionId', ':itemId'),
+    defineRoute({ params: importItemParams, body: confirmImportInputSchema }, ({ params, body }) =>
+      service.saveImportDecision(params.sessionId, params.itemId, body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.importItemRetry(':sessionId', ':itemId'),
+    defineRoute({ params: importItemParams, body: inspectImportInputSchema }, ({ params, body }) =>
+      service.retryImportItem(params.sessionId, params.itemId, body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.importCommit(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.commitImportSession(params.id)),
+  );
+  app.post(
+    RESEARCH_API_V1.importCancel(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.cancelImportSession(params.id)),
   );
   app.post(
     RESEARCH_API_V1.importConfirm(':id'),

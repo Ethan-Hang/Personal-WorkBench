@@ -6,8 +6,10 @@ import { openTestDatabase } from '@workbench/data';
 import { buildApp } from '@workbench/server';
 import {
   RESEARCH_API_V1,
+  importCommitResultSchema,
   importInspectionResponseSchema,
   importSessionViewSchema,
+  importSessionsResponseSchema,
   workDetailViewSchema,
   worksPageResponseSchema,
 } from '../contract.js';
@@ -202,6 +204,120 @@ describe('research HTTP API', () => {
       expect(inspectedItem.localSuggestions).toContainEqual(
         expect.objectContaining({ fieldName: 'title' }),
       );
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('A2 路由支持导入箱逐项决定、批次提交和无附件记录', async () => {
+    const { app, sqlite, source } = await appFixture();
+    try {
+      const manualResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.workManual,
+        payload: {
+          title: 'Manual Research Record',
+          type: 'unknown',
+          year: null,
+          authors: ['Manual Author'],
+          editionKind: 'unknown',
+          publicationTitle: null,
+          publisher: null,
+          identifiers: [],
+          collectionIds: [],
+        },
+      });
+      expect(manualResponse.statusCode).toBe(201);
+      const manual = workDetailViewSchema.parse(manualResponse.json());
+      expect(manual.work).toMatchObject({ attachmentCount: 0, fileStatus: 'none' });
+
+      const notesPath = join(source, '..', 'notes.txt');
+      await writeFile(notesPath, 'supplementary notes');
+      const attachmentResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.editionAttachments(manual.editions[0]!.id),
+        payload: {
+          path: notesPath,
+          storageMode: 'linked',
+          role: 'supplement',
+          displayName: 'notes.txt',
+          mimeType: 'text/plain',
+        },
+      });
+      expect(attachmentResponse.statusCode).toBe(201);
+      expect(
+        workDetailViewSchema.parse(attachmentResponse.json()).editions[0]!.attachments,
+      ).toEqual([expect.objectContaining({ role: 'supplement' })]);
+
+      const preparedResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.importSessions,
+        payload: {
+          files: [{ path: source, storageMode: 'managed' }],
+          requestId: 'route-batch',
+        },
+      });
+      const session = importSessionViewSchema.parse(preparedResponse.json());
+      const started = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.importInspectAsync(session.id),
+        payload: { allowExternal: false },
+      });
+      expect(started.statusCode).toBe(202);
+
+      let inspection = null;
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const response = await app.inject({
+          method: 'GET',
+          url: RESEARCH_API_V1.importInspection(session.id),
+        });
+        inspection = importInspectionResponseSchema.parse(response.json());
+        if (inspection.status === 'awaiting-confirmation') break;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(inspection?.status).toBe('awaiting-confirmation');
+      const inspectedItem = inspection!.items[0]!;
+      const title = inspectedItem.localSuggestions.find(
+        (suggestion) => suggestion.fieldName === 'title',
+      )!;
+      const decision = {
+        itemId: inspectedItem.item.id,
+        duplicateDecision: 'new-work' as const,
+        collectionIds: [],
+        fields: {
+          title: {
+            value: title.value,
+            sourceKind: title.sourceKind,
+            sourceRecordId: title.sourceRecordId,
+          },
+          type: { value: 'article', sourceKind: 'user' as const, sourceRecordId: null },
+        },
+        requestId: 'route-batch-decision',
+      };
+      const saved = await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.importItemDecision(session.id, inspectedItem.item.id),
+        payload: decision,
+      });
+      expect(importSessionViewSchema.parse(saved.json()).items[0]!.hasDecision).toBe(true);
+
+      const committed = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.importCommit(session.id),
+      });
+      expect(importCommitResultSchema.parse(committed.json())).toMatchObject({
+        session: { status: 'completed' },
+        results: [{ status: 'committed' }],
+      });
+
+      const listed = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.importSessions}?status=completed`,
+      });
+      expect(importSessionsResponseSchema.parse(listed.json()).sessions).toEqual([
+        expect.objectContaining({ id: session.id }),
+      ]);
     } finally {
       await app.close();
       sqlite.close();

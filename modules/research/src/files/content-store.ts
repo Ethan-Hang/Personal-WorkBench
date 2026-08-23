@@ -25,7 +25,7 @@ export interface FileOperationOptions {
 export interface ManagedObjectResult {
   contentHash: string;
   byteSize: number;
-  mimeType: 'application/pdf';
+  mimeType: string;
   originalPath: string;
   resolvedSourcePath: string;
   objectKey: string;
@@ -37,7 +37,7 @@ export interface ManagedObjectResult {
 export interface LinkedFileResult {
   contentHash: string;
   byteSize: number;
-  mimeType: 'application/pdf';
+  mimeType: string;
   originalPath: string;
   resolvedPath: string;
   sourceIdentity: FileIdentity;
@@ -359,9 +359,11 @@ export class ResearchContentStore {
     }
   }
 
-  async ingestManaged(
+  private async ingestManagedContent(
     sourcePath: string,
-    options: FileOperationOptions = {},
+    mimeType: string,
+    validatePdf: boolean,
+    options: FileOperationOptions,
   ): Promise<ManagedObjectResult> {
     const originalPath = sourcePath;
     let tempPath: string | null = null;
@@ -387,7 +389,7 @@ export class ResearchContentStore {
         tempPath,
         sourceIdentity,
         options,
-        true,
+        validatePdf,
       );
       throwIfAborted(options.signal, 'publish');
       const objectKey = objectKeyFor(contentHash);
@@ -413,7 +415,7 @@ export class ResearchContentStore {
       return {
         contentHash,
         byteSize: sourceIdentity.size,
-        mimeType: 'application/pdf',
+        mimeType,
         originalPath,
         resolvedSourcePath,
         objectKey,
@@ -427,9 +429,26 @@ export class ResearchContentStore {
     }
   }
 
-  async inspectLinked(
+  async ingestManaged(
     sourcePath: string,
     options: FileOperationOptions = {},
+  ): Promise<ManagedObjectResult> {
+    return this.ingestManagedContent(sourcePath, 'application/pdf', true, options);
+  }
+
+  async ingestManagedFile(
+    sourcePath: string,
+    mimeType: string,
+    options: FileOperationOptions = {},
+  ): Promise<ManagedObjectResult> {
+    return this.ingestManagedContent(sourcePath, mimeType, false, options);
+  }
+
+  private async inspectLinkedContent(
+    sourcePath: string,
+    mimeType: string,
+    validatePdf: boolean,
+    options: FileOperationOptions,
   ): Promise<LinkedFileResult> {
     try {
       throwIfAborted(options.signal, 'prepare');
@@ -445,11 +464,17 @@ export class ResearchContentStore {
           null,
         );
       }
-      const contentHash = await this.hashHandle(resolvedPath, null, sourceIdentity, options, true);
+      const contentHash = await this.hashHandle(
+        resolvedPath,
+        null,
+        sourceIdentity,
+        options,
+        validatePdf,
+      );
       return {
         contentHash,
         byteSize: sourceIdentity.size,
-        mimeType: 'application/pdf',
+        mimeType,
         originalPath: sourcePath,
         resolvedPath,
         sourceIdentity,
@@ -458,6 +483,21 @@ export class ResearchContentStore {
     } catch (error) {
       throw mappedError(error, 'linked-inspect');
     }
+  }
+
+  async inspectLinked(
+    sourcePath: string,
+    options: FileOperationOptions = {},
+  ): Promise<LinkedFileResult> {
+    return this.inspectLinkedContent(sourcePath, 'application/pdf', true, options);
+  }
+
+  async inspectLinkedFile(
+    sourcePath: string,
+    mimeType: string,
+    options: FileOperationOptions = {},
+  ): Promise<LinkedFileResult> {
+    return this.inspectLinkedContent(sourcePath, mimeType, false, options);
   }
 
   async auditLinked(
@@ -510,6 +550,21 @@ export class ResearchContentStore {
     options: FileOperationOptions = {},
   ): Promise<RelinkResult> {
     const inspected = await this.inspectLinked(newPath, options);
+    return { ...inspected, matchesExpectedAsset: inspected.contentHash === expectedHash };
+  }
+
+  async relinkFile(
+    newPath: string,
+    expectedHash: string,
+    mimeType: string,
+    options: FileOperationOptions = {},
+  ): Promise<RelinkResult> {
+    const inspected = await this.inspectLinkedContent(
+      newPath,
+      mimeType,
+      mimeType === 'application/pdf',
+      options,
+    );
     return { ...inspected, matchesExpectedAsset: inspected.contentHash === expectedHash };
   }
 

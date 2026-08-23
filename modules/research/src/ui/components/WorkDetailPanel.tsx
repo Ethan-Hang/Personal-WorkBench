@@ -1,4 +1,4 @@
-import { Button, Chip, IconAlertCircle, IconBookOpen, IconTrash } from '@workbench/ui';
+import { Button, Chip, IconAlertCircle, IconBookOpen, IconPlus, IconTrash } from '@workbench/ui';
 import type { CollectionView, WorkDetail } from '../api.js';
 import { FileStatus } from './FileStatus.js';
 
@@ -14,6 +14,7 @@ export interface WorkDetailPanelProps {
   onCheckLocation: (id: string) => void;
   onRelinkLocation: (id: string) => void;
   onRemoveAttachment: (id: string) => void;
+  onAddAttachment: (editionId: string) => void;
   onTrashWork: (id: string) => void;
   onRestoreWork: (id: string) => void;
   onPermanentDelete: (id: string) => void;
@@ -31,6 +32,7 @@ export function WorkDetailPanel({
   onCheckLocation,
   onRelinkLocation,
   onRemoveAttachment,
+  onAddAttachment,
   onTrashWork,
   onRestoreWork,
   onPermanentDelete,
@@ -105,15 +107,24 @@ export function WorkDetailPanel({
         <div className="mt-3 space-y-4">
           {detail.editions.map((edition) => (
             <div key={edition.id} className="space-y-3">
-              <div>
-                <p className="text-xs font-semibold text-ink">
-                  {edition.publicationTitle || edition.title || '未命名版本'}
-                </p>
-                <p className="mt-1 text-[11px] text-muted">
-                  {edition.identifiers
-                    .map((identifier) => `${identifier.scheme.toUpperCase()} ${identifier.value}`)
-                    .join(' · ') || '无外部标识符'}
-                </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold text-ink">
+                    {edition.publicationTitle || edition.title || '未命名版本'}
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted">
+                    {edition.identifiers
+                      .map((identifier) => `${identifier.scheme.toUpperCase()} ${identifier.value}`)
+                      .join(' · ') || '无外部标识符'}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  icon={<IconPlus size={12} />}
+                  onClick={() => onAddAttachment(edition.id)}
+                >
+                  附件
+                </Button>
               </div>
               {edition.attachments.map((attachment) => (
                 <div

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type {
   AssetLocationDraft,
   AssetLocationRecord,
+  AttachmentDraft,
   AssetRecord,
   AttachmentRecord,
   CollectionDraft,
@@ -28,6 +29,8 @@ import type {
   StoredAsset,
   AssetUsage,
   LocationAuditRecord,
+  ManualWorkDraft,
+  ManualWorkResult,
   WorkListRecord,
   WorkPage,
   WorkRecord,
@@ -384,6 +387,30 @@ export class SqliteResearchRepository implements ResearchRepository {
     return this.readImportSession('request_id', requestId);
   }
 
+  async listImportSessions(
+    status: ImportSessionStatus | undefined,
+    limit: number,
+  ): Promise<ImportSessionRecord[]> {
+    const rows = (
+      status
+        ? this.sqlite
+            .prepare(
+              `SELECT id FROM research_import_sessions
+             WHERE status = ? ORDER BY updated_at DESC, id DESC LIMIT ?`,
+            )
+            .all(status, limit)
+        : this.sqlite
+            .prepare(
+              `SELECT id FROM research_import_sessions
+             ORDER BY updated_at DESC, id DESC LIMIT ?`,
+            )
+            .all(limit)
+    ) as Array<{ id: string }>;
+    return rows
+      .map((row) => this.readImportSession('id', row.id))
+      .filter((value): value is ImportSessionRecord => value !== null);
+  }
+
   async updateImportItem(id: string, changes: ImportItemChanges): Promise<ImportItemRecord | null> {
     const columns: string[] = [];
     const values: unknown[] = [];
@@ -418,6 +445,28 @@ export class SqliteResearchRepository implements ResearchRepository {
       )
       .run(status, timestamp, status, timestamp, id);
     return result.changes === 1;
+  }
+
+  async cancelImportSession(id: string): Promise<ImportSessionRecord | null> {
+    this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `UPDATE research_import_items
+           SET stage = 'cancelled', retryable = 0, error_code = NULL, error_detail = NULL,
+               updated_at = ?
+           WHERE session_id = ? AND stage NOT IN ('available', 'cancelled')`,
+        )
+        .run(timestamp, id);
+      this.sqlite
+        .prepare(
+          `UPDATE research_import_sessions
+           SET status = 'cancelled', updated_at = ?, completed_at = COALESCE(completed_at, ?)
+           WHERE id = ? AND status <> 'completed'`,
+        )
+        .run(timestamp, timestamp, id);
+    })();
+    return this.readImportSession('id', id);
   }
 
   async findAssetByHash(contentHash: string): Promise<AssetRecord | null> {
@@ -1024,6 +1073,131 @@ export class SqliteResearchRepository implements ResearchRepository {
         reusedAttachment,
       };
     })();
+  }
+
+  async createManualWork(draft: ManualWorkDraft): Promise<ManualWorkResult> {
+    return this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_works
+           (id, type, title, title_sort, abstract, year, preferred_edition_id, status,
+            revision, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?)`,
+        )
+        .run(
+          draft.work.id,
+          draft.work.type,
+          draft.work.title,
+          draft.work.titleSort,
+          draft.work.abstract ?? null,
+          draft.work.year ?? null,
+          draft.edition.id,
+          timestamp,
+          timestamp,
+        );
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_editions
+           (id, work_id, kind, title, publication_title, publisher, published_date,
+            volume, issue, pages, revision, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        )
+        .run(
+          draft.edition.id,
+          draft.work.id,
+          draft.edition.kind,
+          draft.edition.title,
+          draft.edition.publicationTitle ?? null,
+          draft.edition.publisher ?? null,
+          draft.edition.publishedDate ?? null,
+          draft.edition.volume ?? null,
+          draft.edition.issue ?? null,
+          draft.edition.pages ?? null,
+          timestamp,
+          timestamp,
+        );
+
+      const insertContributor = this.sqlite.prepare(
+        `INSERT INTO research_contributors
+         (id, edition_id, role, display_name, given_name, family_name, orcid, sequence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const contributor of draft.contributors) {
+        insertContributor.run(
+          contributor.id,
+          draft.edition.id,
+          contributor.role ?? 'author',
+          contributor.displayName,
+          contributor.givenName ?? null,
+          contributor.familyName ?? null,
+          contributor.orcid ?? null,
+          contributor.sequence,
+        );
+      }
+
+      const insertIdentifier = this.sqlite.prepare(
+        `INSERT INTO research_identifiers
+         (id, entity_type, entity_id, scheme, value, normalized_value, source_record_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const identifier of draft.identifiers) {
+        insertIdentifier.run(
+          identifier.id,
+          identifier.entityType,
+          identifier.entityType === 'work' ? draft.work.id : draft.edition.id,
+          identifier.scheme,
+          identifier.value,
+          identifier.normalizedValue,
+          identifier.sourceRecordId ?? null,
+          timestamp,
+        );
+      }
+
+      for (const assertion of draft.assertions) {
+        this.writeAssertion(
+          {
+            ...assertion,
+            entityId: assertion.entityType === 'work' ? draft.work.id : draft.edition.id,
+          },
+          true,
+        );
+      }
+
+      const insertCollection = this.sqlite.prepare(
+        `INSERT INTO research_collection_entries
+         (id, collection_id, work_id, sort_order, created_at)
+         VALUES (?, ?, ?, 0, ?)`,
+      );
+      for (const entry of draft.collections) {
+        insertCollection.run(entry.entryId, entry.collectionId, draft.work.id, timestamp);
+      }
+      return { workId: draft.work.id, editionId: draft.edition.id };
+    })();
+  }
+
+  async addAttachment(draft: AttachmentDraft): Promise<AttachmentRecord> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `INSERT INTO research_attachments
+         (id, edition_id, asset_id, role, display_name, status, created_at)
+         VALUES (?, ?, ?, ?, ?, 'active', ?)
+         ON CONFLICT(edition_id, asset_id, role) DO UPDATE SET
+           display_name = excluded.display_name,
+           status = 'active',
+           recycled_at = NULL
+         RETURNING *`,
+      )
+      .get(
+        draft.id,
+        draft.editionId,
+        draft.assetId,
+        draft.role,
+        draft.displayName,
+        timestamp,
+      ) as Row;
+    return toAttachment(row);
   }
 
   async getWork(id: string): Promise<WorkRecord | null> {

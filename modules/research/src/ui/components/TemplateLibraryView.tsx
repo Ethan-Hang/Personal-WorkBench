@@ -3,6 +3,7 @@ import {
   Button,
   EmptyState,
   IconBookOpen,
+  IconDatabase,
   IconFolder,
   IconPlus,
   IconRefreshCw,
@@ -32,6 +33,8 @@ export interface TemplateLibraryViewProps {
   reconciling: boolean;
   onLayout: (layout: ResearchLayout) => void;
   onImport: () => void;
+  onInbox: () => void;
+  onManualWork: () => void;
   onReconcile: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
@@ -80,6 +83,8 @@ export function TemplateLibraryView({
   reconciling,
   onLayout,
   onImport,
+  onInbox,
+  onManualWork,
   onReconcile,
   onCreateCollection,
   onSelectCollection,
@@ -125,6 +130,12 @@ export function TemplateLibraryView({
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <LayoutSwitch value={layout} onChange={onLayout} />
+            <Button size="sm" icon={<IconDatabase size={13} />} onClick={onInbox}>
+              导入箱
+            </Button>
+            <Button size="sm" onClick={onManualWork}>
+              手工记录
+            </Button>
             <Button
               size="sm"
               icon={<IconRefreshCw size={13} />}
