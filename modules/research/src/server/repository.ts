@@ -16,6 +16,7 @@ import type {
   WorkStatus,
   WorkType,
 } from '../contract.js';
+import type { CanonicalResearchLibrary } from '../interop/canonical.js';
 
 export interface WorkRecord {
   id: string;
@@ -532,6 +533,32 @@ export interface ManualWorkResult {
   editionId: string;
 }
 
+export interface ExportJobRecord {
+  id: string;
+  status: 'draft' | 'running' | 'completed' | 'cancelled' | 'failed';
+  optionsJson: string;
+  targetPath: string | null;
+  manifestJson: string | null;
+  errorCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export interface ExportJobDraft {
+  id: string;
+  optionsJson: string;
+  targetPath: string;
+  manifestJson: string;
+}
+
+export interface ExportJobChanges {
+  status?: ExportJobRecord['status'];
+  manifestJson?: string;
+  errorCode?: string | null;
+  completedAt?: string | null;
+}
+
 export interface AttachmentDraft {
   id: string;
   editionId: string;
@@ -634,4 +661,9 @@ export interface ResearchRepository {
   mergeWorks(draft: WorkMergeDraft): Promise<MergeRecord | null>;
   getMergeRecord(id: string): Promise<MergeRecord | null>;
   revertMerge(id: string): Promise<MergeRecord | null>;
+
+  exportCanonicalSnapshot(exportedAt: string): Promise<CanonicalResearchLibrary>;
+  createExportJob(draft: ExportJobDraft): Promise<ExportJobRecord>;
+  getExportJob(id: string): Promise<ExportJobRecord | null>;
+  updateExportJob(id: string, changes: ExportJobChanges): Promise<ExportJobRecord | null>;
 }

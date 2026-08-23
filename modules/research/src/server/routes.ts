@@ -20,6 +20,7 @@ import {
   mergeWorksInputSchema,
   permanentDeleteInputSchema,
   pickPdfInputSchema,
+  portableExportPreviewInputSchema,
   prepareImportInputSchema,
   relinkLocationInputSchema,
   savedQueryRunQuerySchema,
@@ -28,6 +29,7 @@ import {
   tagCandidatesQuerySchema,
   tagVersionInputSchema,
   structuredSearchInputSchema,
+  startPortableExportInputSchema,
   uploadPdfQuerySchema,
   updateCollectionInputSchema,
   updateTagInputSchema,
@@ -324,6 +326,26 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     defineRoute({ params: idParams, status: 204 }, ({ params }) =>
       service.recycleAttachment(params.id),
     ),
+  );
+  app.post(
+    RESEARCH_API_V1.exportPreview,
+    defineRoute({ body: portableExportPreviewInputSchema }, ({ body }) =>
+      service.previewPortableExport(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.exports,
+    defineRoute({ body: startPortableExportInputSchema, status: 202 }, ({ body }) =>
+      service.startPortableExport(body),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.exportJob(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.getPortableExport(params.id)),
+  );
+  app.post(
+    RESEARCH_API_V1.exportCancel(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.cancelPortableExport(params.id)),
   );
   app.post(RESEARCH_API_V1.reconcile, async () => service.reconcile());
 }

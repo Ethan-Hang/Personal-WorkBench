@@ -479,21 +479,23 @@ RUN_RESEARCH_SCALE=1 npx vitest run modules/research/src/storage/scale.test.ts
 
 **提交：** `feat(research): add portable library export`
 
-- [ ] 定义带 `schemaVersion` 的 canonical JSON，覆盖 Work、Edition、Contributor、Identifier、Collection、Tag/Alias、WorkRelation、SourceRecord、MetadataAssertion、Asset、Location 和 Attachment。
-- [ ] 原始来源响应按 provider/record 独立保存；无法映射字段不静默丢失。
-- [ ] manifest 为每个附件记录 hash、大小、MIME、角色、原位置模式、导出相对路径和 missing 状态。
-- [ ] 用户可选仅 JSON、附托管文件、附可访问链接文件；缺失和复制失败进入报告，不伪装成完整包。
-- [ ] 导出文件先写临时目录，JSON 和所选文件全部校验后原子发布最终目录/归档；取消清理临时产物。
-- [ ] 导出不修改原数据库关系或链接源文件。
-- [ ] 提供同版本 round-trip 验证器：在新临时库导入 canonical JSON，比较稳定 ID、关系、来源和 hash 清单。
-- [ ] 当前 A2 只实现规范 JSON/manifest 迁移包；BibTeX、RIS、CSL JSON 具体格式适配仍留给切片 D。
-- [ ] UI 展示包含内容、预计大小、缺失项、目标路径、进度和最终校验报告。
+- [x] 定义带 `schemaVersion` 的 canonical JSON，覆盖 Work、Edition、Contributor、Identifier、Collection、Tag/Alias、WorkRelation、SourceRecord、MetadataAssertion、Asset、Location 和 Attachment。
+- [x] 原始来源响应按 provider/record 独立保存；无法映射字段不静默丢失。
+- [x] manifest 为每个附件记录 hash、大小、MIME、角色、原位置模式、导出相对路径和 missing 状态。
+- [x] 用户可选仅 JSON、附托管文件、附可访问链接文件；缺失和复制失败进入报告，不伪装成完整包。
+- [x] 导出文件先写临时目录，JSON 和所选文件全部校验后原子发布最终目录/归档；取消清理临时产物。
+- [x] 导出不修改原数据库关系或链接源文件。
+- [x] 提供同版本 round-trip 验证器：在新临时库导入 canonical JSON，比较稳定 ID、关系、来源和 hash 清单。
+- [x] 当前 A2 只实现规范 JSON/manifest 迁移包；BibTeX、RIS、CSL JSON 具体格式适配仍留给切片 D。
+- [x] UI 展示包含内容、预计大小、缺失项、目标路径、进度和最终校验报告。
 
 **验证：**
 
 ```bash
 npx vitest run modules/research/src/interop modules/research/src/server/export-routes.test.ts
 ```
+
+**验收记录（2026-08-24，macOS）：** canonical JSON 明确定义 16 类迁移实体并保留原始 `SourceRecord.rawPayload`、字段断言和外部映射；同版本数据会导入新的临时 SQLite 库再逐字段重建比较。导出预检、JSON-only、托管/链接附件选择、SHA-256 复制后校验、missing/copy failure 报告、取消清理和最终目录原子发布均已接入持久化任务路由；两套资料库布局共用同一个导出对话框。专项 3 个测试文件、4 项通过；完整 research 默认套件 28 个测试文件通过、4 个 opt-in 文件跳过，共 142 项通过；类型检查、research lint 和生产 Vite 构建通过。
 
 ### Task 14：完成 A2 管理 UI 和切片 A 端到端验收
 

@@ -14,6 +14,9 @@ import type {
   ContributorRecord,
   DeletionImpact,
   EditionRecord,
+  ExportJobChanges,
+  ExportJobDraft,
+  ExportJobRecord,
   IdentifierMatch,
   IdentifierRecord,
   ImportItemChanges,
@@ -61,6 +64,10 @@ import type {
   WorkType,
   WorkRelationKind,
 } from '../contract.js';
+import {
+  canonicalResearchLibrarySchema,
+  type CanonicalResearchLibrary,
+} from '../interop/canonical.js';
 
 type Row = Record<string, unknown>;
 
@@ -82,6 +89,20 @@ function integer(row: Row, key: string): number {
 
 function nullableInteger(row: Row, key: string): number | null {
   return (row[key] as number | null | undefined) ?? null;
+}
+
+function toExportJob(row: Row): ExportJobRecord {
+  return {
+    id: text(row, 'id'),
+    status: text(row, 'status') as ExportJobRecord['status'],
+    optionsJson: text(row, 'options_json'),
+    targetPath: nullableText(row, 'target_path'),
+    manifestJson: nullableText(row, 'manifest_json'),
+    errorCode: nullableText(row, 'error_code'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    completedAt: nullableText(row, 'completed_at'),
+  };
 }
 
 function toWork(row: Row): WorkRecord {
@@ -2978,5 +2999,235 @@ export class SqliteResearchRepository implements ResearchRepository {
         .get(revertedAt, id) as Row | undefined;
       return reverted ? toMergeRecord(reverted) : null;
     })();
+  }
+
+  async exportCanonicalSnapshot(exportedAt: string): Promise<CanonicalResearchLibrary> {
+    const rows = (table: string) =>
+      this.sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all() as Row[];
+    return canonicalResearchLibrarySchema.parse({
+      schemaVersion: 1,
+      exportedAt,
+      generator: 'personal-workbench/research',
+      works: rows('research_works').map((row) => ({
+        id: text(row, 'id'),
+        type: text(row, 'type'),
+        title: text(row, 'title'),
+        titleSort: text(row, 'title_sort'),
+        abstract: nullableText(row, 'abstract'),
+        year: nullableInteger(row, 'year'),
+        preferredEditionId: nullableText(row, 'preferred_edition_id'),
+        status: text(row, 'status'),
+        redirectToWorkId: nullableText(row, 'redirect_to_work_id'),
+        revision: integer(row, 'revision'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+        trashedAt: nullableText(row, 'trashed_at'),
+      })),
+      editions: rows('research_editions').map((row) => ({
+        id: text(row, 'id'),
+        workId: text(row, 'work_id'),
+        kind: text(row, 'kind'),
+        title: text(row, 'title'),
+        publicationTitle: nullableText(row, 'publication_title'),
+        publisher: nullableText(row, 'publisher'),
+        publishedDate: nullableText(row, 'published_date'),
+        volume: nullableText(row, 'volume'),
+        issue: nullableText(row, 'issue'),
+        pages: nullableText(row, 'pages'),
+        revision: integer(row, 'revision'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+      })),
+      contributors: rows('research_contributors').map((row) => ({
+        id: text(row, 'id'),
+        editionId: text(row, 'edition_id'),
+        role: text(row, 'role'),
+        displayName: text(row, 'display_name'),
+        givenName: nullableText(row, 'given_name'),
+        familyName: nullableText(row, 'family_name'),
+        orcid: nullableText(row, 'orcid'),
+        sequence: integer(row, 'sequence'),
+      })),
+      identifiers: rows('research_identifiers').map((row) => ({
+        id: text(row, 'id'),
+        entityType: text(row, 'entity_type'),
+        entityId: text(row, 'entity_id'),
+        scheme: text(row, 'scheme'),
+        value: text(row, 'value'),
+        normalizedValue: text(row, 'normalized_value'),
+        sourceRecordId: nullableText(row, 'source_record_id'),
+        createdAt: text(row, 'created_at'),
+      })),
+      collections: rows('research_collections').map((row) => ({
+        id: text(row, 'id'),
+        parentId: nullableText(row, 'parent_id'),
+        name: text(row, 'name'),
+        normalizedName: text(row, 'normalized_name'),
+        kind: text(row, 'kind'),
+        queryAst: nullableText(row, 'query_json') ? JSON.parse(text(row, 'query_json')) : null,
+        sortOrder: integer(row, 'sort_order'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+        trashedAt: nullableText(row, 'trashed_at'),
+      })),
+      collectionEntries: rows('research_collection_entries').map((row) => ({
+        id: text(row, 'id'),
+        collectionId: text(row, 'collection_id'),
+        workId: text(row, 'work_id'),
+        sortOrder: integer(row, 'sort_order'),
+        createdAt: text(row, 'created_at'),
+      })),
+      tags: rows('research_tags').map((row) => ({
+        id: text(row, 'id'),
+        name: text(row, 'name'),
+        normalizedName: text(row, 'normalized_name'),
+        color: nullableText(row, 'color'),
+        description: nullableText(row, 'description'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+        trashedAt: nullableText(row, 'trashed_at'),
+      })),
+      tagAliases: rows('research_tag_aliases').map((row) => ({
+        id: text(row, 'id'),
+        tagId: text(row, 'tag_id'),
+        name: text(row, 'name'),
+        normalizedName: text(row, 'normalized_name'),
+        createdAt: text(row, 'created_at'),
+      })),
+      workTags: rows('research_work_tags').map((row) => ({
+        id: text(row, 'id'),
+        workId: text(row, 'work_id'),
+        tagId: text(row, 'tag_id'),
+        createdAt: text(row, 'created_at'),
+      })),
+      workRelations: rows('research_work_relations').map((row) => ({
+        id: text(row, 'id'),
+        sourceWorkId: text(row, 'source_work_id'),
+        targetWorkId: text(row, 'target_work_id'),
+        kind: text(row, 'kind'),
+        note: nullableText(row, 'note'),
+        createdAt: text(row, 'created_at'),
+      })),
+      sourceRecords: rows('research_source_records').map((row) => ({
+        id: text(row, 'id'),
+        provider: text(row, 'provider'),
+        sourceLocator: nullableText(row, 'source_locator'),
+        rawFormat: text(row, 'raw_format'),
+        rawPayload: text(row, 'raw_payload'),
+        parserVersion: text(row, 'parser_version'),
+        observedAt: text(row, 'observed_at'),
+        createdAt: text(row, 'created_at'),
+      })),
+      metadataAssertions: rows('research_metadata_assertions').map((row) => ({
+        id: text(row, 'id'),
+        entityType: text(row, 'entity_type'),
+        entityId: text(row, 'entity_id'),
+        fieldName: text(row, 'field_name'),
+        value: JSON.parse(text(row, 'value_json')),
+        normalizedValue: nullableText(row, 'normalized_value'),
+        sourceKind: text(row, 'source_kind'),
+        sourceRecordId: nullableText(row, 'source_record_id'),
+        observedAt: text(row, 'observed_at'),
+        isUserConfirmed: integer(row, 'is_user_confirmed') === 1,
+        isSelected: integer(row, 'is_selected') === 1,
+        createdAt: text(row, 'created_at'),
+      })),
+      externalSourceMaps: rows('research_external_source_maps').map((row) => ({
+        id: text(row, 'id'),
+        provider: text(row, 'provider'),
+        externalId: text(row, 'external_id'),
+        entityType: text(row, 'entity_type'),
+        entityId: text(row, 'entity_id'),
+        lastFetchedAt: nullableText(row, 'last_fetched_at'),
+        cacheStatus: text(row, 'cache_status'),
+        cacheExpiresAt: nullableText(row, 'cache_expires_at'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+      })),
+      assets: rows('research_assets').map((row) => ({
+        id: text(row, 'id'),
+        hashAlgorithm: text(row, 'hash_algorithm'),
+        contentHash: text(row, 'content_hash'),
+        byteSize: integer(row, 'byte_size'),
+        mimeType: text(row, 'mime_type'),
+        state: text(row, 'state'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+        recycledAt: nullableText(row, 'recycled_at'),
+      })),
+      locations: rows('research_asset_locations').map((row) => ({
+        id: text(row, 'id'),
+        assetId: text(row, 'asset_id'),
+        mode: text(row, 'mode'),
+        originalPath: text(row, 'original_path'),
+        resolvedPath: text(row, 'resolved_path'),
+        objectKey: nullableText(row, 'object_key'),
+        state: text(row, 'state'),
+        deviceId: nullableText(row, 'device_id'),
+        fileId: nullableText(row, 'file_id'),
+        observedSize: nullableInteger(row, 'observed_size'),
+        observedMtimeMs: nullableInteger(row, 'observed_mtime_ms'),
+        errorCode: nullableText(row, 'error_code'),
+        lastCheckedAt: nullableText(row, 'last_checked_at'),
+        createdAt: text(row, 'created_at'),
+        updatedAt: text(row, 'updated_at'),
+        recycledAt: nullableText(row, 'recycled_at'),
+      })),
+      attachments: rows('research_attachments').map((row) => ({
+        id: text(row, 'id'),
+        editionId: text(row, 'edition_id'),
+        assetId: text(row, 'asset_id'),
+        role: text(row, 'role'),
+        displayName: text(row, 'display_name'),
+        status: text(row, 'status'),
+        createdAt: text(row, 'created_at'),
+        recycledAt: nullableText(row, 'recycled_at'),
+      })),
+    });
+  }
+
+  async createExportJob(draft: ExportJobDraft): Promise<ExportJobRecord> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `INSERT INTO research_export_jobs
+         (id, status, options_json, target_path, manifest_json, created_at, updated_at)
+         VALUES (?, 'draft', ?, ?, ?, ?, ?) RETURNING *`,
+      )
+      .get(
+        draft.id,
+        draft.optionsJson,
+        draft.targetPath,
+        draft.manifestJson,
+        timestamp,
+        timestamp,
+      ) as Row;
+    return toExportJob(row);
+  }
+
+  async getExportJob(id: string): Promise<ExportJobRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_export_jobs WHERE id = ?').get(id) as
+      Row | undefined;
+    return row ? toExportJob(row) : null;
+  }
+
+  async updateExportJob(id: string, changes: ExportJobChanges): Promise<ExportJobRecord | null> {
+    const current = await this.getExportJob(id);
+    if (!current) return null;
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_export_jobs
+         SET status = ?, manifest_json = ?, error_code = ?, completed_at = ?, updated_at = ?
+         WHERE id = ? RETURNING *`,
+      )
+      .get(
+        changes.status ?? current.status,
+        changes.manifestJson ?? current.manifestJson,
+        changes.errorCode === undefined ? current.errorCode : changes.errorCode,
+        changes.completedAt === undefined ? current.completedAt : changes.completedAt,
+        this.clock(),
+        id,
+      ) as Row | undefined;
+    return row ? toExportJob(row) : null;
   }
 }

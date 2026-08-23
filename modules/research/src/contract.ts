@@ -53,6 +53,10 @@ export const RESEARCH_API_V1 = {
   locationRelink: (id: string) => `${API_ROOT}/locations/${id}/relink`,
   attachment: (id: string) => `${API_ROOT}/attachments/${id}`,
   reconcile: `${API_ROOT}/reconcile`,
+  exportPreview: `${API_ROOT}/exports/preview`,
+  exports: `${API_ROOT}/exports`,
+  exportJob: (id: string) => `${API_ROOT}/exports/${id}`,
+  exportCancel: (id: string) => `${API_ROOT}/exports/${id}/cancel`,
 } as const;
 
 export const WORK_TYPES = [
@@ -198,6 +202,83 @@ export type ResearchErrorCode = (typeof RESEARCH_ERROR_CODES)[number];
 export const instantSchema = z.string().datetime({ precision: 3 });
 export const researchIdSchema = z.string().min(1).max(128);
 export const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const portableExportOptionsSchema = z.object({
+  includeManagedFiles: z.boolean().default(false),
+  includeLinkedFiles: z.boolean().default(false),
+});
+export type PortableExportOptions = z.infer<typeof portableExportOptionsSchema>;
+
+export const portableExportPreviewInputSchema = portableExportOptionsSchema.extend({
+  targetPath: z.string().trim().min(1).optional(),
+});
+export type PortableExportPreviewInput = z.infer<typeof portableExportPreviewInputSchema>;
+
+export const startPortableExportInputSchema = portableExportOptionsSchema.extend({
+  targetPath: z.string().trim().min(1),
+});
+export type StartPortableExportInput = z.infer<typeof startPortableExportInputSchema>;
+
+export const portableExportFileIssueSchema = z.object({
+  attachmentId: researchIdSchema,
+  assetId: researchIdSchema,
+  displayName: z.string(),
+  reason: z.string(),
+  attemptedPath: z.string().nullable(),
+});
+export type PortableExportFileIssue = z.infer<typeof portableExportFileIssueSchema>;
+
+export const portableExportPreviewSchema = z.object({
+  workCount: z.number().int().nonnegative(),
+  attachmentCount: z.number().int().nonnegative(),
+  selectedAssetCount: z.number().int().nonnegative(),
+  estimatedBytes: z.number().int().nonnegative(),
+  missing: z.array(portableExportFileIssueSchema),
+  targetPath: z.string().nullable(),
+  targetExists: z.boolean(),
+});
+export type PortableExportPreview = z.infer<typeof portableExportPreviewSchema>;
+
+export const portableExportProgressSchema = z.object({
+  phase: z.enum(['snapshot', 'copying', 'validating', 'publishing', 'done']),
+  completedAssets: z.number().int().nonnegative(),
+  totalAssets: z.number().int().nonnegative(),
+  copiedBytes: z.number().int().nonnegative(),
+  totalBytes: z.number().int().nonnegative(),
+});
+export type PortableExportProgress = z.infer<typeof portableExportProgressSchema>;
+
+export const portableExportReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  targetPath: z.string(),
+  canonicalFile: z.literal('library.json'),
+  manifestFile: z.literal('manifest.json'),
+  reportFile: z.literal('report.json'),
+  canonicalFingerprint: sha256Schema,
+  roundTripValid: z.literal(true),
+  workCount: z.number().int().nonnegative(),
+  attachmentCount: z.number().int().nonnegative(),
+  copiedAssetCount: z.number().int().nonnegative(),
+  copiedBytes: z.number().int().nonnegative(),
+  missing: z.array(portableExportFileIssueSchema),
+  copyFailures: z.array(portableExportFileIssueSchema),
+  completedAt: instantSchema,
+});
+export type PortableExportReport = z.infer<typeof portableExportReportSchema>;
+
+export const portableExportJobSchema = z.object({
+  id: researchIdSchema,
+  status: z.enum(['draft', 'running', 'completed', 'cancelled', 'failed']),
+  options: startPortableExportInputSchema,
+  targetPath: z.string().nullable(),
+  progress: portableExportProgressSchema,
+  report: portableExportReportSchema.nullable(),
+  errorCode: z.string().nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type PortableExportJob = z.infer<typeof portableExportJobSchema>;
 
 export const researchErrorSchema = z.object({
   code: z.enum(RESEARCH_ERROR_CODES),

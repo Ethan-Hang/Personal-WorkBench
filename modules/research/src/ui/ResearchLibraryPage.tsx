@@ -51,6 +51,7 @@ import { CompactLibraryView } from './components/CompactLibraryView.js';
 import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
 import { CollectionManagerDialog } from './components/CollectionManagerDialog.js';
 import { DuplicateMergeDialog } from './components/DuplicateMergeDialog.js';
+import { ExportDialog } from './components/ExportDialog.js';
 import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
@@ -102,6 +103,7 @@ export function ResearchLibraryPage() {
   const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [duplicateMergeOpen, setDuplicateMergeOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -465,6 +467,7 @@ export function ResearchLibraryPage() {
     onManageCollections: () => setCollectionManagerOpen(true),
     onManageTags: () => setTagManagerOpen(true),
     onReviewDuplicates: () => setDuplicateMergeOpen(true),
+    onExport: () => setExportOpen(true),
     onSelectCollection: selectCollection,
     onSelectWork: setSelectedWorkId,
     onToggleWorkSelection: toggleWorkSelection,
@@ -602,6 +605,8 @@ export function ResearchLibraryPage() {
           await invalidate();
         }}
       />
+
+      <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
 
       <ManualWorkDialog
         open={manualWorkOpen}

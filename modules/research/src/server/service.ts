@@ -18,6 +18,11 @@ import {
   type InspectImportInput,
   type MergeTagsInput,
   type MergeWorksInput,
+  portableExportJobSchema,
+  startPortableExportInputSchema,
+  type PortableExportJob,
+  type PortableExportPreviewInput,
+  type StartPortableExportInput,
   type ResearchErrorCode,
   type ResearchSearchAst,
   type StructuredSearchInput,
@@ -34,6 +39,7 @@ import {
 import { buildLocalMetadata } from '../ingest/metadata.js';
 import { normalizeArxivId, normalizeDoi } from '../ingest/identifiers.js';
 import { PdfExtractionError, extractPdfMetadata } from '../ingest/pdf-extractor.js';
+import { previewPortableExport, writePortableExport } from '../interop/portable-export.js';
 import type { MetadataCoordinator } from '../metadata/coordinator.js';
 import type { MetadataLookupResult, ProviderResult } from '../metadata/types.js';
 import type { PdfFilePicker } from './file-picker.js';
@@ -41,6 +47,7 @@ import type {
   CollectionRecord,
   CommitImportResult,
   DeletionImpact,
+  ExportJobRecord,
   ImportItemRecord,
   ListWorksQuery,
   MetadataAssertionDraft,
@@ -310,6 +317,43 @@ function deletionFingerprint(impact: DeletionImpact): string {
   });
 }
 
+interface StoredExportState {
+  progress: PortableExportJob['progress'];
+  report: PortableExportJob['report'];
+}
+
+function initialExportState(): StoredExportState {
+  return {
+    progress: {
+      phase: 'snapshot',
+      completedAssets: 0,
+      totalAssets: 0,
+      copiedBytes: 0,
+      totalBytes: 0,
+    },
+    report: null,
+  };
+}
+
+function toExportJobView(record: ExportJobRecord): PortableExportJob {
+  const options = startPortableExportInputSchema.parse(JSON.parse(record.optionsJson));
+  const state = record.manifestJson
+    ? (JSON.parse(record.manifestJson) as StoredExportState)
+    : initialExportState();
+  return portableExportJobSchema.parse({
+    id: record.id,
+    status: record.status,
+    options,
+    targetPath: record.targetPath,
+    progress: state.progress,
+    report: state.report,
+    errorCode: record.errorCode,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt,
+  });
+}
+
 export class ResearchService {
   private readonly repository: ResearchRepository;
   private readonly contentStore: ResearchContentStore;
@@ -322,6 +366,7 @@ export class ResearchService {
     string,
     { controller: AbortController; promise: Promise<unknown> }
   >();
+  private readonly exportJobs = new Map<string, AbortController>();
   private mutationQueue: Promise<void> = Promise.resolve();
 
   constructor(dependencies: ResearchServiceDependencies) {
@@ -2156,6 +2201,113 @@ export class ResearchService {
       }
       return { deleted: true, linkedSourcesDeleted: false, cleanupPending };
     });
+  }
+
+  async previewPortableExport(input: PortableExportPreviewInput) {
+    const exportedAt = this.instant();
+    const canonical = await this.repository.exportCanonicalSnapshot(exportedAt);
+    return previewPortableExport(
+      canonical,
+      {
+        includeManagedFiles: input.includeManagedFiles,
+        includeLinkedFiles: input.includeLinkedFiles,
+      },
+      input.targetPath,
+    );
+  }
+
+  async startPortableExport(input: StartPortableExportInput): Promise<PortableExportJob> {
+    const parsed = startPortableExportInputSchema.parse(input);
+    const exportedAt = this.instant();
+    const canonical = await this.repository.exportCanonicalSnapshot(exportedAt);
+    const preview = await previewPortableExport(canonical, parsed, parsed.targetPath);
+    if (preview.targetExists) throw conflict('导出目标已经存在，请选择新的目录');
+
+    const id = this.createId();
+    const initial = initialExportState();
+    await this.repository.createExportJob({
+      id,
+      optionsJson: JSON.stringify(parsed),
+      targetPath: preview.targetPath!,
+      manifestJson: JSON.stringify(initial),
+    });
+    const running = await this.repository.updateExportJob(id, { status: 'running' });
+    if (!running) throw notFound('导出任务不存在');
+
+    const controller = new AbortController();
+    this.exportJobs.set(id, controller);
+    void writePortableExport({
+      jobId: id,
+      targetPath: parsed.targetPath,
+      canonical,
+      options: parsed,
+      signal: controller.signal,
+      completedAt: () => this.instant(),
+      onProgress: async (progress) => {
+        await this.repository.updateExportJob(id, {
+          manifestJson: JSON.stringify({ progress, report: null } satisfies StoredExportState),
+        });
+      },
+    })
+      .then(async (report) => {
+        await this.repository.updateExportJob(id, {
+          status: 'completed',
+          manifestJson: JSON.stringify({
+            progress: {
+              phase: 'done',
+              completedAssets: preview.selectedAssetCount,
+              totalAssets: preview.selectedAssetCount,
+              copiedBytes: report.copiedBytes,
+              totalBytes: preview.estimatedBytes,
+            },
+            report,
+          } satisfies StoredExportState),
+          errorCode: null,
+          completedAt: this.instant(),
+        });
+      })
+      .catch(async (cause: unknown) => {
+        const cancelled = controller.signal.aborted;
+        await this.repository.updateExportJob(id, {
+          status: cancelled ? 'cancelled' : 'failed',
+          errorCode: cancelled
+            ? 'EXPORT_CANCELLED'
+            : cause instanceof Error
+              ? `EXPORT_FAILED:${cause.message}`
+              : 'EXPORT_FAILED',
+          completedAt: this.instant(),
+        });
+      })
+      .finally(() => {
+        this.exportJobs.delete(id);
+      });
+    return toExportJobView(running);
+  }
+
+  async getPortableExport(id: string): Promise<PortableExportJob> {
+    const record = await this.repository.getExportJob(id);
+    if (!record) throw notFound('导出任务不存在');
+    return toExportJobView(record);
+  }
+
+  async cancelPortableExport(id: string): Promise<PortableExportJob> {
+    const record = await this.repository.getExportJob(id);
+    if (!record) throw notFound('导出任务不存在');
+    if (
+      record.status === 'completed' ||
+      record.status === 'failed' ||
+      record.status === 'cancelled'
+    ) {
+      return toExportJobView(record);
+    }
+    this.exportJobs.get(id)?.abort();
+    const cancelled = await this.repository.updateExportJob(id, {
+      status: 'cancelled',
+      errorCode: 'EXPORT_CANCELLED',
+      completedAt: this.instant(),
+    });
+    if (!cancelled) throw notFound('导出任务不存在');
+    return toExportJobView(cancelled);
   }
 
   async reconcile() {

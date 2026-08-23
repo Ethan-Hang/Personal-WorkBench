@@ -14,6 +14,8 @@ import {
   importSessionsResponseSchema,
   mergeRecordViewSchema,
   pickPdfResponseSchema,
+  portableExportJobSchema,
+  portableExportPreviewSchema,
   relinkLocationResponseSchema,
   searchIndexRebuildResponseSchema,
   tagCandidatesResponseSchema,
@@ -35,6 +37,10 @@ import {
   type MergeTagsInput,
   type MergeWorksInput,
   type PrepareImportInput,
+  type PortableExportJob,
+  type PortableExportPreview,
+  type PortableExportPreviewInput,
+  type StartPortableExportInput,
   type StructuredSearchInput,
   type RelinkLocationResponse,
   type SystemView,
@@ -62,6 +68,32 @@ export type TagCandidates = z.infer<typeof tagCandidatesResponseSchema>;
 export type TagDeletionPreview = z.infer<typeof tagDeletionPreviewSchema>;
 export type WorkMergePreview = z.infer<typeof workMergePreviewSchema>;
 export type MergeRecordView = z.infer<typeof mergeRecordViewSchema>;
+
+export async function postPortableExportPreview(
+  input: PortableExportPreviewInput,
+): Promise<PortableExportPreview> {
+  return portableExportPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.exportPreview, jsonBody('POST', input)),
+  );
+}
+
+export async function postPortableExport(
+  input: StartPortableExportInput,
+): Promise<PortableExportJob> {
+  return portableExportJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.exports, jsonBody('POST', input)),
+  );
+}
+
+export async function fetchPortableExport(id: string): Promise<PortableExportJob> {
+  return portableExportJobSchema.parse(await apiRequest(RESEARCH_API_V1.exportJob(id)));
+}
+
+export async function postCancelPortableExport(id: string): Promise<PortableExportJob> {
+  return portableExportJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.exportCancel(id), { method: 'POST' }),
+  );
+}
 
 export interface FetchWorksOptions {
   status?: WorkStatus;

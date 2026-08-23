@@ -44,6 +44,7 @@ export interface CompactLibraryViewProps {
   onManageCollections: () => void;
   onManageTags: () => void;
   onReviewDuplicates: () => void;
+  onExport: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
   onSelectWork: (id: string) => void;
@@ -94,6 +95,7 @@ export function CompactLibraryView({
   onManageCollections,
   onManageTags,
   onReviewDuplicates,
+  onExport,
   onCreateCollection,
   onSelectCollection,
   onSelectWork,
@@ -130,6 +132,9 @@ export function CompactLibraryView({
           </Button>
           <Button size="sm" onClick={onReviewDuplicates}>
             重复治理
+          </Button>
+          <Button size="sm" onClick={onExport}>
+            导出
           </Button>
           <Button
             size="sm"
