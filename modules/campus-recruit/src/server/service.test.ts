@@ -99,9 +99,47 @@ describe('campus recruit service', () => {
     const applied = await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
 
     expect(applied.appliedAt).toBe(NOW);
-    expect(applied.status.code).toBe('applied');
+    // 自动补的「简历初筛」让状态从「已投递」进到「流程中」——这是投递流程的第一步
+    expect(applied.status.code).toBe('in_progress');
     const stored = (await h.repo.getApplication(created.id))!;
     expect(await h.items.getById(stored.deadlineItemId!)).toMatchObject({ status: 'done' });
+  });
+
+  it('标记已投递会自动补一轮「简历初筛」，且不落成日历上的一件事', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const applied = await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    expect(applied.rounds).toEqual([
+      expect.objectContaining({
+        sequence: 1,
+        kind: 'screening',
+        name: '简历初筛',
+        outcome: 'pending',
+        scheduledAt: null,
+        itemId: null,
+      }),
+    ]);
+  });
+
+  it('重复标记已投递不会重复补初筛，已有轮次的投递也不补', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    const again = await markApplicationApplied(h.ctx, h.repo, created.id, {
+      ...OPTS,
+      now: LATER,
+    });
+    expect(again.rounds).toHaveLength(1);
+
+    const other = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await createRound(h.ctx, h.repo, other.id, roundInput(), OPTS);
+    const otherApplied = await markApplicationApplied(h.ctx, h.repo, other.id, OPTS);
+
+    expect(otherApplied.rounds).toHaveLength(1);
+    expect(otherApplied.rounds[0]).toMatchObject({ kind: 'technical', name: '一面' });
   });
 
   it('setting a terminal outcome marks an un-applied record as applied', async () => {

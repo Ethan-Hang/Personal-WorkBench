@@ -198,6 +198,28 @@ export async function markApplicationApplied(
   const now = resolveNow(opts);
   if (application.appliedAt === null) {
     await repo.updateApplication(id, { appliedAt: now, updatedAt: now });
+    // 投递流程的第一步恒为简历初筛，补一轮省得每次手工建。
+    // 两个条件都是幂等护栏：只在「这次真的从待投递变已投递」且一轮都还没有时补，
+    // 重复点或已手工建过轮次的都不会凭空多出一轮。
+    // scheduledAt 为 null，因此不产生 core Item——日历与今日不受影响。
+    if ((await repo.listRounds(id)).length === 0) {
+      await repo.insertRound({
+        id: randomUUID(),
+        applicationId: id,
+        sequence: await repo.nextRoundSequence(id),
+        kind: 'screening',
+        name: '简历初筛',
+        scheduledAt: null,
+        format: null,
+        durationMin: null,
+        outcome: 'pending',
+        outcomeAt: null,
+        notes: null,
+        itemId: null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   }
   await reconcileApplicationProjections(ctx, repo, id, now, opts.zone);
   return applicationView(repo, await requireApplication(repo, id), now);

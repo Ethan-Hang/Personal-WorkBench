@@ -59,6 +59,8 @@ describe('campus recruit HTTP API', () => {
     });
     expect(applied.statusCode).toBe(200);
     expect(applied.json().appliedAt).toEqual(expect.any(String));
+    // 标记已投递会自动补一轮「简历初筛」，后面的断言都要绕开它
+    expect(applied.json().rounds).toEqual([expect.objectContaining({ name: '简历初筛' })]);
 
     const roundCreated = await app.inject({
       method: 'POST',
@@ -71,7 +73,7 @@ describe('campus recruit HTTP API', () => {
     });
     expect(roundCreated.statusCode).toBe(201);
     const roundView = applicationViewSchema.parse(roundCreated.json());
-    const round = roundView.rounds[0]!;
+    const round = roundView.rounds.find((r) => r.name === '一面')!;
     expect(round.itemId).toEqual(expect.any(String));
     expect(await items.getById(round.itemId!)).not.toBeNull();
 
@@ -81,7 +83,9 @@ describe('campus recruit HTTP API', () => {
       payload: { outcome: 'passed' },
     });
     expect(roundUpdated.statusCode).toBe(200);
-    expect(roundUpdated.json().rounds[0]).toMatchObject({ outcome: 'passed' });
+    expect(
+      applicationViewSchema.parse(roundUpdated.json()).rounds.find((r) => r.name === '一面'),
+    ).toMatchObject({ outcome: 'passed' });
 
     const stats = await app.inject({ method: 'GET', url: '/api/campus/stats' });
     expect(stats.statusCode).toBe(200);
@@ -92,7 +96,9 @@ describe('campus recruit HTTP API', () => {
       url: `/api/campus/rounds/${round.id}`,
     });
     expect(roundDeleted.statusCode).toBe(200);
-    expect(applicationViewSchema.parse(roundDeleted.json()).rounds).toEqual([]);
+    expect(applicationViewSchema.parse(roundDeleted.json()).rounds).toEqual([
+      expect.objectContaining({ name: '简历初筛' }),
+    ]);
 
     const deleted = await app.inject({
       method: 'DELETE',
