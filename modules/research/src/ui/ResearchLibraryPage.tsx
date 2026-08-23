@@ -3,26 +3,39 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   deleteCollection as deleteResearchCollection,
   deleteAttachment,
+  deleteTag,
+  deleteTagPermanently,
   deleteWorkRelation,
   fetchCollections,
   fetchCollectionDeletionPreview,
   fetchDeletionPreview,
+  fetchTagCandidates,
+  fetchTagDeletionPreview,
+  fetchTags,
   fetchWork,
   fetchWorks,
   patchCollection,
+  patchTag,
   postAddLocalAttachment,
   postBulkWorkAction,
   postBulkWorkPreview,
   postCheckLocation,
   postCollection,
   postCreateManualWork,
+  postMergeTags,
+  postMergeWorks,
   postPermanentDelete,
   postReconcile,
   postRelinkLocation,
+  postRestoreTag,
   postRestoreWork,
   postTrashWork,
+  postTag,
+  postUndoMerge,
+  postWorkMergePreview,
   postWorkRelation,
   putWorkCollections,
+  putWorkTags,
 } from './api.js';
 import type {
   BulkWorkActionInput,
@@ -33,10 +46,12 @@ import type {
 import { CompactLibraryView } from './components/CompactLibraryView.js';
 import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
 import { CollectionManagerDialog } from './components/CollectionManagerDialog.js';
+import { DuplicateMergeDialog } from './components/DuplicateMergeDialog.js';
 import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
 import { ManualWorkDialog } from './components/ManualWorkDialog.js';
+import { TagManagerDialog } from './components/TagManagerDialog.js';
 import { TemplateLibraryView } from './components/TemplateLibraryView.js';
 
 const LAYOUT_STORAGE_KEY = 'research_library_layout';
@@ -62,7 +77,10 @@ export function ResearchLibraryPage() {
   const [attachmentEditionId, setAttachmentEditionId] = useState<string | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
   const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
+  const [tagManagerOpen, setTagManagerOpen] = useState(false);
+  const [duplicateMergeOpen, setDuplicateMergeOpen] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -72,6 +90,10 @@ export function ResearchLibraryPage() {
   const collectionsQuery = useQuery({
     queryKey: ['research', 'collections'],
     queryFn: fetchCollections,
+  });
+  const tagsQuery = useQuery({
+    queryKey: ['research', 'tags'],
+    queryFn: () => fetchTags({ status: 'all', sort: 'usage' }),
   });
   const worksQuery = useQuery({
     queryKey: ['research', 'works', status, systemView, selectedCollectionId, search],
@@ -110,7 +132,10 @@ export function ResearchLibraryPage() {
   }, [worksQuery.data]);
 
   useEffect(() => {
-    if (detailQuery.data) setSelectedCollectionIds(detailQuery.data.work.collectionIds);
+    if (detailQuery.data) {
+      setSelectedCollectionIds(detailQuery.data.work.collectionIds);
+      setSelectedTagIds(detailQuery.data.tags.map((tag) => tag.id));
+    }
   }, [detailQuery.data]);
 
   const invalidate = async () => {
@@ -128,6 +153,14 @@ export function ResearchLibraryPage() {
       await invalidate();
     },
     onError: (cause) => setMessage(cause instanceof Error ? cause.message : '目录保存失败'),
+  });
+  const saveTagsMutation = useMutation({
+    mutationFn: () => putWorkTags(selectedWorkId!, selectedTagIds),
+    onSuccess: async () => {
+      setMessage('标签已保存');
+      await invalidate();
+    },
+    onError: (cause) => setMessage(cause instanceof Error ? cause.message : '标签保存失败'),
   });
   const reconcileMutation = useMutation({
     mutationFn: postReconcile,
@@ -181,6 +214,12 @@ export function ResearchLibraryPage() {
     );
   };
 
+  const toggleTag = (id: string) => {
+    setSelectedTagIds((values) =>
+      values.includes(id) ? values.filter((value) => value !== id) : [...values, id],
+    );
+  };
+
   const selectSystemView = (next: SystemView) => {
     setSystemView(next);
     setStatus(next === 'trash' ? 'trashed' : 'active');
@@ -201,19 +240,24 @@ export function ResearchLibraryPage() {
     );
   };
 
-  const runBulkAction = async (action: BulkWorkActionInput['action'], collectionId?: string) => {
+  const runBulkAction = async (action: BulkWorkActionInput['action'], targetId?: string) => {
     if (selectedWorkIds.length === 0) return;
-    if (
-      (action === 'add-to-collections' || action === 'remove-from-collections') &&
-      !collectionId
-    ) {
+    if ((action === 'add-to-collections' || action === 'remove-from-collections') && !targetId) {
       setMessage('请选择目录');
       return;
     }
-    const input: BulkWorkActionInput =
-      action === 'add-to-collections' || action === 'remove-from-collections'
-        ? { action, workIds: selectedWorkIds, collectionIds: [collectionId!] }
-        : { action, workIds: selectedWorkIds };
+    if ((action === 'add-tags' || action === 'remove-tags') && !targetId) {
+      setMessage('请选择标签');
+      return;
+    }
+    let input: BulkWorkActionInput;
+    if (action === 'add-to-collections' || action === 'remove-from-collections') {
+      input = { action, workIds: selectedWorkIds, collectionIds: [targetId!] };
+    } else if (action === 'add-tags' || action === 'remove-tags') {
+      input = { action, workIds: selectedWorkIds, tagIds: [targetId!] };
+    } else {
+      input = { action, workIds: selectedWorkIds };
+    }
     setMessage(null);
     try {
       const preview = await postBulkWorkPreview(input);
@@ -238,6 +282,11 @@ export function ResearchLibraryPage() {
   };
 
   const detailActions = {
+    availableTags: (tagsQuery.data?.tags ?? []).filter((tag) => !tag.trashedAt),
+    selectedTagIds,
+    savingTags: saveTagsMutation.isPending,
+    onToggleTag: toggleTag,
+    onSaveTags: () => saveTagsMutation.mutate(),
     onToggleCollection: toggleCollection,
     onSaveCollections: () => saveCollectionsMutation.mutate(),
     onCheckLocation: (id: string) => {
@@ -326,6 +375,8 @@ export function ResearchLibraryPage() {
     onReconcile: () => reconcileMutation.mutate(),
     onCreateCollection: createCollection,
     onManageCollections: () => setCollectionManagerOpen(true),
+    onManageTags: () => setTagManagerOpen(true),
+    onReviewDuplicates: () => setDuplicateMergeOpen(true),
     onSelectCollection: selectCollection,
     onSelectWork: setSelectedWorkId,
     onToggleWorkSelection: toggleWorkSelection,
@@ -382,6 +433,70 @@ export function ResearchLibraryPage() {
           await deleteResearchCollection(id, strategy);
           if (selectedCollectionId === id) selectCollection(null);
           setMessage('目录已删除，作品和附件保持不变');
+          await invalidate();
+        }}
+      />
+
+      <TagManagerDialog
+        open={tagManagerOpen}
+        tags={tagsQuery.data?.tags ?? []}
+        onClose={() => setTagManagerOpen(false)}
+        onCreate={async (input) => {
+          await postTag(input);
+          setMessage('标签已创建');
+          await invalidate();
+        }}
+        onUpdate={async (id, input) => {
+          await patchTag(id, input);
+          setMessage('标签已更新');
+          await invalidate();
+        }}
+        onCandidates={fetchTagCandidates}
+        onPreviewDelete={fetchTagDeletionPreview}
+        onTrash={async (id, expectedUpdatedAt) => {
+          await deleteTag(id, expectedUpdatedAt);
+          setMessage('标签已移入回收站');
+          await invalidate();
+        }}
+        onRestore={async (id) => {
+          await postRestoreTag(id);
+          setMessage('标签已恢复');
+          await invalidate();
+        }}
+        onPermanentDelete={async (id) => {
+          await deleteTagPermanently(id);
+          setMessage('标签已永久删除');
+          await invalidate();
+        }}
+        onMerge={async (input) => {
+          const record = await postMergeTags(input);
+          setMessage('标签已合并，可在当前窗口撤销');
+          await invalidate();
+          return record;
+        }}
+        onUndo={async (id) => {
+          await postUndoMerge(id);
+          setMessage('标签合并已撤销');
+          await invalidate();
+        }}
+      />
+
+      <DuplicateMergeDialog
+        open={duplicateMergeOpen}
+        works={worksQuery.data?.works ?? []}
+        initialSurvivorId={selectedWorkId}
+        onClose={() => setDuplicateMergeOpen(false)}
+        onPreview={postWorkMergePreview}
+        onMerge={async (survivorId, input) => {
+          const record = await postMergeWorks(survivorId, input);
+          setSelectedWorkId(survivorId);
+          setMessage('重复作品已合并，可在当前窗口撤销');
+          await invalidate();
+          return record;
+        }}
+        onUndo={async (id) => {
+          await postUndoMerge(id);
+          setMessage('作品合并已撤销');
           await invalidate();
         }}
       />

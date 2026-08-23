@@ -270,6 +270,79 @@ export interface WorkRelationDraft {
   note: string | null;
 }
 
+export interface TagRecord {
+  id: string;
+  name: string;
+  normalizedName: string;
+  color: string | null;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  trashedAt: string | null;
+}
+
+export interface TagSummaryRecord extends TagRecord {
+  aliases: string[];
+  usageCount: number;
+  lastUsedAt: string | null;
+}
+
+export interface TagDraft {
+  id: string;
+  name: string;
+  normalizedName: string;
+  color: string | null;
+  description: string | null;
+  aliases: Array<{ id: string; name: string; normalizedName: string }>;
+}
+
+export interface TagUpdateDraft extends TagDraft {
+  expectedUpdatedAt: string;
+}
+
+export interface MergeRecord {
+  id: string;
+  entityType: 'work' | 'tag';
+  survivorId: string;
+  mergedId: string;
+  snapshotJson: string;
+  status: 'merged' | 'reverted';
+  createdAt: string;
+  revertedAt: string | null;
+}
+
+export interface TagMergeDraft {
+  id: string;
+  survivorId: string;
+  mergedId: string;
+  expectedSurvivorUpdatedAt: string;
+  expectedMergedUpdatedAt: string;
+  mergedNameAliasId: string;
+}
+
+export interface WorkMergeDraft {
+  id: string;
+  survivorId: string;
+  mergedId: string;
+  expectedSurvivorRevision: number;
+  expectedMergedRevision: number;
+  selectedFields: {
+    title: string;
+    titleSort: string;
+    type: WorkType;
+    abstract: string | null;
+    year: number | null;
+  };
+  fieldSources: {
+    title: 'survivor' | 'merged';
+    type: 'survivor' | 'merged';
+    abstract: 'survivor' | 'merged';
+    year: 'survivor' | 'merged';
+  };
+  editionIdsToMove: string[];
+  preferredEditionId: string | null;
+}
+
 export interface SourceRecord {
   id: string;
   provider: string;
@@ -530,4 +603,17 @@ export interface ResearchRepository {
   upsertWorkRelation(draft: WorkRelationDraft): Promise<WorkRelationRecord>;
   listWorkRelations(workId: string): Promise<WorkRelationRecord[]>;
   deleteWorkRelation(id: string): Promise<boolean>;
+  listTags(status: 'active' | 'trashed' | 'all'): Promise<TagSummaryRecord[]>;
+  getTag(id: string): Promise<TagSummaryRecord | null>;
+  createTag(draft: TagDraft): Promise<TagSummaryRecord>;
+  updateTag(draft: TagUpdateDraft): Promise<TagSummaryRecord | null>;
+  setWorkTags(workId: string, entries: Array<{ id: string; tagId: string }>): Promise<void>;
+  listTagsForWork(workId: string): Promise<TagSummaryRecord[]>;
+  trashTag(id: string, expectedUpdatedAt: string): Promise<boolean>;
+  restoreTag(id: string): Promise<boolean>;
+  deleteTagPermanently(id: string): Promise<boolean>;
+  mergeTags(draft: TagMergeDraft): Promise<MergeRecord | null>;
+  mergeWorks(draft: WorkMergeDraft): Promise<MergeRecord | null>;
+  getMergeRecord(id: string): Promise<MergeRecord | null>;
+  revertMerge(id: string): Promise<MergeRecord | null>;
 }

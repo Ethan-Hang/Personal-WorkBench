@@ -1,5 +1,13 @@
-import { Button, Chip, IconAlertCircle, IconBookOpen, IconPlus, IconTrash } from '@workbench/ui';
-import type { CollectionView, WorkDetail } from '../api.js';
+import {
+  Button,
+  Chip,
+  IconAlertCircle,
+  IconBookOpen,
+  IconPlus,
+  IconTag,
+  IconTrash,
+} from '@workbench/ui';
+import type { CollectionView, TagView, WorkDetail } from '../api.js';
 import { FileStatus } from './FileStatus.js';
 
 export interface WorkDetailPanelProps {
@@ -8,9 +16,14 @@ export interface WorkDetailPanelProps {
   collections: CollectionView[];
   selectedCollectionIds: string[];
   savingCollections: boolean;
+  availableTags: TagView[];
+  selectedTagIds: string[];
+  savingTags: boolean;
   variant?: 'compact' | 'template';
   onToggleCollection: (id: string) => void;
   onSaveCollections: () => void;
+  onToggleTag: (id: string) => void;
+  onSaveTags: () => void;
   onCheckLocation: (id: string) => void;
   onRelinkLocation: (id: string) => void;
   onRemoveAttachment: (id: string) => void;
@@ -28,9 +41,14 @@ export function WorkDetailPanel({
   collections,
   selectedCollectionIds,
   savingCollections,
+  availableTags,
+  selectedTagIds,
+  savingTags,
   variant = 'compact',
   onToggleCollection,
   onSaveCollections,
+  onToggleTag,
+  onSaveTags,
   onCheckLocation,
   onRelinkLocation,
   onRemoveAttachment,
@@ -70,6 +88,50 @@ export function WorkDetailPanel({
             </p>
           </div>
           <FileStatus status={detail.work.fileStatus} />
+        </div>
+      </section>
+
+      <section className={sectionClass}>
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-[0.08em] text-muted">
+            <IconTag size={12} /> 标签
+          </h3>
+          {detail.work.status === 'active' && (
+            <Button size="sm" disabled={savingTags} onClick={onSaveTags}>
+              保存
+            </Button>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {availableTags.map((tag) => {
+            const checked = selectedTagIds.includes(tag.id);
+            return (
+              <label
+                key={tag.id}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+                  checked
+                    ? 'border-accent/25 bg-accent-soft text-accent'
+                    : 'border-line bg-surface text-secondary'
+                } ${detail.work.status !== 'active' ? 'pointer-events-none opacity-70' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={checked}
+                  disabled={detail.work.status !== 'active'}
+                  onChange={() => onToggleTag(tag.id)}
+                />
+                <span
+                  className="h-2 w-2 rounded-full border border-line"
+                  style={{ backgroundColor: tag.color ?? 'transparent' }}
+                />
+                {tag.name}
+              </label>
+            );
+          })}
+          {availableTags.length === 0 && (
+            <span className="text-[11px] text-muted">尚未创建标签</span>
+          )}
         </div>
       </section>
 

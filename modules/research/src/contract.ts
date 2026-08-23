@@ -15,7 +15,18 @@ export const RESEARCH_API_V1 = {
   workBulkPreview: `${API_ROOT}/works/bulk/preview`,
   workBulk: `${API_ROOT}/works/bulk`,
   workRelations: (id: string) => `${API_ROOT}/works/${id}/relations`,
+  workTags: (id: string) => `${API_ROOT}/works/${id}/tags`,
+  workMergePreview: (id: string) => `${API_ROOT}/works/${id}/merge-preview`,
+  workMerge: (id: string) => `${API_ROOT}/works/${id}/merge`,
   workRelation: (id: string) => `${API_ROOT}/work-relations/${id}`,
+  tags: `${API_ROOT}/tags`,
+  tag: (id: string) => `${API_ROOT}/tags/${id}`,
+  tagCandidates: `${API_ROOT}/tags/candidates`,
+  tagDeletionPreview: (id: string) => `${API_ROOT}/tags/${id}/deletion-preview`,
+  tagRestore: (id: string) => `${API_ROOT}/tags/${id}/restore`,
+  tagPermanentDelete: (id: string) => `${API_ROOT}/tags/${id}/permanent-delete`,
+  tagMerge: `${API_ROOT}/tags/merge`,
+  mergeUndo: (id: string) => `${API_ROOT}/merge-records/${id}/undo`,
   editionAttachments: (id: string) => `${API_ROOT}/editions/${id}/attachments`,
   collections: `${API_ROOT}/collections`,
   collection: (id: string) => `${API_ROOT}/collections/${id}`,
@@ -319,6 +330,15 @@ export const workDetailViewSchema = z.object({
       }),
     )
     .default([]),
+  tags: z
+    .array(
+      z.object({
+        id: researchIdSchema,
+        name: z.string(),
+        color: z.string().nullable(),
+      }),
+    )
+    .default([]),
 });
 export type WorkDetailView = z.infer<typeof workDetailViewSchema>;
 
@@ -591,6 +611,143 @@ export const createWorkRelationInputSchema = z.object({
 });
 export type CreateWorkRelationInput = z.infer<typeof createWorkRelationInputSchema>;
 
+const tagColorSchema = z
+  .string()
+  .regex(/^#[0-9a-fA-F]{6}$/)
+  .nullable();
+
+export const tagViewSchema = z.object({
+  id: researchIdSchema,
+  name: z.string().min(1).max(100),
+  aliases: z.array(z.string()),
+  color: tagColorSchema,
+  description: z.string().nullable(),
+  usageCount: z.number().int().nonnegative(),
+  lastUsedAt: instantSchema.nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  trashedAt: instantSchema.nullable(),
+});
+export type TagView = z.infer<typeof tagViewSchema>;
+
+export const listTagsQuerySchema = z.object({
+  status: z.enum(['active', 'trashed', 'all']).default('active'),
+  query: z.string().trim().max(100).optional(),
+  sort: z.enum(['usage', 'name', 'recent']).default('usage'),
+});
+
+export const tagsResponseSchema = z.object({ tags: z.array(tagViewSchema) });
+
+export const createTagInputSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  aliases: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
+  color: tagColorSchema.default(null),
+  description: z.string().trim().max(2_000).nullable().default(null),
+});
+export type CreateTagInput = z.infer<typeof createTagInputSchema>;
+
+export const updateTagInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    aliases: z.array(z.string().trim().min(1).max(100)).max(100).optional(),
+    color: tagColorSchema.optional(),
+    description: z.string().trim().max(2_000).nullable().optional(),
+    expectedUpdatedAt: instantSchema,
+  })
+  .refine(
+    (value) => Object.keys(value).some((key) => key !== 'expectedUpdatedAt'),
+    '没有可更新字段',
+  );
+export type UpdateTagInput = z.infer<typeof updateTagInputSchema>;
+
+export const setWorkTagsInputSchema = z.object({
+  tagIds: z.array(researchIdSchema).max(1_000),
+});
+
+export const tagCandidatesQuerySchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+});
+
+export const tagCandidatesResponseSchema = z.object({
+  candidates: z.array(
+    z.object({
+      tag: tagViewSchema,
+      score: z.number().min(0).max(1),
+      matchedName: z.string(),
+      reason: z.enum(['exact-normalized', 'prefix', 'edit-distance', 'token-overlap']),
+    }),
+  ),
+});
+
+export const tagDeletionPreviewSchema = z.object({
+  tagId: researchIdSchema,
+  name: z.string(),
+  usageCount: z.number().int().nonnegative(),
+  aliasCount: z.number().int().nonnegative(),
+});
+
+export const tagVersionInputSchema = z.object({ expectedUpdatedAt: instantSchema });
+
+export const mergeTagsInputSchema = z
+  .object({
+    survivorId: researchIdSchema,
+    mergedId: researchIdSchema,
+    expectedSurvivorUpdatedAt: instantSchema,
+    expectedMergedUpdatedAt: instantSchema,
+  })
+  .refine((value) => value.survivorId !== value.mergedId, '标签不能与自己合并');
+export type MergeTagsInput = z.infer<typeof mergeTagsInputSchema>;
+
+export const mergeRecordViewSchema = z.object({
+  id: researchIdSchema,
+  entityType: z.enum(['work', 'tag']),
+  survivorId: researchIdSchema,
+  mergedId: researchIdSchema,
+  status: z.enum(['merged', 'reverted']),
+  createdAt: instantSchema,
+  revertedAt: instantSchema.nullable(),
+});
+
+export const workMergePreviewInputSchema = z.object({ mergedWorkId: researchIdSchema });
+
+const mergeWorkFieldsSchema = z.object({
+  title: z.string(),
+  type: z.enum(WORK_TYPES),
+  abstract: z.string().nullable(),
+  year: z.number().int().min(0).max(9999).nullable(),
+});
+
+export const workMergePreviewSchema = z.object({
+  survivor: z.object({
+    id: researchIdSchema,
+    revision: z.number().int().positive(),
+    fields: mergeWorkFieldsSchema,
+    editionIds: z.array(researchIdSchema),
+  }),
+  merged: z.object({
+    id: researchIdSchema,
+    revision: z.number().int().positive(),
+    fields: mergeWorkFieldsSchema,
+    editionIds: z.array(researchIdSchema),
+  }),
+});
+
+export const mergeWorksInputSchema = z.object({
+  mergedWorkId: researchIdSchema,
+  expectedSurvivorRevision: z.number().int().positive(),
+  expectedMergedRevision: z.number().int().positive(),
+  fieldChoices: z.object({
+    title: z.enum(['survivor', 'merged']),
+    type: z.enum(['survivor', 'merged']),
+    abstract: z.enum(['survivor', 'merged']),
+    year: z.enum(['survivor', 'merged']),
+  }),
+  editionIdsToMove: z.array(researchIdSchema),
+  preferredEditionId: researchIdSchema.nullable(),
+});
+export type MergeWorksInput = z.infer<typeof mergeWorksInputSchema>;
+
 export const bulkWorkActionInputSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('add-to-collections'),
@@ -602,13 +759,32 @@ export const bulkWorkActionInputSchema = z.discriminatedUnion('action', [
     workIds: z.array(researchIdSchema).min(1).max(100),
     collectionIds: z.array(researchIdSchema).min(1).max(100),
   }),
+  z.object({
+    action: z.literal('add-tags'),
+    workIds: z.array(researchIdSchema).min(1).max(100),
+    tagIds: z.array(researchIdSchema).min(1).max(100),
+  }),
+  z.object({
+    action: z.literal('remove-tags'),
+    workIds: z.array(researchIdSchema).min(1).max(100),
+    tagIds: z.array(researchIdSchema).min(1).max(100),
+  }),
   z.object({ action: z.literal('trash'), workIds: z.array(researchIdSchema).min(1).max(100) }),
   z.object({ action: z.literal('restore'), workIds: z.array(researchIdSchema).min(1).max(100) }),
 ]);
 export type BulkWorkActionInput = z.infer<typeof bulkWorkActionInputSchema>;
 
+const bulkWorkActionKindSchema = z.enum([
+  'add-to-collections',
+  'remove-from-collections',
+  'add-tags',
+  'remove-tags',
+  'trash',
+  'restore',
+]);
+
 export const bulkWorkPreviewSchema = z.object({
-  action: z.enum(['add-to-collections', 'remove-from-collections', 'trash', 'restore']),
+  action: bulkWorkActionKindSchema,
   items: z.array(
     z.object({
       workId: researchIdSchema,
@@ -621,7 +797,7 @@ export const bulkWorkPreviewSchema = z.object({
 });
 
 export const bulkWorkResultSchema = z.object({
-  action: z.enum(['add-to-collections', 'remove-from-collections', 'trash', 'restore']),
+  action: bulkWorkActionKindSchema,
   results: z.array(
     z.object({
       workId: researchIdSchema,

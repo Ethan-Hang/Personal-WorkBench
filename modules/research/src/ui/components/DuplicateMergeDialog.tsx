@@ -1,0 +1,238 @@
+import { useEffect, useState } from 'react';
+import { Button, Field, Modal, controlClass } from '@workbench/ui';
+import type { MergeWorksInput } from '../../contract.js';
+import type { MergeRecordView, WorkMergePreview, WorksPage } from '../api.js';
+
+type Side = 'survivor' | 'merged';
+
+export function DuplicateMergeDialog({
+  open,
+  works,
+  initialSurvivorId,
+  onClose,
+  onPreview,
+  onMerge,
+  onUndo,
+}: {
+  open: boolean;
+  works: WorksPage['works'];
+  initialSurvivorId: string | null;
+  onClose: () => void;
+  onPreview: (survivorId: string, mergedId: string) => Promise<WorkMergePreview>;
+  onMerge: (survivorId: string, input: MergeWorksInput) => Promise<MergeRecordView>;
+  onUndo: (id: string) => Promise<void>;
+}) {
+  const [survivorId, setSurvivorId] = useState('');
+  const [mergedId, setMergedId] = useState('');
+  const [preview, setPreview] = useState<WorkMergePreview | null>(null);
+  const [choices, setChoices] = useState<Record<'title' | 'type' | 'abstract' | 'year', Side>>({
+    title: 'survivor',
+    type: 'survivor',
+    abstract: 'survivor',
+    year: 'survivor',
+  });
+  const [preferredEditionId, setPreferredEditionId] = useState<string | null>(null);
+  const [lastMergeId, setLastMergeId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setSurvivorId(initialSurvivorId ?? works[0]?.id ?? '');
+    setMergedId('');
+    setPreview(null);
+    setLastMergeId(null);
+    setError(null);
+  }, [open, initialSurvivorId, works]);
+
+  const run = async (operation: () => Promise<void>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await operation();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '作品合并失败');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const loadPreview = async () => {
+    const result = await onPreview(survivorId, mergedId);
+    setPreview(result);
+    setChoices({ title: 'survivor', type: 'survivor', abstract: 'survivor', year: 'survivor' });
+    setPreferredEditionId(result.survivor.editionIds[0] ?? result.merged.editionIds[0] ?? null);
+  };
+
+  return (
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="重复作品合并"
+      description="明确选择存活 Work、各字段来源、Edition 归属和首选 Edition。合并记录可撤销。"
+      maxWidth="max-w-5xl"
+    >
+      <div className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="保留的 Work">
+            <select
+              className={controlClass}
+              value={survivorId}
+              onChange={(event) => {
+                setSurvivorId(event.target.value);
+                setPreview(null);
+              }}
+            >
+              <option value="">选择存活记录</option>
+              {works.map((work) => (
+                <option key={work.id} value={work.id}>
+                  {work.title || work.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="合并进入存活项的 Work">
+            <select
+              className={controlClass}
+              value={mergedId}
+              onChange={(event) => {
+                setMergedId(event.target.value);
+                setPreview(null);
+              }}
+            >
+              <option value="">选择被合并记录</option>
+              {works
+                .filter((work) => work.id !== survivorId)
+                .map((work) => (
+                  <option key={work.id} value={work.id}>
+                    {work.title || work.id}
+                  </option>
+                ))}
+            </select>
+          </Field>
+        </div>
+        <Button
+          disabled={busy || !survivorId || !mergedId || survivorId === mergedId}
+          onClick={() => void run(loadPreview)}
+        >
+          生成合并预览
+        </Button>
+
+        {preview && (
+          <div className="space-y-5 border-t border-line pt-5">
+            <div className="overflow-x-auto rounded-panel border border-line">
+              <table className="w-full min-w-[680px] text-left text-xs">
+                <thead className="bg-surface-2/55 text-muted">
+                  <tr>
+                    <th className="px-3 py-2.5">字段</th>
+                    <th className="px-3 py-2.5">存活项</th>
+                    <th className="px-3 py-2.5">被合并项</th>
+                    <th className="px-3 py-2.5">采用</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-line">
+                  {(['title', 'type', 'abstract', 'year'] as const).map((field) => (
+                    <tr key={field}>
+                      <td className="px-3 py-3 font-semibold text-ink">{field}</td>
+                      <td className="max-w-52 px-3 py-3 text-secondary">
+                        {String(preview.survivor.fields[field] ?? '—')}
+                      </td>
+                      <td className="max-w-52 px-3 py-3 text-secondary">
+                        {String(preview.merged.fields[field] ?? '—')}
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          className={controlClass}
+                          value={choices[field]}
+                          onChange={(event) =>
+                            setChoices((value) => ({
+                              ...value,
+                              [field]: event.target.value as Side,
+                            }))
+                          }
+                        >
+                          <option value="survivor">存活项</option>
+                          <option value="merged">被合并项</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <section className="rounded-panel border border-line bg-surface-2/30 p-4">
+                <h3 className="text-xs font-semibold text-ink">Edition 归属</h3>
+                <p className="mt-2 text-xs leading-5 text-secondary">
+                  以下 {preview.merged.editionIds.length} 个 Edition 将全部从被合并项转移到存活项：
+                </p>
+                <div className="mt-2 space-y-1 font-mono text-[10px] text-muted">
+                  {preview.merged.editionIds.map((id) => (
+                    <p key={id}>{id}</p>
+                  ))}
+                </div>
+              </section>
+              <Field label="合并后的首选 Edition">
+                <select
+                  className={controlClass}
+                  value={preferredEditionId ?? ''}
+                  onChange={(event) => setPreferredEditionId(event.target.value || null)}
+                >
+                  <option value="">不指定</option>
+                  {[...preview.survivor.editionIds, ...preview.merged.editionIds].map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    if (!window.confirm('执行合并并保存可撤销快照吗？')) return;
+                    const record = await onMerge(preview.survivor.id, {
+                      mergedWorkId: preview.merged.id,
+                      expectedSurvivorRevision: preview.survivor.revision,
+                      expectedMergedRevision: preview.merged.revision,
+                      fieldChoices: choices,
+                      editionIdsToMove: preview.merged.editionIds,
+                      preferredEditionId,
+                    });
+                    setLastMergeId(record.id);
+                  })
+                }
+              >
+                合并作品
+              </Button>
+              {lastMergeId && (
+                <Button
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await onUndo(lastMergeId);
+                      setLastMergeId(null);
+                      setPreview(null);
+                    })
+                  }
+                >
+                  撤销刚才的合并
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+        {error && (
+          <p className="rounded-control bg-critical-soft px-3 py-2 text-xs text-critical">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}

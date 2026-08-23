@@ -31,6 +31,8 @@ export interface CompactLibraryViewProps {
   onManualWork: () => void;
   onReconcile: () => void;
   onManageCollections: () => void;
+  onManageTags: () => void;
+  onReviewDuplicates: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
   onSelectWork: (id: string) => void;
@@ -69,6 +71,8 @@ export function CompactLibraryView({
   onManualWork,
   onReconcile,
   onManageCollections,
+  onManageTags,
+  onReviewDuplicates,
   onCreateCollection,
   onSelectCollection,
   onSelectWork,
@@ -94,6 +98,12 @@ export function CompactLibraryView({
           </Button>
           <Button size="sm" onClick={onManualWork}>
             手工记录
+          </Button>
+          <Button size="sm" onClick={onManageTags}>
+            标签
+          </Button>
+          <Button size="sm" onClick={onReviewDuplicates}>
+            重复治理
           </Button>
           <Button
             size="sm"
@@ -144,6 +154,7 @@ export function CompactLibraryView({
           <BulkActionsBar
             selectedCount={selectedWorkIds.length}
             collections={collections}
+            tags={detailActions.availableTags}
             status={status}
             onAction={onBulkAction}
           />

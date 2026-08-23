@@ -1,25 +1,33 @@
 import { useEffect, useState } from 'react';
-import { Button, IconFolder, IconTrash } from '@workbench/ui';
+import { Button, IconFolder, IconTag, IconTrash } from '@workbench/ui';
 import type { BulkWorkActionInput } from '../../contract.js';
-import type { CollectionView } from '../api.js';
+import type { CollectionView, TagView } from '../api.js';
 
 export function BulkActionsBar({
   selectedCount,
   collections,
+  tags,
   status,
   onAction,
 }: {
   selectedCount: number;
   collections: CollectionView[];
+  tags: TagView[];
   status: 'active' | 'trashed';
   onAction: (action: BulkWorkActionInput['action'], collectionId?: string) => Promise<void>;
 }) {
   const [collectionId, setCollectionId] = useState('');
+  const [tagId, setTagId] = useState('');
 
   useEffect(() => {
     if (collections.some((collection) => collection.id === collectionId)) return;
     setCollectionId(collections[0]?.id ?? '');
   }, [collectionId, collections]);
+
+  useEffect(() => {
+    if (tags.some((tag) => tag.id === tagId)) return;
+    setTagId(tags[0]?.id ?? '');
+  }, [tagId, tags]);
 
   if (selectedCount === 0) return null;
   return (
@@ -47,6 +55,31 @@ export function BulkActionsBar({
           </Button>
           <Button size="sm" onClick={() => void onAction('remove-from-collections', collectionId)}>
             移出目录
+          </Button>
+        </>
+      )}
+      {tags.length > 0 && (
+        <>
+          <select
+            className="rounded-control border border-line bg-surface px-2 py-1 text-xs text-ink outline-none focus:border-accent"
+            value={tagId}
+            onChange={(event) => setTagId(event.target.value)}
+          >
+            {tags.map((tag) => (
+              <option key={tag.id} value={tag.id}>
+                {tag.name}
+              </option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            icon={<IconTag size={12} />}
+            onClick={() => void onAction('add-tags', tagId)}
+          >
+            添加标签
+          </Button>
+          <Button size="sm" onClick={() => void onAction('remove-tags', tagId)}>
+            移除标签
           </Button>
         </>
       )}

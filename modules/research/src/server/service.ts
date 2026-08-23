@@ -8,13 +8,17 @@ import {
   type AddLocalAttachmentInput,
   type BulkWorkActionInput,
   type ConfirmImportInput,
+  type CreateTagInput,
   type CreateManualWorkInput,
   type CreateWorkRelationInput,
   type ImportItemView,
   type ImportSessionView,
   type InspectImportInput,
+  type MergeTagsInput,
+  type MergeWorksInput,
   type ResearchErrorCode,
   type UpdateCollectionInput,
+  type UpdateTagInput,
   type WorkDetailView,
   type WorkView,
 } from '../contract.js';
@@ -35,7 +39,9 @@ import type {
   DeletionImpact,
   ImportItemRecord,
   MetadataAssertionDraft,
+  MergeRecord,
   ResearchRepository,
+  TagSummaryRecord,
   WorkListRecord,
 } from './repository.js';
 
@@ -115,6 +121,52 @@ export interface ResearchServiceDependencies {
 
 function normalizeTitle(value: string): string {
   return value.trim().toLocaleLowerCase();
+}
+
+function normalizeTagName(value: string): string {
+  return value.normalize('NFKC').trim().toLocaleLowerCase();
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+    const current = [leftIndex];
+    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+      current[rightIndex] = Math.min(
+        current[rightIndex - 1]! + 1,
+        previous[rightIndex]! + 1,
+        previous[rightIndex - 1]! + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length]!;
+}
+
+function tagSimilarity(
+  requested: string,
+  candidate: string,
+): { score: number; reason: 'exact-normalized' | 'prefix' | 'edit-distance' | 'token-overlap' } {
+  if (requested === candidate) return { score: 1, reason: 'exact-normalized' };
+  if (requested.startsWith(candidate) || candidate.startsWith(requested)) {
+    return {
+      score:
+        0.8 +
+        (0.15 * Math.min(requested.length, candidate.length)) /
+          Math.max(requested.length, candidate.length),
+      reason: 'prefix',
+    };
+  }
+  const requestedTokens = new Set(requested.split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const candidateTokens = new Set(candidate.split(/[^\p{L}\p{N}]+/u).filter(Boolean));
+  const intersection = [...requestedTokens].filter((token) => candidateTokens.has(token)).length;
+  const union = new Set([...requestedTokens, ...candidateTokens]).size;
+  const tokenScore = union === 0 ? 0 : intersection / union;
+  const distanceScore =
+    1 - editDistance(requested, candidate) / Math.max(requested.length, candidate.length, 1);
+  return tokenScore > distanceScore
+    ? { score: tokenScore, reason: 'token-overlap' }
+    : { score: Math.max(0, distanceScore), reason: 'edit-distance' };
 }
 
 function normalizeIdentifierValue(scheme: string, value: string): string | null {
@@ -212,6 +264,33 @@ function toWorkView(record: WorkListRecord): WorkView {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     trashedAt: record.trashedAt,
+  };
+}
+
+function toTagView(record: TagSummaryRecord) {
+  return {
+    id: record.id,
+    name: record.name,
+    aliases: record.aliases,
+    color: record.color,
+    description: record.description,
+    usageCount: record.usageCount,
+    lastUsedAt: record.lastUsedAt,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    trashedAt: record.trashedAt,
+  };
+}
+
+function toMergeRecordView(record: MergeRecord) {
+  return {
+    id: record.id,
+    entityType: record.entityType,
+    survivorId: record.survivorId,
+    mergedId: record.mergedId,
+    status: record.status,
+    createdAt: record.createdAt,
+    revertedAt: record.revertedAt,
   };
 }
 
@@ -1103,7 +1182,10 @@ export class ResearchService {
         )
       ).flat(),
     ];
-    const relationRecords = await this.repository.listWorkRelations(id);
+    const [relationRecords, tagRecords] = await Promise.all([
+      this.repository.listWorkRelations(id),
+      this.repository.listTagsForWork(id),
+    ]);
     const relations = await Promise.all(
       relationRecords.map(async (relation) => {
         const direction = relation.sourceWorkId === id ? 'outgoing' : 'incoming';
@@ -1143,6 +1225,7 @@ export class ResearchService {
         isSelected: assertion.isSelected,
       })),
       relations,
+      tags: tagRecords.map(toTagView),
     };
   }
 
@@ -1413,6 +1496,252 @@ export class ResearchService {
     if (!(await this.repository.deleteWorkRelation(id))) throw notFound('作品关系不存在');
   }
 
+  private async assertTagNamesAvailable(names: string[], excludedTagId?: string) {
+    const normalized = names.map(normalizeTagName);
+    if (normalized.some((name) => !name)) throw invalid('标签名称不能为空');
+    if (new Set(normalized).size !== normalized.length) throw invalid('标签名称和别名不能重复');
+    const tags = await this.repository.listTags('all');
+    const occupied = new Map<string, string>();
+    for (const tag of tags) {
+      if (tag.id === excludedTagId) continue;
+      occupied.set(normalizeTagName(tag.name), tag.name);
+      for (const alias of tag.aliases) occupied.set(normalizeTagName(alias), alias);
+    }
+    const collision = normalized.find((name) => occupied.has(name));
+    if (collision) throw conflict(`标签名称或别名“${occupied.get(collision)}”已经存在`);
+  }
+
+  async listTags(
+    status: 'active' | 'trashed' | 'all',
+    query: string | undefined,
+    sort: 'usage' | 'name' | 'recent',
+  ) {
+    const normalizedQuery = query ? normalizeTagName(query) : '';
+    const tags = (await this.repository.listTags(status)).filter(
+      (tag) =>
+        !normalizedQuery ||
+        [tag.name, ...tag.aliases].some((name) => normalizeTagName(name).includes(normalizedQuery)),
+    );
+    tags.sort((left, right) => {
+      if (sort === 'name')
+        return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+      if (sort === 'recent') {
+        return (
+          (right.lastUsedAt ?? right.updatedAt).localeCompare(left.lastUsedAt ?? left.updatedAt) ||
+          left.id.localeCompare(right.id)
+        );
+      }
+      return right.usageCount - left.usageCount || left.name.localeCompare(right.name);
+    });
+    return { tags: tags.map(toTagView) };
+  }
+
+  async createTag(input: CreateTagInput) {
+    await this.assertTagNamesAvailable([input.name, ...input.aliases]);
+    return toTagView(
+      await this.repository.createTag({
+        id: this.createId(),
+        name: input.name.trim(),
+        normalizedName: normalizeTagName(input.name),
+        color: input.color,
+        description: input.description,
+        aliases: input.aliases.map((name) => ({
+          id: this.createId(),
+          name: name.trim(),
+          normalizedName: normalizeTagName(name),
+        })),
+      }),
+    );
+  }
+
+  async updateTag(id: string, input: UpdateTagInput) {
+    const current = await this.repository.getTag(id);
+    if (!current) throw notFound('标签不存在');
+    const name = input.name ?? current.name;
+    const aliases = input.aliases ?? current.aliases;
+    await this.assertTagNamesAvailable([name, ...aliases], id);
+    const updated = await this.repository.updateTag({
+      id,
+      name: name.trim(),
+      normalizedName: normalizeTagName(name),
+      color: input.color === undefined ? current.color : input.color,
+      description: input.description === undefined ? current.description : input.description,
+      aliases: aliases.map((alias) => ({
+        id: this.createId(),
+        name: alias.trim(),
+        normalizedName: normalizeTagName(alias),
+      })),
+      expectedUpdatedAt: input.expectedUpdatedAt,
+    });
+    if (!updated) throw conflict('标签已被其他操作修改，请刷新后重试');
+    return toTagView(updated);
+  }
+
+  async setWorkTags(workId: string, tagIds: string[]) {
+    const work = await this.repository.getWork(workId);
+    if (!work) throw notFound('作品不存在');
+    if (work.status !== 'active') throw conflict('只能修改活动作品的标签');
+    const uniqueIds = [...new Set(tagIds)];
+    const tags = await Promise.all(uniqueIds.map((id) => this.repository.getTag(id)));
+    if (tags.some((tag) => !tag || tag.trashedAt)) throw notFound('所选标签不存在或已回收');
+    await this.repository.setWorkTags(
+      workId,
+      uniqueIds.map((tagId) => ({ id: this.createId(), tagId })),
+    );
+    return this.getWork(workId);
+  }
+
+  async findTagCandidates(name: string, limit: number) {
+    const requested = normalizeTagName(name);
+    const candidates = (await this.repository.listTags('active'))
+      .map((tag) => {
+        const matches = [tag.name, ...tag.aliases].map((matchedName) => ({
+          matchedName,
+          ...tagSimilarity(requested, normalizeTagName(matchedName)),
+        }));
+        const best = matches.sort((left, right) => right.score - left.score)[0]!;
+        return { tag: toTagView(tag), ...best };
+      })
+      .filter((candidate) => candidate.score >= 0.45)
+      .sort(
+        (left, right) =>
+          right.score - left.score ||
+          right.tag.usageCount - left.tag.usageCount ||
+          left.tag.name.localeCompare(right.tag.name),
+      )
+      .slice(0, limit);
+    return { candidates };
+  }
+
+  async tagDeletionPreview(id: string) {
+    const tag = await this.repository.getTag(id);
+    if (!tag) throw notFound('标签不存在');
+    return {
+      tagId: tag.id,
+      name: tag.name,
+      usageCount: tag.usageCount,
+      aliasCount: tag.aliases.length,
+    };
+  }
+
+  async trashTag(id: string, expectedUpdatedAt: string) {
+    const tag = await this.repository.getTag(id);
+    if (!tag) throw notFound('标签不存在');
+    if (!(await this.repository.trashTag(id, expectedUpdatedAt))) {
+      throw conflict('标签已被其他操作修改，请刷新后重试');
+    }
+    return toTagView((await this.repository.getTag(id))!);
+  }
+
+  async restoreTag(id: string) {
+    if (!(await this.repository.restoreTag(id))) throw notFound('可恢复的标签不存在');
+    return toTagView((await this.repository.getTag(id))!);
+  }
+
+  async permanentlyDeleteTag(id: string) {
+    const tag = await this.repository.getTag(id);
+    if (!tag) throw notFound('标签不存在');
+    if (!tag.trashedAt) throw conflict('标签需先移入回收站');
+    if (!(await this.repository.deleteTagPermanently(id))) throw conflict('标签永久删除失败');
+    return { deleted: true as const };
+  }
+
+  async mergeTags(input: MergeTagsInput) {
+    const record = await this.repository.mergeTags({
+      id: this.createId(),
+      survivorId: input.survivorId,
+      mergedId: input.mergedId,
+      expectedSurvivorUpdatedAt: input.expectedSurvivorUpdatedAt,
+      expectedMergedUpdatedAt: input.expectedMergedUpdatedAt,
+      mergedNameAliasId: this.createId(),
+    });
+    if (!record) throw conflict('标签已变化或不能合并，请刷新后重试');
+    return toMergeRecordView(record);
+  }
+
+  async previewWorkMerge(survivorId: string, mergedWorkId: string) {
+    if (survivorId === mergedWorkId) throw invalid('作品不能与自己合并');
+    const [survivor, merged, survivorEditions, mergedEditions] = await Promise.all([
+      this.repository.getWork(survivorId),
+      this.repository.getWork(mergedWorkId),
+      this.repository.listEditions(survivorId),
+      this.repository.listEditions(mergedWorkId),
+    ]);
+    if (!survivor || !merged) throw notFound('待合并作品不存在');
+    if (survivor.status !== 'active' || merged.status !== 'active') {
+      throw conflict('只能合并活动作品');
+    }
+    const fields = (work: typeof survivor) => ({
+      title: work.title,
+      type: work.type,
+      abstract: work.abstract,
+      year: work.year,
+    });
+    return {
+      survivor: {
+        id: survivor.id,
+        revision: survivor.revision,
+        fields: fields(survivor),
+        editionIds: survivorEditions.map((edition) => edition.id),
+      },
+      merged: {
+        id: merged.id,
+        revision: merged.revision,
+        fields: fields(merged),
+        editionIds: mergedEditions.map((edition) => edition.id),
+      },
+    };
+  }
+
+  async mergeWorks(survivorId: string, input: MergeWorksInput) {
+    const preview = await this.previewWorkMerge(survivorId, input.mergedWorkId);
+    const requiredEditions = [...preview.merged.editionIds].sort();
+    const requestedEditions = [...new Set(input.editionIdsToMove)].sort();
+    if (JSON.stringify(requiredEditions) !== JSON.stringify(requestedEditions)) {
+      throw invalid('合并时必须明确转移被合并作品的全部 Edition');
+    }
+    const resultingEditionIds = new Set([
+      ...preview.survivor.editionIds,
+      ...preview.merged.editionIds,
+    ]);
+    if (input.preferredEditionId && !resultingEditionIds.has(input.preferredEditionId)) {
+      throw invalid('首选 Edition 不属于合并后的作品');
+    }
+    const selected = <Key extends keyof MergeWorksInput['fieldChoices']>(key: Key) => {
+      const side = input.fieldChoices[key];
+      return preview[side].fields[key];
+    };
+    const title = selected('title');
+    const record = await this.repository.mergeWorks({
+      id: this.createId(),
+      survivorId,
+      mergedId: input.mergedWorkId,
+      expectedSurvivorRevision: input.expectedSurvivorRevision,
+      expectedMergedRevision: input.expectedMergedRevision,
+      selectedFields: {
+        title,
+        titleSort: normalizeTitle(title),
+        type: selected('type'),
+        abstract: selected('abstract'),
+        year: selected('year'),
+      },
+      fieldSources: input.fieldChoices,
+      editionIdsToMove: requestedEditions,
+      preferredEditionId: input.preferredEditionId,
+    });
+    if (!record) throw conflict('作品已变化或不能合并，请刷新预览后重试');
+    return toMergeRecordView(record);
+  }
+
+  async undoMerge(id: string) {
+    const record = await this.repository.getMergeRecord(id);
+    if (!record) throw notFound('合并记录不存在');
+    if (record.status === 'reverted') throw conflict('该合并已经撤销');
+    const reverted = await this.repository.revertMerge(id);
+    if (!reverted) throw conflict('合并后数据已有变化，不能覆盖后续修改');
+    return toMergeRecordView(reverted);
+  }
+
   async previewBulkWorkAction(input: BulkWorkActionInput) {
     const items = await Promise.all(
       input.workIds.map(async (workId) => {
@@ -1439,6 +1768,12 @@ export class ResearchService {
         const collections = await this.repository.listCollections();
         if (input.collectionIds.some((id) => !collections.some((value) => value.id === id))) {
           throw notFound('批量操作包含不存在的目录');
+        }
+      }
+      if ('tagIds' in input) {
+        const tags = await Promise.all(input.tagIds.map((id) => this.repository.getTag(id)));
+        if (tags.some((tag) => !tag || tag.trashedAt)) {
+          throw notFound('批量操作包含不存在或已回收的标签');
         }
       }
       const results: Array<{
@@ -1478,7 +1813,7 @@ export class ResearchService {
               status: changed ? 'succeeded' : 'skipped',
               message,
             });
-          } else {
+          } else if ('collectionIds' in input) {
             const selected = new Set(work.collectionIds);
             for (const collectionId of input.collectionIds) {
               if (input.action === 'add-to-collections') selected.add(collectionId);
@@ -1490,6 +1825,19 @@ export class ResearchService {
                 entryId: this.createId(),
                 collectionId,
               })),
+            );
+            results.push({ workId, status: 'succeeded', message: null });
+          } else {
+            const selected = new Set(
+              (await this.repository.listTagsForWork(workId)).map((tag) => tag.id),
+            );
+            for (const tagId of input.tagIds) {
+              if (input.action === 'add-tags') selected.add(tagId);
+              else selected.delete(tagId);
+            }
+            await this.repository.setWorkTags(
+              workId,
+              [...selected].map((tagId) => ({ id: this.createId(), tagId })),
             );
             results.push({ workId, status: 'succeeded', message: null });
           }

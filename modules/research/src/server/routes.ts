@@ -5,6 +5,7 @@ import {
   RESEARCH_API_V1,
   addLocalAttachmentInputSchema,
   bulkWorkActionInputSchema,
+  createTagInputSchema,
   confirmImportInputSchema,
   createWorkRelationInputSchema,
   createCollectionInputSchema,
@@ -12,14 +13,22 @@ import {
   deleteCollectionQuerySchema,
   inspectImportInputSchema,
   listImportSessionsQuerySchema,
+  listTagsQuerySchema,
   listWorksQuerySchema,
+  mergeTagsInputSchema,
+  mergeWorksInputSchema,
   permanentDeleteInputSchema,
   pickPdfInputSchema,
   prepareImportInputSchema,
   relinkLocationInputSchema,
   setWorkCollectionsInputSchema,
+  setWorkTagsInputSchema,
+  tagCandidatesQuerySchema,
+  tagVersionInputSchema,
   uploadPdfQuerySchema,
   updateCollectionInputSchema,
+  updateTagInputSchema,
+  workMergePreviewInputSchema,
 } from '../contract.js';
 import type { ResearchService } from './service.js';
 
@@ -92,6 +101,24 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
       service.deleteWorkRelation(params.id),
     ),
   );
+  app.put(
+    RESEARCH_API_V1.workTags(':id'),
+    defineRoute({ params: idParams, body: setWorkTagsInputSchema }, ({ params, body }) =>
+      service.setWorkTags(params.id, body.tagIds),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.workMergePreview(':id'),
+    defineRoute({ params: idParams, body: workMergePreviewInputSchema }, ({ params, body }) =>
+      service.previewWorkMerge(params.id, body.mergedWorkId),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.workMerge(':id'),
+    defineRoute({ params: idParams, body: mergeWorksInputSchema }, ({ params, body }) =>
+      service.mergeWorks(params.id, body),
+    ),
+  );
   app.post(
     RESEARCH_API_V1.workTrash(':id'),
     defineRoute({ params: idParams }, async ({ params }) => {
@@ -136,6 +163,55 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     defineRoute({ params: idParams, query: deleteCollectionQuerySchema }, ({ params, query }) =>
       service.deleteCollection(params.id, query.strategy),
     ),
+  );
+
+  app.get(
+    RESEARCH_API_V1.tags,
+    defineRoute({ query: listTagsQuerySchema }, ({ query }) =>
+      service.listTags(query.status, query.query, query.sort),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.tagCandidates,
+    defineRoute({ query: tagCandidatesQuerySchema }, ({ query }) =>
+      service.findTagCandidates(query.name, query.limit),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.tags,
+    defineRoute({ body: createTagInputSchema, status: 201 }, ({ body }) => service.createTag(body)),
+  );
+  app.patch(
+    RESEARCH_API_V1.tag(':id'),
+    defineRoute({ params: idParams, body: updateTagInputSchema }, ({ params, body }) =>
+      service.updateTag(params.id, body),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.tagDeletionPreview(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.tagDeletionPreview(params.id)),
+  );
+  app.delete(
+    RESEARCH_API_V1.tag(':id'),
+    defineRoute({ params: idParams, body: tagVersionInputSchema }, ({ params, body }) =>
+      service.trashTag(params.id, body.expectedUpdatedAt),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.tagRestore(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.restoreTag(params.id)),
+  );
+  app.delete(
+    RESEARCH_API_V1.tagPermanentDelete(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.permanentlyDeleteTag(params.id)),
+  );
+  app.post(
+    RESEARCH_API_V1.tagMerge,
+    defineRoute({ body: mergeTagsInputSchema }, ({ body }) => service.mergeTags(body)),
+  );
+  app.post(
+    RESEARCH_API_V1.mergeUndo(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.undoMerge(params.id)),
   );
 
   app.post(

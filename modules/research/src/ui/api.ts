@@ -12,21 +12,31 @@ import {
   importInspectionResponseSchema,
   importSessionViewSchema,
   importSessionsResponseSchema,
+  mergeRecordViewSchema,
   pickPdfResponseSchema,
   relinkLocationResponseSchema,
+  tagCandidatesResponseSchema,
+  tagDeletionPreviewSchema,
+  tagViewSchema,
+  tagsResponseSchema,
   workDetailViewSchema,
+  workMergePreviewSchema,
   worksPageResponseSchema,
   type AddLocalAttachmentInput,
   type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateManualWorkInput,
+  type CreateTagInput,
   type CreateWorkRelationInput,
   type ImportSessionStatus,
   type InspectImportInput,
+  type MergeTagsInput,
+  type MergeWorksInput,
   type PrepareImportInput,
   type RelinkLocationResponse,
   type SystemView,
   type UpdateCollectionInput,
+  type UpdateTagInput,
   type WorkStatus,
 } from '../contract.js';
 
@@ -43,6 +53,12 @@ export type ImportInspection = z.infer<typeof importInspectionResponseSchema>;
 export type ImportInspectionItem = ImportInspection['items'][number];
 export type ImportCommitResult = z.infer<typeof importCommitResultSchema>;
 export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
+export type TagView = z.infer<typeof tagViewSchema>;
+export type TagsResponse = z.infer<typeof tagsResponseSchema>;
+export type TagCandidates = z.infer<typeof tagCandidatesResponseSchema>;
+export type TagDeletionPreview = z.infer<typeof tagDeletionPreviewSchema>;
+export type WorkMergePreview = z.infer<typeof workMergePreviewSchema>;
+export type MergeRecordView = z.infer<typeof mergeRecordViewSchema>;
 
 export interface FetchWorksOptions {
   status?: WorkStatus;
@@ -140,6 +156,99 @@ export async function postBulkWorkAction(input: BulkWorkActionInput): Promise<Bu
 export async function putWorkCollections(id: string, collectionIds: string[]): Promise<WorkDetail> {
   return workDetailViewSchema.parse(
     await apiRequest(RESEARCH_API_V1.workCollections(id), jsonBody('PUT', { collectionIds })),
+  );
+}
+
+export async function fetchTags(
+  options: {
+    status?: 'active' | 'trashed' | 'all';
+    query?: string;
+    sort?: 'usage' | 'name' | 'recent';
+  } = {},
+): Promise<TagsResponse> {
+  const params = new URLSearchParams();
+  if (options.status) params.set('status', options.status);
+  if (options.query) params.set('query', options.query);
+  if (options.sort) params.set('sort', options.sort);
+  const query = params.toString();
+  return tagsResponseSchema.parse(
+    await apiRequest(query ? `${RESEARCH_API_V1.tags}?${query}` : RESEARCH_API_V1.tags),
+  );
+}
+
+export async function fetchTagCandidates(name: string): Promise<TagCandidates> {
+  const params = new URLSearchParams({ name });
+  return tagCandidatesResponseSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.tagCandidates}?${params.toString()}`),
+  );
+}
+
+export async function postTag(input: CreateTagInput): Promise<TagView> {
+  return tagViewSchema.parse(await apiRequest(RESEARCH_API_V1.tags, jsonBody('POST', input)));
+}
+
+export async function patchTag(id: string, input: UpdateTagInput): Promise<TagView> {
+  return tagViewSchema.parse(await apiRequest(RESEARCH_API_V1.tag(id), jsonBody('PATCH', input)));
+}
+
+export async function putWorkTags(id: string, tagIds: string[]): Promise<WorkDetail> {
+  return workDetailViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workTags(id), jsonBody('PUT', { tagIds })),
+  );
+}
+
+export async function fetchTagDeletionPreview(id: string): Promise<TagDeletionPreview> {
+  return tagDeletionPreviewSchema.parse(await apiRequest(RESEARCH_API_V1.tagDeletionPreview(id)));
+}
+
+export async function deleteTag(id: string, expectedUpdatedAt: string): Promise<TagView> {
+  return tagViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.tag(id), {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedUpdatedAt }),
+    }),
+  );
+}
+
+export async function postRestoreTag(id: string): Promise<TagView> {
+  return tagViewSchema.parse(await apiRequest(RESEARCH_API_V1.tagRestore(id), { method: 'POST' }));
+}
+
+export async function deleteTagPermanently(id: string): Promise<void> {
+  await apiRequest(RESEARCH_API_V1.tagPermanentDelete(id), { method: 'DELETE' });
+}
+
+export async function postMergeTags(input: MergeTagsInput): Promise<MergeRecordView> {
+  return mergeRecordViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.tagMerge, jsonBody('POST', input)),
+  );
+}
+
+export async function postWorkMergePreview(
+  survivorId: string,
+  mergedWorkId: string,
+): Promise<WorkMergePreview> {
+  return workMergePreviewSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.workMergePreview(survivorId),
+      jsonBody('POST', { mergedWorkId }),
+    ),
+  );
+}
+
+export async function postMergeWorks(
+  survivorId: string,
+  input: MergeWorksInput,
+): Promise<MergeRecordView> {
+  return mergeRecordViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workMerge(survivorId), jsonBody('POST', input)),
+  );
+}
+
+export async function postUndoMerge(id: string): Promise<MergeRecordView> {
+  return mergeRecordViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.mergeUndo(id), { method: 'POST' }),
   );
 }
 

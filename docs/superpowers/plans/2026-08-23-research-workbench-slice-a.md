@@ -436,20 +436,22 @@ npx vitest run modules/research/src/library/collections.test.ts modules/research
 
 **提交：** `feat(research): add reversible tag and work governance`
 
-- [ ] 标签支持规范名、别名、颜色、说明、批量分配和按使用量排序。
-- [ ] 近似标签只提示；规范化只用于候选检索，不自动合并。
-- [ ] 标签合并保留旧名为 alias，记录转移关系和完整快照；撤销恢复原标签与作品关系。
-- [ ] 标签删除进入可撤销回收状态；永久清理前显示使用数与别名影响。
-- [ ] Work 合并必须由用户选择 survivor、版本归属和冲突字段；保留旧 ID 重定向、外部映射和 MergeRecord。
-- [ ] Work 合并撤销恢复原记录、版本、目录、标签、关系和来源；永久清理前不得丢失撤销材料。
-- [ ] 合并操作使用事务和乐观版本；并发变化时停止并要求重新预览。
-- [ ] UI 分别提供标签候选与作品重复审查，不把相似度显示成确定性结论。
+- [x] 标签支持规范名、别名、颜色、说明、批量分配和按使用量排序。
+- [x] 近似标签只提示；规范化只用于候选检索，不自动合并。
+- [x] 标签合并保留旧名为 alias，记录转移关系和完整快照；撤销恢复原标签与作品关系。
+- [x] 标签删除进入可撤销回收状态；永久清理前显示使用数与别名影响。
+- [x] Work 合并必须由用户选择 survivor、版本归属和冲突字段；保留旧 ID 重定向、外部映射和 MergeRecord。
+- [x] Work 合并撤销恢复原记录、版本、目录、标签、关系和来源；永久清理前不得丢失撤销材料。
+- [x] 合并操作使用事务和乐观版本；并发变化时停止并要求重新预览。
+- [x] UI 分别提供标签候选与作品重复审查，不把相似度显示成确定性结论。
 
 **验证：**
 
 ```bash
 npx vitest run modules/research/src/library/tags.test.ts modules/research/src/library/duplicates.test.ts modules/research/src/server/governance-routes.test.ts
 ```
+
+**验收记录（2026-08-23，macOS）：** Task 11 三个专项文件共 8 项通过；完整 research 默认套件 22 个测试文件通过、4 个 opt-in 文件跳过，共 130 项通过。生产 Vite 构建通过。标签测试覆盖 NFKC 规范化、近似建议、批量分配、回收恢复、合并快照与撤销；Work 测试覆盖显式字段/Edition/首选版本选择、旧 ID 重定向、目录/标签/关系/元数据来源恢复，以及合并后发生变化时拒绝覆盖。紧凑布局和参考 `workbench_template.html` 的舒展布局共用标签管理器、重复审查器和同一套查询/变更状态。
 
 ### Task 12：完成结构化检索、模糊搜索和保存查询
 

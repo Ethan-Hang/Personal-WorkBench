@@ -33,7 +33,14 @@ import type {
   LocationAuditRecord,
   ManualWorkDraft,
   ManualWorkResult,
+  MergeRecord,
+  TagDraft,
+  TagMergeDraft,
+  TagRecord,
+  TagSummaryRecord,
+  TagUpdateDraft,
   WorkListRecord,
+  WorkMergeDraft,
   WorkPage,
   WorkRelationDraft,
   WorkRelationRecord,
@@ -213,6 +220,32 @@ function toWorkRelation(row: Row): WorkRelationRecord {
   };
 }
 
+function toTag(row: Row): TagRecord {
+  return {
+    id: text(row, 'id'),
+    name: text(row, 'name'),
+    normalizedName: text(row, 'normalized_name'),
+    color: nullableText(row, 'color'),
+    description: nullableText(row, 'description'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    trashedAt: nullableText(row, 'trashed_at'),
+  };
+}
+
+function toMergeRecord(row: Row): MergeRecord {
+  return {
+    id: text(row, 'id'),
+    entityType: text(row, 'entity_type') as MergeRecord['entityType'],
+    survivorId: text(row, 'survivor_id'),
+    mergedId: text(row, 'merged_id'),
+    snapshotJson: text(row, 'snapshot_json'),
+    status: text(row, 'status') as MergeRecord['status'],
+    createdAt: text(row, 'created_at'),
+    revertedAt: nullableText(row, 'reverted_at'),
+  };
+}
+
 function toImportItem(row: Row): ImportItemRecord {
   return {
     id: text(row, 'id'),
@@ -329,6 +362,27 @@ export class SqliteResearchRepository implements ResearchRepository {
 
   private get sqlite(): Database.Database {
     return this.getSqlite();
+  }
+
+  private readTagSummary(id: string): TagSummaryRecord | null {
+    const row = this.sqlite.prepare('SELECT * FROM research_tags WHERE id = ?').get(id) as
+      Row | undefined;
+    if (!row) return null;
+    const aliases = this.sqlite
+      .prepare('SELECT name FROM research_tag_aliases WHERE tag_id = ? ORDER BY name, id')
+      .all(id) as Array<{ name: string }>;
+    const usage = this.sqlite
+      .prepare(
+        `SELECT COUNT(*) AS usage_count, MAX(created_at) AS last_used_at
+         FROM research_work_tags WHERE tag_id = ?`,
+      )
+      .get(id) as { usage_count: number; last_used_at: string | null };
+    return {
+      ...toTag(row),
+      aliases: aliases.map((alias) => alias.name),
+      usageCount: usage.usage_count,
+      lastUsedAt: usage.last_used_at,
+    };
   }
 
   private readImportSession(
@@ -1774,5 +1828,858 @@ export class SqliteResearchRepository implements ResearchRepository {
     return (
       this.sqlite.prepare('DELETE FROM research_work_relations WHERE id = ?').run(id).changes === 1
     );
+  }
+
+  async listTags(status: 'active' | 'trashed' | 'all'): Promise<TagSummaryRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT id FROM research_tags
+         WHERE (? = 'all')
+            OR (? = 'active' AND trashed_at IS NULL)
+            OR (? = 'trashed' AND trashed_at IS NOT NULL)
+         ORDER BY name, id`,
+      )
+      .all(status, status, status) as Array<{ id: string }>;
+    return rows
+      .map((row) => this.readTagSummary(row.id))
+      .filter((tag): tag is TagSummaryRecord => tag !== null);
+  }
+
+  async getTag(id: string): Promise<TagSummaryRecord | null> {
+    return this.readTagSummary(id);
+  }
+
+  async createTag(draft: TagDraft): Promise<TagSummaryRecord> {
+    this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_tags
+           (id, name, normalized_name, color, description, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          draft.id,
+          draft.name,
+          draft.normalizedName,
+          draft.color,
+          draft.description,
+          timestamp,
+          timestamp,
+        );
+      const insertAlias = this.sqlite.prepare(
+        `INSERT INTO research_tag_aliases
+         (id, tag_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const alias of draft.aliases) {
+        insertAlias.run(alias.id, draft.id, alias.name, alias.normalizedName, timestamp);
+      }
+    })();
+    const created = this.readTagSummary(draft.id);
+    if (!created) throw new Error('标签写入后不可读');
+    return created;
+  }
+
+  async updateTag(draft: TagUpdateDraft): Promise<TagSummaryRecord | null> {
+    const changed = this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      const update = this.sqlite
+        .prepare(
+          `UPDATE research_tags
+           SET name = ?, normalized_name = ?, color = ?, description = ?, updated_at = ?
+           WHERE id = ? AND updated_at = ?`,
+        )
+        .run(
+          draft.name,
+          draft.normalizedName,
+          draft.color,
+          draft.description,
+          timestamp,
+          draft.id,
+          draft.expectedUpdatedAt,
+        );
+      if (update.changes !== 1) return false;
+      this.sqlite.prepare('DELETE FROM research_tag_aliases WHERE tag_id = ?').run(draft.id);
+      const insertAlias = this.sqlite.prepare(
+        `INSERT INTO research_tag_aliases
+         (id, tag_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)`,
+      );
+      for (const alias of draft.aliases) {
+        insertAlias.run(alias.id, draft.id, alias.name, alias.normalizedName, timestamp);
+      }
+      return true;
+    })();
+    return changed ? this.readTagSummary(draft.id) : null;
+  }
+
+  async setWorkTags(workId: string, entries: Array<{ id: string; tagId: string }>): Promise<void> {
+    this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      const previous = this.sqlite
+        .prepare('SELECT tag_id FROM research_work_tags WHERE work_id = ?')
+        .all(workId) as Array<{ tag_id: string }>;
+      this.sqlite.prepare('DELETE FROM research_work_tags WHERE work_id = ?').run(workId);
+      const insert = this.sqlite.prepare(
+        `INSERT INTO research_work_tags (id, work_id, tag_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      );
+      for (const entry of entries) insert.run(entry.id, workId, entry.tagId, timestamp);
+      const touchTag = this.sqlite.prepare('UPDATE research_tags SET updated_at = ? WHERE id = ?');
+      for (const tagId of new Set([
+        ...previous.map((row) => row.tag_id),
+        ...entries.map((e) => e.tagId),
+      ])) {
+        touchTag.run(timestamp, tagId);
+      }
+      this.sqlite
+        .prepare(`UPDATE research_works SET updated_at = ?, revision = revision + 1 WHERE id = ?`)
+        .run(timestamp, workId);
+    })();
+  }
+
+  async listTagsForWork(workId: string): Promise<TagSummaryRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT tag_id FROM research_work_tags wt
+         JOIN research_tags t ON t.id = wt.tag_id
+         WHERE wt.work_id = ? AND t.trashed_at IS NULL
+         ORDER BY t.name, t.id`,
+      )
+      .all(workId) as Array<{ tag_id: string }>;
+    return rows
+      .map((row) => this.readTagSummary(row.tag_id))
+      .filter((tag): tag is TagSummaryRecord => tag !== null);
+  }
+
+  async trashTag(id: string, expectedUpdatedAt: string): Promise<boolean> {
+    const timestamp = this.clock();
+    return (
+      this.sqlite
+        .prepare(
+          `UPDATE research_tags SET trashed_at = ?, updated_at = ?
+           WHERE id = ? AND trashed_at IS NULL AND updated_at = ?`,
+        )
+        .run(timestamp, timestamp, id, expectedUpdatedAt).changes === 1
+    );
+  }
+
+  async restoreTag(id: string): Promise<boolean> {
+    const timestamp = this.clock();
+    return (
+      this.sqlite
+        .prepare(
+          `UPDATE research_tags SET trashed_at = NULL, updated_at = ?
+           WHERE id = ? AND trashed_at IS NOT NULL`,
+        )
+        .run(timestamp, id).changes === 1
+    );
+  }
+
+  async deleteTagPermanently(id: string): Promise<boolean> {
+    return (
+      this.sqlite
+        .prepare('DELETE FROM research_tags WHERE id = ? AND trashed_at IS NOT NULL')
+        .run(id).changes === 1
+    );
+  }
+
+  async mergeTags(draft: TagMergeDraft): Promise<MergeRecord | null> {
+    return this.sqlite.transaction(() => {
+      const tags = this.sqlite
+        .prepare(`SELECT * FROM research_tags WHERE id IN (?, ?) ORDER BY id`)
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const survivor = tags.find((tag) => text(tag, 'id') === draft.survivorId);
+      const merged = tags.find((tag) => text(tag, 'id') === draft.mergedId);
+      if (
+        !survivor ||
+        !merged ||
+        nullableText(survivor, 'trashed_at') ||
+        nullableText(merged, 'trashed_at') ||
+        text(survivor, 'updated_at') !== draft.expectedSurvivorUpdatedAt ||
+        text(merged, 'updated_at') !== draft.expectedMergedUpdatedAt
+      ) {
+        return null;
+      }
+      const beforeAliases = this.sqlite
+        .prepare('SELECT * FROM research_tag_aliases WHERE tag_id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const beforeWorkTags = this.sqlite
+        .prepare('SELECT * FROM research_work_tags WHERE tag_id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const timestamp = this.clock();
+
+      const mergedNameAlias = this.sqlite
+        .prepare('SELECT id FROM research_tag_aliases WHERE normalized_name = ?')
+        .get(text(merged, 'normalized_name')) as { id: string } | undefined;
+      if (mergedNameAlias) {
+        this.sqlite
+          .prepare('UPDATE research_tag_aliases SET tag_id = ? WHERE id = ?')
+          .run(draft.survivorId, mergedNameAlias.id);
+      } else {
+        this.sqlite
+          .prepare(
+            `INSERT INTO research_tag_aliases
+             (id, tag_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            draft.mergedNameAliasId,
+            draft.survivorId,
+            text(merged, 'name'),
+            text(merged, 'normalized_name'),
+            timestamp,
+          );
+      }
+      this.sqlite
+        .prepare('UPDATE research_tag_aliases SET tag_id = ? WHERE tag_id = ?')
+        .run(draft.survivorId, draft.mergedId);
+      const mergedAssignments = this.sqlite
+        .prepare('SELECT id, work_id FROM research_work_tags WHERE tag_id = ?')
+        .all(draft.mergedId) as Array<{ id: string; work_id: string }>;
+      const existingAssignment = this.sqlite.prepare(
+        'SELECT 1 FROM research_work_tags WHERE work_id = ? AND tag_id = ?',
+      );
+      for (const assignment of mergedAssignments) {
+        if (existingAssignment.get(assignment.work_id, draft.survivorId)) {
+          this.sqlite.prepare('DELETE FROM research_work_tags WHERE id = ?').run(assignment.id);
+        } else {
+          this.sqlite
+            .prepare('UPDATE research_work_tags SET tag_id = ? WHERE id = ?')
+            .run(draft.survivorId, assignment.id);
+        }
+      }
+      this.sqlite
+        .prepare('UPDATE research_tags SET updated_at = ? WHERE id = ?')
+        .run(timestamp, draft.survivorId);
+      this.sqlite
+        .prepare('UPDATE research_tags SET trashed_at = ?, updated_at = ? WHERE id = ?')
+        .run(timestamp, timestamp, draft.mergedId);
+
+      const appliedTags = this.sqlite
+        .prepare('SELECT * FROM research_tags WHERE id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const appliedAliases = this.sqlite
+        .prepare('SELECT * FROM research_tag_aliases WHERE tag_id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const appliedWorkTags = this.sqlite
+        .prepare('SELECT * FROM research_work_tags WHERE tag_id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const snapshotJson = JSON.stringify({
+        version: 1,
+        entityType: 'tag',
+        before: { tags, aliases: beforeAliases, workTags: beforeWorkTags },
+        applied: { tags: appliedTags, aliases: appliedAliases, workTags: appliedWorkTags },
+      });
+      const record = this.sqlite
+        .prepare(
+          `INSERT INTO research_merge_records
+           (id, entity_type, survivor_id, merged_id, snapshot_json, status, created_at)
+           VALUES (?, 'tag', ?, ?, ?, 'merged', ?) RETURNING *`,
+        )
+        .get(draft.id, draft.survivorId, draft.mergedId, snapshotJson, timestamp) as Row;
+      return toMergeRecord(record);
+    })();
+  }
+
+  async mergeWorks(draft: WorkMergeDraft): Promise<MergeRecord | null> {
+    return this.sqlite.transaction(() => {
+      const works = this.sqlite
+        .prepare('SELECT * FROM research_works WHERE id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const survivor = works.find((work) => text(work, 'id') === draft.survivorId);
+      const merged = works.find((work) => text(work, 'id') === draft.mergedId);
+      if (
+        !survivor ||
+        !merged ||
+        text(survivor, 'status') !== 'active' ||
+        text(merged, 'status') !== 'active' ||
+        integer(survivor, 'revision') !== draft.expectedSurvivorRevision ||
+        integer(merged, 'revision') !== draft.expectedMergedRevision
+      ) {
+        return null;
+      }
+
+      const editions = this.sqlite
+        .prepare('SELECT * FROM research_editions WHERE work_id IN (?, ?) ORDER BY id')
+        .all(draft.survivorId, draft.mergedId) as Row[];
+      const mergedEditionIds = editions
+        .filter((edition) => text(edition, 'work_id') === draft.mergedId)
+        .map((edition) => text(edition, 'id'))
+        .sort();
+      const requestedEditionIds = [...draft.editionIdsToMove].sort();
+      if (JSON.stringify(mergedEditionIds) !== JSON.stringify(requestedEditionIds)) return null;
+      const resultingEditionIds = new Set(editions.map((edition) => text(edition, 'id')));
+      if (draft.preferredEditionId && !resultingEditionIds.has(draft.preferredEditionId))
+        return null;
+
+      const queryScoped = (table: string, predicate: string) =>
+        this.sqlite
+          .prepare(`SELECT * FROM ${table} WHERE ${predicate} ORDER BY id`)
+          .all(draft.survivorId, draft.mergedId) as Row[];
+      const before = {
+        works,
+        editions,
+        collectionEntries: queryScoped('research_collection_entries', 'work_id IN (?, ?)'),
+        workTags: queryScoped('research_work_tags', 'work_id IN (?, ?)'),
+        workRelations: this.sqlite
+          .prepare(
+            `SELECT * FROM research_work_relations
+             WHERE source_work_id IN (?, ?) OR target_work_id IN (?, ?) ORDER BY id`,
+          )
+          .all(draft.survivorId, draft.mergedId, draft.survivorId, draft.mergedId) as Row[],
+        assertions: this.sqlite
+          .prepare(
+            `SELECT * FROM research_metadata_assertions
+             WHERE entity_type = 'work' AND entity_id IN (?, ?) ORDER BY id`,
+          )
+          .all(draft.survivorId, draft.mergedId) as Row[],
+        sourceMaps: this.sqlite
+          .prepare(
+            `SELECT * FROM research_external_source_maps
+             WHERE entity_type = 'work' AND entity_id IN (?, ?) ORDER BY id`,
+          )
+          .all(draft.survivorId, draft.mergedId) as Row[],
+        identifiers: this.sqlite
+          .prepare(
+            `SELECT * FROM research_identifiers
+             WHERE entity_type = 'work' AND entity_id IN (?, ?) ORDER BY id`,
+          )
+          .all(draft.survivorId, draft.mergedId) as Row[],
+        importItems: queryScoped('research_import_items', 'work_id IN (?, ?)'),
+      };
+      const timestamp = this.clock();
+
+      this.sqlite
+        .prepare('UPDATE research_editions SET work_id = ? WHERE work_id = ?')
+        .run(draft.survivorId, draft.mergedId);
+
+      const moveUniqueRows = (table: string, keyColumn: string) => {
+        const mergedRows = this.sqlite
+          .prepare(
+            `SELECT id, ${keyColumn} AS item_key FROM ${table} WHERE work_id = ? ORDER BY id`,
+          )
+          .all(draft.mergedId) as Array<{ id: string; item_key: string }>;
+        const exists = this.sqlite.prepare(
+          `SELECT 1 FROM ${table} WHERE work_id = ? AND ${keyColumn} = ?`,
+        );
+        for (const row of mergedRows) {
+          if (exists.get(draft.survivorId, row.item_key)) {
+            this.sqlite.prepare(`DELETE FROM ${table} WHERE id = ?`).run(row.id);
+          } else {
+            this.sqlite
+              .prepare(`UPDATE ${table} SET work_id = ? WHERE id = ?`)
+              .run(draft.survivorId, row.id);
+          }
+        }
+      };
+      moveUniqueRows('research_collection_entries', 'collection_id');
+      moveUniqueRows('research_work_tags', 'tag_id');
+
+      this.sqlite
+        .prepare(
+          `DELETE FROM research_work_relations
+           WHERE source_work_id IN (?, ?) OR target_work_id IN (?, ?)`,
+        )
+        .run(draft.survivorId, draft.mergedId, draft.survivorId, draft.mergedId);
+      const insertRelation = this.sqlite.prepare(
+        `INSERT INTO research_work_relations
+         (id, source_work_id, target_work_id, kind, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      );
+      const relationKeys = new Set<string>();
+      for (const row of before.workRelations) {
+        const source =
+          text(row, 'source_work_id') === draft.mergedId
+            ? draft.survivorId
+            : text(row, 'source_work_id');
+        const target =
+          text(row, 'target_work_id') === draft.mergedId
+            ? draft.survivorId
+            : text(row, 'target_work_id');
+        if (source === target) continue;
+        const key = `${source}\0${target}\0${text(row, 'kind')}`;
+        if (relationKeys.has(key)) continue;
+        relationKeys.add(key);
+        insertRelation.run(
+          text(row, 'id'),
+          source,
+          target,
+          text(row, 'kind'),
+          nullableText(row, 'note'),
+          text(row, 'created_at'),
+        );
+      }
+
+      const selectedAssertionIds = (['title', 'type', 'abstract', 'year'] as const).flatMap(
+        (fieldName) => {
+          const sourceId =
+            draft.fieldSources[fieldName] === 'survivor' ? draft.survivorId : draft.mergedId;
+          const assertion = before.assertions.find(
+            (row) =>
+              text(row, 'entity_id') === sourceId &&
+              text(row, 'field_name') === fieldName &&
+              integer(row, 'is_selected') === 1,
+          );
+          return assertion ? [text(assertion, 'id')] : [];
+        },
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_metadata_assertions SET is_selected = 0
+           WHERE entity_type = 'work' AND entity_id IN (?, ?)`,
+        )
+        .run(draft.survivorId, draft.mergedId);
+      for (const table of [
+        'research_metadata_assertions',
+        'research_external_source_maps',
+        'research_identifiers',
+      ]) {
+        this.sqlite
+          .prepare(`UPDATE ${table} SET entity_id = ? WHERE entity_type = 'work' AND entity_id = ?`)
+          .run(draft.survivorId, draft.mergedId);
+      }
+      const selectAssertion = this.sqlite.prepare(
+        'UPDATE research_metadata_assertions SET is_selected = 1 WHERE id = ?',
+      );
+      for (const assertionId of selectedAssertionIds) selectAssertion.run(assertionId);
+      this.sqlite
+        .prepare('UPDATE research_import_items SET work_id = ? WHERE work_id = ?')
+        .run(draft.survivorId, draft.mergedId);
+
+      this.sqlite
+        .prepare(
+          `UPDATE research_works
+           SET type = ?, title = ?, title_sort = ?, abstract = ?, year = ?,
+               preferred_edition_id = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(
+          draft.selectedFields.type,
+          draft.selectedFields.title,
+          draft.selectedFields.titleSort,
+          draft.selectedFields.abstract,
+          draft.selectedFields.year,
+          draft.preferredEditionId,
+          timestamp,
+          draft.survivorId,
+        );
+      this.sqlite
+        .prepare(
+          `UPDATE research_works
+           SET status = 'merged', redirect_to_work_id = ?, revision = revision + 1,
+               updated_at = ?, trashed_at = NULL
+           WHERE id = ?`,
+        )
+        .run(draft.survivorId, timestamp, draft.mergedId);
+
+      const editionIds = editions.map((edition) => text(edition, 'id'));
+      const editionPlaceholders = editionIds.map(() => '?').join(', ');
+      const queryApplied = (table: string, predicate: string, ...params: string[]) =>
+        this.sqlite
+          .prepare(`SELECT * FROM ${table} WHERE ${predicate} ORDER BY id`)
+          .all(...params) as Row[];
+      const applied = {
+        works: queryApplied('research_works', 'id IN (?, ?)', draft.survivorId, draft.mergedId),
+        editions:
+          editionIds.length === 0
+            ? []
+            : queryApplied('research_editions', `id IN (${editionPlaceholders})`, ...editionIds),
+        collectionEntries: queryApplied(
+          'research_collection_entries',
+          'work_id IN (?, ?)',
+          draft.survivorId,
+          draft.mergedId,
+        ),
+        workTags: queryApplied(
+          'research_work_tags',
+          'work_id IN (?, ?)',
+          draft.survivorId,
+          draft.mergedId,
+        ),
+        workRelations: queryApplied(
+          'research_work_relations',
+          'source_work_id IN (?, ?) OR target_work_id IN (?, ?)',
+          draft.survivorId,
+          draft.mergedId,
+          draft.survivorId,
+          draft.mergedId,
+        ),
+        assertions: queryApplied(
+          'research_metadata_assertions',
+          "entity_type = 'work' AND entity_id IN (?, ?)",
+          draft.survivorId,
+          draft.mergedId,
+        ),
+        sourceMaps: queryApplied(
+          'research_external_source_maps',
+          "entity_type = 'work' AND entity_id IN (?, ?)",
+          draft.survivorId,
+          draft.mergedId,
+        ),
+        identifiers: queryApplied(
+          'research_identifiers',
+          "entity_type = 'work' AND entity_id IN (?, ?)",
+          draft.survivorId,
+          draft.mergedId,
+        ),
+        importItems: queryApplied(
+          'research_import_items',
+          'work_id IN (?, ?)',
+          draft.survivorId,
+          draft.mergedId,
+        ),
+      };
+      const snapshotJson = JSON.stringify({ version: 1, entityType: 'work', before, applied });
+      const record = this.sqlite
+        .prepare(
+          `INSERT INTO research_merge_records
+           (id, entity_type, survivor_id, merged_id, snapshot_json, status, created_at)
+           VALUES (?, 'work', ?, ?, ?, 'merged', ?) RETURNING *`,
+        )
+        .get(draft.id, draft.survivorId, draft.mergedId, snapshotJson, timestamp) as Row;
+      return toMergeRecord(record);
+    })();
+  }
+
+  async getMergeRecord(id: string): Promise<MergeRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_merge_records WHERE id = ?').get(id) as
+      Row | undefined;
+    return row ? toMergeRecord(row) : null;
+  }
+
+  async revertMerge(id: string): Promise<MergeRecord | null> {
+    return this.sqlite.transaction(() => {
+      const recordRow = this.sqlite
+        .prepare('SELECT * FROM research_merge_records WHERE id = ? AND status = ?')
+        .get(id, 'merged') as Row | undefined;
+      if (!recordRow) return null;
+      const record = toMergeRecord(recordRow);
+      const same = (left: Row[], right: Row[]) => JSON.stringify(left) === JSON.stringify(right);
+
+      if (record.entityType === 'tag') {
+        const snapshot = JSON.parse(record.snapshotJson) as {
+          version: number;
+          entityType: 'tag';
+          before: { tags: Row[]; aliases: Row[]; workTags: Row[] };
+          applied: { tags: Row[]; aliases: Row[]; workTags: Row[] };
+        };
+        const current = {
+          tags: this.sqlite
+            .prepare('SELECT * FROM research_tags WHERE id IN (?, ?) ORDER BY id')
+            .all(record.survivorId, record.mergedId) as Row[],
+          aliases: this.sqlite
+            .prepare('SELECT * FROM research_tag_aliases WHERE tag_id IN (?, ?) ORDER BY id')
+            .all(record.survivorId, record.mergedId) as Row[],
+          workTags: this.sqlite
+            .prepare('SELECT * FROM research_work_tags WHERE tag_id IN (?, ?) ORDER BY id')
+            .all(record.survivorId, record.mergedId) as Row[],
+        };
+        if (
+          !same(current.tags, snapshot.applied.tags) ||
+          !same(current.aliases, snapshot.applied.aliases) ||
+          !same(current.workTags, snapshot.applied.workTags)
+        ) {
+          return null;
+        }
+        this.sqlite
+          .prepare('DELETE FROM research_work_tags WHERE tag_id IN (?, ?)')
+          .run(record.survivorId, record.mergedId);
+        this.sqlite
+          .prepare('DELETE FROM research_tag_aliases WHERE tag_id IN (?, ?)')
+          .run(record.survivorId, record.mergedId);
+        const updateTag = this.sqlite.prepare(
+          `UPDATE research_tags
+           SET name = ?, normalized_name = ?, color = ?, description = ?, created_at = ?,
+               updated_at = ?, trashed_at = ? WHERE id = ?`,
+        );
+        for (const row of snapshot.before.tags) {
+          updateTag.run(
+            text(row, 'name'),
+            text(row, 'normalized_name'),
+            nullableText(row, 'color'),
+            nullableText(row, 'description'),
+            text(row, 'created_at'),
+            text(row, 'updated_at'),
+            nullableText(row, 'trashed_at'),
+            text(row, 'id'),
+          );
+        }
+        const insertAlias = this.sqlite.prepare(
+          `INSERT INTO research_tag_aliases
+           (id, tag_id, name, normalized_name, created_at) VALUES (?, ?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.aliases) {
+          insertAlias.run(
+            text(row, 'id'),
+            text(row, 'tag_id'),
+            text(row, 'name'),
+            text(row, 'normalized_name'),
+            text(row, 'created_at'),
+          );
+        }
+        const insertWorkTag = this.sqlite.prepare(
+          `INSERT INTO research_work_tags (id, work_id, tag_id, created_at) VALUES (?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.workTags) {
+          insertWorkTag.run(
+            text(row, 'id'),
+            text(row, 'work_id'),
+            text(row, 'tag_id'),
+            text(row, 'created_at'),
+          );
+        }
+      } else {
+        const snapshot = JSON.parse(record.snapshotJson) as {
+          version: number;
+          entityType: 'work';
+          before: {
+            works: Row[];
+            editions: Row[];
+            collectionEntries: Row[];
+            workTags: Row[];
+            workRelations: Row[];
+            assertions: Row[];
+            sourceMaps: Row[];
+            identifiers: Row[];
+            importItems: Row[];
+          };
+          applied: {
+            works: Row[];
+            editions: Row[];
+            collectionEntries: Row[];
+            workTags: Row[];
+            workRelations: Row[];
+            assertions: Row[];
+            sourceMaps: Row[];
+            identifiers: Row[];
+            importItems: Row[];
+          };
+        };
+        const editionIds = snapshot.before.editions.map((edition) => text(edition, 'id'));
+        const editionPlaceholders = editionIds.map(() => '?').join(', ');
+        const query = (table: string, predicate: string, ...params: string[]) =>
+          this.sqlite
+            .prepare(`SELECT * FROM ${table} WHERE ${predicate} ORDER BY id`)
+            .all(...params) as Row[];
+        const current = {
+          works: query('research_works', 'id IN (?, ?)', record.survivorId, record.mergedId),
+          editions:
+            editionIds.length === 0
+              ? []
+              : query('research_editions', `id IN (${editionPlaceholders})`, ...editionIds),
+          collectionEntries: query(
+            'research_collection_entries',
+            'work_id IN (?, ?)',
+            record.survivorId,
+            record.mergedId,
+          ),
+          workTags: query(
+            'research_work_tags',
+            'work_id IN (?, ?)',
+            record.survivorId,
+            record.mergedId,
+          ),
+          workRelations: query(
+            'research_work_relations',
+            'source_work_id IN (?, ?) OR target_work_id IN (?, ?)',
+            record.survivorId,
+            record.mergedId,
+            record.survivorId,
+            record.mergedId,
+          ),
+          assertions: query(
+            'research_metadata_assertions',
+            "entity_type = 'work' AND entity_id IN (?, ?)",
+            record.survivorId,
+            record.mergedId,
+          ),
+          sourceMaps: query(
+            'research_external_source_maps',
+            "entity_type = 'work' AND entity_id IN (?, ?)",
+            record.survivorId,
+            record.mergedId,
+          ),
+          identifiers: query(
+            'research_identifiers',
+            "entity_type = 'work' AND entity_id IN (?, ?)",
+            record.survivorId,
+            record.mergedId,
+          ),
+          importItems: query(
+            'research_import_items',
+            'work_id IN (?, ?)',
+            record.survivorId,
+            record.mergedId,
+          ),
+        };
+        if (
+          (Object.keys(current) as Array<keyof typeof current>).some(
+            (key) => !same(current[key], snapshot.applied[key]),
+          )
+        ) {
+          return null;
+        }
+
+        for (const [table, predicate] of [
+          ['research_collection_entries', 'work_id IN (?, ?)'],
+          ['research_work_tags', 'work_id IN (?, ?)'],
+          ['research_work_relations', 'source_work_id IN (?, ?) OR target_work_id IN (?, ?)'],
+          ['research_metadata_assertions', "entity_type = 'work' AND entity_id IN (?, ?)"],
+          ['research_external_source_maps', "entity_type = 'work' AND entity_id IN (?, ?)"],
+          ['research_identifiers', "entity_type = 'work' AND entity_id IN (?, ?)"],
+        ] as const) {
+          const params = predicate.includes('OR')
+            ? [record.survivorId, record.mergedId, record.survivorId, record.mergedId]
+            : [record.survivorId, record.mergedId];
+          this.sqlite.prepare(`DELETE FROM ${table} WHERE ${predicate}`).run(...params);
+        }
+
+        const updateWork = this.sqlite.prepare(
+          `UPDATE research_works
+           SET type = ?, title = ?, title_sort = ?, abstract = ?, year = ?,
+               preferred_edition_id = ?, status = ?, redirect_to_work_id = ?, revision = ?,
+               created_at = ?, updated_at = ?, trashed_at = ? WHERE id = ?`,
+        );
+        for (const row of snapshot.before.works) {
+          updateWork.run(
+            text(row, 'type'),
+            text(row, 'title'),
+            text(row, 'title_sort'),
+            nullableText(row, 'abstract'),
+            nullableInteger(row, 'year'),
+            nullableText(row, 'preferred_edition_id'),
+            text(row, 'status'),
+            nullableText(row, 'redirect_to_work_id'),
+            integer(row, 'revision'),
+            text(row, 'created_at'),
+            text(row, 'updated_at'),
+            nullableText(row, 'trashed_at'),
+            text(row, 'id'),
+          );
+        }
+        const updateEdition = this.sqlite.prepare(
+          'UPDATE research_editions SET work_id = ? WHERE id = ?',
+        );
+        for (const row of snapshot.before.editions) {
+          updateEdition.run(text(row, 'work_id'), text(row, 'id'));
+        }
+        this.sqlite
+          .prepare('UPDATE research_import_items SET work_id = NULL WHERE work_id IN (?, ?)')
+          .run(record.survivorId, record.mergedId);
+        const updateImportItem = this.sqlite.prepare(
+          'UPDATE research_import_items SET work_id = ? WHERE id = ?',
+        );
+        for (const row of snapshot.before.importItems) {
+          updateImportItem.run(nullableText(row, 'work_id'), text(row, 'id'));
+        }
+
+        const insertCollection = this.sqlite.prepare(
+          `INSERT INTO research_collection_entries
+           (id, collection_id, work_id, sort_order, created_at) VALUES (?, ?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.collectionEntries) {
+          insertCollection.run(
+            text(row, 'id'),
+            text(row, 'collection_id'),
+            text(row, 'work_id'),
+            integer(row, 'sort_order'),
+            text(row, 'created_at'),
+          );
+        }
+        const insertWorkTag = this.sqlite.prepare(
+          `INSERT INTO research_work_tags (id, work_id, tag_id, created_at) VALUES (?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.workTags) {
+          insertWorkTag.run(
+            text(row, 'id'),
+            text(row, 'work_id'),
+            text(row, 'tag_id'),
+            text(row, 'created_at'),
+          );
+        }
+        const insertRelation = this.sqlite.prepare(
+          `INSERT INTO research_work_relations
+           (id, source_work_id, target_work_id, kind, note, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.workRelations) {
+          insertRelation.run(
+            text(row, 'id'),
+            text(row, 'source_work_id'),
+            text(row, 'target_work_id'),
+            text(row, 'kind'),
+            nullableText(row, 'note'),
+            text(row, 'created_at'),
+          );
+        }
+        const insertAssertion = this.sqlite.prepare(
+          `INSERT INTO research_metadata_assertions
+           (id, entity_type, entity_id, field_name, value_json, normalized_value, source_kind,
+            source_record_id, observed_at, is_user_confirmed, is_selected, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.assertions) {
+          insertAssertion.run(
+            text(row, 'id'),
+            text(row, 'entity_type'),
+            text(row, 'entity_id'),
+            text(row, 'field_name'),
+            text(row, 'value_json'),
+            nullableText(row, 'normalized_value'),
+            text(row, 'source_kind'),
+            nullableText(row, 'source_record_id'),
+            text(row, 'observed_at'),
+            integer(row, 'is_user_confirmed'),
+            integer(row, 'is_selected'),
+            text(row, 'created_at'),
+          );
+        }
+        const insertSourceMap = this.sqlite.prepare(
+          `INSERT INTO research_external_source_maps
+           (id, provider, external_id, entity_type, entity_id, last_fetched_at, cache_status,
+            cache_expires_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.sourceMaps) {
+          insertSourceMap.run(
+            text(row, 'id'),
+            text(row, 'provider'),
+            text(row, 'external_id'),
+            text(row, 'entity_type'),
+            text(row, 'entity_id'),
+            nullableText(row, 'last_fetched_at'),
+            text(row, 'cache_status'),
+            nullableText(row, 'cache_expires_at'),
+            text(row, 'created_at'),
+            text(row, 'updated_at'),
+          );
+        }
+        const insertIdentifier = this.sqlite.prepare(
+          `INSERT INTO research_identifiers
+           (id, entity_type, entity_id, scheme, value, normalized_value, source_record_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const row of snapshot.before.identifiers) {
+          insertIdentifier.run(
+            text(row, 'id'),
+            text(row, 'entity_type'),
+            text(row, 'entity_id'),
+            text(row, 'scheme'),
+            text(row, 'value'),
+            text(row, 'normalized_value'),
+            nullableText(row, 'source_record_id'),
+            text(row, 'created_at'),
+          );
+        }
+      }
+
+      const revertedAt = this.clock();
+      const reverted = this.sqlite
+        .prepare(
+          `UPDATE research_merge_records SET status = 'reverted', reverted_at = ?
+           WHERE id = ? AND status = 'merged' RETURNING *`,
+        )
+        .get(revertedAt, id) as Row | undefined;
+      return reverted ? toMergeRecord(reverted) : null;
+    })();
   }
 }
