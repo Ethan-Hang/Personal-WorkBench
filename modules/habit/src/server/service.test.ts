@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeHabitHarness } from '../testing/harness.js';
-import { DomainError } from './errors.js';
+import { DomainError } from '@workbench/http-kit';
 import {
   archiveHabit,
   createHabit,
@@ -86,8 +86,40 @@ describe('listToday', () => {
 
     expect(habits).toHaveLength(1);
     expect(habits[0]?.dueToday).toBe(true);
+    expect(habits[0]?.todayValue).toBe(1);
     expect(habits[0]?.progress).toEqual({ current: 1, target: 1 });
     expect(habits[0]?.streak).toBe(2);
+    sqlite.close();
+  });
+
+  it('每周次数习惯（targetValue > 1）能正确返回今日打卡值与每周达标天数', async () => {
+    const { repo, sqlite } = makeHabitHarness();
+    const habit = await createHabit(
+      repo,
+      dailyInput({
+        targetValue: 3,
+        freqKind: 'weekly-count',
+        weeklyCount: 5,
+      }),
+    );
+
+    // 今日未打卡
+    const initial = await listToday(repo, TODAY);
+    expect(initial.habits[0]?.todayValue).toBe(0);
+    expect(initial.habits[0]?.progress).toEqual({ current: 0, target: 5 });
+
+    // 今日打卡 2 次（未达到 targetValue 3）
+    await putCheckin(repo, habit.id, TODAY, { value: 2, clientToday: TODAY });
+    const partial = await listToday(repo, TODAY);
+    expect(partial.habits[0]?.todayValue).toBe(2);
+    expect(partial.habits[0]?.progress).toEqual({ current: 0, target: 5 });
+
+    // 今日打卡 3 次（达到 targetValue 3）
+    await putCheckin(repo, habit.id, TODAY, { value: 3, clientToday: TODAY });
+    const completed = await listToday(repo, TODAY);
+    expect(completed.habits[0]?.todayValue).toBe(3);
+    expect(completed.habits[0]?.progress).toEqual({ current: 1, target: 5 });
+
     sqlite.close();
   });
 

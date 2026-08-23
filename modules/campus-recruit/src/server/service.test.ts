@@ -5,9 +5,9 @@ import {
   createRoundInputSchema,
 } from '../contract.js';
 import type { CreateRoundData } from '../contract.js';
+import { DomainError } from '@workbench/http-kit';
 import { makeCampusHarness } from '../testing/harness.js';
 import {
-  CampusNotFoundError,
   createApplication,
   createRound,
   deleteApplication,
@@ -170,11 +170,14 @@ describe('campus recruit service', () => {
     h.ctx.items.delete = originalDelete;
   });
 
-  it('throws CampusNotFoundError for a missing application', async () => {
+  it('缺失的投递抛 404 领域错误——而不是落成 500', async () => {
     const h = makeCampusHarness();
     await expect(markApplicationApplied(h.ctx, h.repo, 'missing', OPTS)).rejects.toBeInstanceOf(
-      CampusNotFoundError,
+      DomainError,
     );
+    await expect(markApplicationApplied(h.ctx, h.repo, 'missing', OPTS)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('allocates round sequence, projects its schedule, and returns sorted rounds', async () => {
@@ -354,11 +357,12 @@ describe('campus recruit service', () => {
     expect(await h.items.getById(round.itemId!)).toBeNull();
   });
 
-  it('throws CampusNotFoundError for a missing round', async () => {
+  it('缺失的轮次抛 404 领域错误——而不是落成 500', async () => {
     const h = makeCampusHarness();
-    await expect(deleteRound(h.ctx, h.repo, 'missing', OPTS)).rejects.toBeInstanceOf(
-      CampusNotFoundError,
-    );
+    await expect(deleteRound(h.ctx, h.repo, 'missing', OPTS)).rejects.toBeInstanceOf(DomainError);
+    await expect(deleteRound(h.ctx, h.repo, 'missing', OPTS)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('lists derived views by priority, update time, and company', async () => {

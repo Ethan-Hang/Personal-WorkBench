@@ -134,3 +134,6 @@ npm run dev
 - `docs/adr/0020-backup-snapshot-and-restore-state-machine.md` — 备份快照与恢复五态状态机
 - `docs/adr/0021-zero-knowledge-encryption-for-cloud-credentials.md` — 云端凭据零知识加密与系统保管库优先
 - `docs/adr/0022-local-backup-and-file-import.md` — 本地数据快照、多方向导入与安全路径解析
+- `docs/adr/0023-habits-are-not-core-items.md` — 习惯不投影成 core Item，本地日期由前端提供
+- `docs/adr/0024-http-kit-is-the-second-package-modules-may-depend-on.md` — http-kit 是模块可依赖的第二个包
+- `docs/adr/0025-todo-owns-tables-for-subtasks-tags-and-recurrence.md` — todo 长出自有表（原编号 0014，已改编）

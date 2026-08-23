@@ -1,6 +1,7 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { ModuleContext } from '@workbench/core';
+import { defineRoute } from '@workbench/http-kit';
 import {
   CAMPUS_API,
   ID_PARAM,
@@ -11,7 +12,6 @@ import {
 } from '../contract.js';
 import type { CampusRecruitRepository } from './repository.js';
 import {
-  CampusNotFoundError,
   createApplication,
   createRound,
   deleteApplication,
@@ -23,23 +23,22 @@ import {
   updateRound,
 } from './service.js';
 
-const idParamsSchema = z.object({ id: z.string().min(1) });
+const idParams = z.object({ id: z.string().min(1) });
 
 function resolveZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
-function invalid(reply: FastifyReply, error: z.ZodError): FastifyReply {
-  return reply.code(400).send({ error: error.issues[0]?.message ?? '请求不合法' });
-}
-
-function notFound(reply: FastifyReply, error: unknown): FastifyReply {
-  if (error instanceof CampusNotFoundError) {
-    return reply.code(404).send({ error: error.message });
-  }
-  throw error;
-}
-
+/**
+ * 秋招模块的路由。
+ *
+ * 此前本文件自成一套错误处理：service 侧一个 `CampusNotFoundError`，route 侧两个内联的
+ * `invalid()` / `notFound()` helper，外加每个 handler 各写一遍 try/catch——与 todo /
+ * habit / notes 那份 `errors.ts` 形状完全不同，于是「模块模板」有了两种长相。
+ * 现已统一到 `@workbench/http-kit`（ADR-0024）：领域错误经 `DomainError` 表达，
+ * `defineRoute` 吃掉 safeParse → 400 → try/catch 这套样板，本文件退化成
+ * 「路径 ↔ service」的对照表。
+ */
 export function registerCampusRecruitRoutes(
   app: FastifyInstance,
   ctx: ModuleContext,
@@ -47,84 +46,55 @@ export function registerCampusRecruitRoutes(
 ): void {
   app.get(CAMPUS_API.applications, async () => listApplications(repo, { zone: resolveZone() }));
 
-  app.post(CAMPUS_API.applications, async (request, reply) => {
-    const input = createApplicationInputSchema.safeParse(request.body);
-    if (!input.success) return invalid(reply, input.error);
-    return reply
-      .code(201)
-      .send(await createApplication(ctx, repo, input.data, { zone: resolveZone() }));
-  });
+  app.post(
+    CAMPUS_API.applications,
+    defineRoute({ body: createApplicationInputSchema, status: 201 }, ({ body }) =>
+      createApplication(ctx, repo, body, { zone: resolveZone() }),
+    ),
+  );
 
-  app.patch(CAMPUS_API.application(ID_PARAM), async (request, reply) => {
-    const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) return invalid(reply, params.error);
-    const input = updateApplicationInputSchema.safeParse(request.body);
-    if (!input.success) return invalid(reply, input.error);
-    try {
-      return await updateApplication(ctx, repo, params.data.id, input.data, {
-        zone: resolveZone(),
-      });
-    } catch (error) {
-      return notFound(reply, error);
-    }
-  });
+  app.patch(
+    CAMPUS_API.application(ID_PARAM),
+    defineRoute({ params: idParams, body: updateApplicationInputSchema }, ({ params, body }) =>
+      updateApplication(ctx, repo, params.id, body, { zone: resolveZone() }),
+    ),
+  );
 
-  app.post(CAMPUS_API.applyApplication(ID_PARAM), async (request, reply) => {
-    const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) return invalid(reply, params.error);
-    try {
-      return await markApplicationApplied(ctx, repo, params.data.id, { zone: resolveZone() });
-    } catch (error) {
-      return notFound(reply, error);
-    }
-  });
+  app.post(
+    CAMPUS_API.applyApplication(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) =>
+      markApplicationApplied(ctx, repo, params.id, { zone: resolveZone() }),
+    ),
+  );
 
-  app.delete(CAMPUS_API.application(ID_PARAM), async (request, reply) => {
-    const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) return invalid(reply, params.error);
-    try {
-      await deleteApplication(ctx, repo, params.data.id, { zone: resolveZone() });
-      return reply.code(204).send();
-    } catch (error) {
-      return notFound(reply, error);
-    }
-  });
+  app.delete(
+    CAMPUS_API.application(ID_PARAM),
+    defineRoute({ params: idParams, status: 204 }, ({ params }) =>
+      deleteApplication(ctx, repo, params.id, { zone: resolveZone() }),
+    ),
+  );
 
-  app.post(CAMPUS_API.applicationRounds(ID_PARAM), async (request, reply) => {
-    const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) return invalid(reply, params.error);
-    const input = createRoundInputSchema.safeParse(request.body);
-    if (!input.success) return invalid(reply, input.error);
-    try {
-      return reply
-        .code(201)
-        .send(await createRound(ctx, repo, params.data.id, input.data, { zone: resolveZone() }));
-    } catch (error) {
-      return notFound(reply, error);
-    }
-  });
+  app.post(
+    CAMPUS_API.applicationRounds(ID_PARAM),
+    defineRoute(
+      { params: idParams, body: createRoundInputSchema, status: 201 },
+      ({ params, body }) => createRound(ctx, repo, params.id, body, { zone: resolveZone() }),
+    ),
+  );
 
-  app.patch(CAMPUS_API.round(ID_PARAM), async (request, reply) => {
-    const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) return invalid(reply, params.error);
-    const input = updateRoundInputSchema.safeParse(request.body);
-    if (!input.success) return invalid(reply, input.error);
-    try {
-      return await updateRound(ctx, repo, params.data.id, input.data, { zone: resolveZone() });
-    } catch (error) {
-      return notFound(reply, error);
-    }
-  });
+  app.patch(
+    CAMPUS_API.round(ID_PARAM),
+    defineRoute({ params: idParams, body: updateRoundInputSchema }, ({ params, body }) =>
+      updateRound(ctx, repo, params.id, body, { zone: resolveZone() }),
+    ),
+  );
 
-  app.delete(CAMPUS_API.round(ID_PARAM), async (request, reply) => {
-    const params = idParamsSchema.safeParse(request.params);
-    if (!params.success) return invalid(reply, params.error);
-    try {
-      return await deleteRound(ctx, repo, params.data.id, { zone: resolveZone() });
-    } catch (error) {
-      return notFound(reply, error);
-    }
-  });
+  app.delete(
+    CAMPUS_API.round(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) =>
+      deleteRound(ctx, repo, params.id, { zone: resolveZone() }),
+    ),
+  );
 
   app.get(CAMPUS_API.stats, async () => getStats(repo, { zone: resolveZone() }));
 }

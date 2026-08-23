@@ -1,13 +1,13 @@
 import { nowIso, type ModuleContext } from '@workbench/core';
 import type { CreateSubtaskInput, SubtaskView, UpdateSubtaskInput } from '../contract.js';
-import { invalid, notFound } from './errors.js';
+import { invalid, notFound } from '@workbench/http-kit';
 import type { TodoRepository } from './repository.js';
 import { toSubtaskView } from './views.js';
 
 /**
  * 子任务：一条待办内部的纯文本检查清单。
  *
- * **刻意不是 core Item**——不能单独排程、不上日历、不进回收站（ADR-0014）。
+ * **刻意不是 core Item**——不能单独排程、不上日历、不进回收站（ADR-0025）。
  * 因此这里全程只碰 todo 自有表，除了「宿主待办是否存在且属于本模块」这一条校验。
  */
 

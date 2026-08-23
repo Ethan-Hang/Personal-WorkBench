@@ -1,5 +1,6 @@
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { defineRoute } from '@workbench/http-kit';
 import {
   HABIT_API,
   ID_PARAM,
@@ -8,7 +9,6 @@ import {
   createHabitInputSchema,
   updateHabitInputSchema,
 } from '../contract.js';
-import { toHttp } from './errors.js';
 import type { HabitRepository } from './repository.js';
 import {
   archiveHabit,
@@ -44,94 +44,80 @@ const listQuery = z.object({
     .transform((value) => value === 'true'),
 });
 
-function badRequest(reply: FastifyReply, error: z.ZodError): FastifyReply {
-  return reply.code(400).send({ error: error.issues[0]?.message ?? '请求不合法' });
-}
-
 /**
  * 习惯模块的路由。**没有 `ModuleContext` 参数**——它不碰 core 的 `items`。
+ *
+ * 校验与错误映射经 `defineRoute`（`@workbench/http-kit`，ADR-0024）统一完成。
  */
 export function registerHabitRoutes(app: FastifyInstance, repo: HabitRepository): void {
-  app.get(HABIT_API.today, async (request, reply) => {
-    const query = todayQuery.safeParse(request.query);
-    if (!query.success) return badRequest(reply, query.error);
-    return toHttp(reply, () => listToday(repo, query.data.date));
-  });
+  app.get(
+    HABIT_API.today,
+    defineRoute({ query: todayQuery }, ({ query }) => listToday(repo, query.date)),
+  );
 
-  app.get(HABIT_API.habits, async (request, reply) => {
-    const query = listQuery.safeParse(request.query);
-    if (!query.success) return badRequest(reply, query.error);
-    return toHttp(reply, () => listHabits(repo, { includeArchived: query.data.includeArchived }));
-  });
+  app.get(
+    HABIT_API.habits,
+    defineRoute({ query: listQuery }, ({ query }) =>
+      listHabits(repo, { includeArchived: query.includeArchived }),
+    ),
+  );
 
-  app.post(HABIT_API.habits, async (request, reply) => {
-    const input = createHabitInputSchema.safeParse(request.body);
-    if (!input.success) return badRequest(reply, input.error);
-    return toHttp(reply, async () => reply.code(201).send(await createHabit(repo, input.data)));
-  });
+  app.post(
+    HABIT_API.habits,
+    defineRoute({ body: createHabitInputSchema, status: 201 }, ({ body }) =>
+      createHabit(repo, body),
+    ),
+  );
 
-  app.get(HABIT_API.habit(ID_PARAM), async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    return toHttp(reply, () => getHabit(repo, params.data.id));
-  });
+  app.get(
+    HABIT_API.habit(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) => getHabit(repo, params.id)),
+  );
 
-  app.patch(HABIT_API.habit(ID_PARAM), async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    const input = updateHabitInputSchema.safeParse(request.body);
-    if (!input.success) return badRequest(reply, input.error);
-    return toHttp(reply, () => updateHabit(repo, params.data.id, input.data));
-  });
+  app.patch(
+    HABIT_API.habit(ID_PARAM),
+    defineRoute({ params: idParams, body: updateHabitInputSchema }, ({ params, body }) =>
+      updateHabit(repo, params.id, body),
+    ),
+  );
 
-  app.delete(HABIT_API.habit(ID_PARAM), async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    return toHttp(reply, async () => {
-      await deleteHabit(repo, params.data.id);
-      return reply.code(204).send();
-    });
-  });
+  app.delete(
+    HABIT_API.habit(ID_PARAM),
+    defineRoute({ params: idParams, status: 204 }, ({ params }) => deleteHabit(repo, params.id)),
+  );
 
   // 归档 / 恢复是**无 body 的 POST**：浏览器 fetch 不带 content-type，Fastify 默认
   // 会回 415，而 app.inject() 复现不了这个形状。buildApp 已注册接受空 body 的
   // content type parser，守卫测试在客户端传输层（见 ui/api.test.ts）。
-  app.post(HABIT_API.archive(ID_PARAM), async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    return toHttp(reply, () => archiveHabit(repo, params.data.id));
-  });
+  app.post(
+    HABIT_API.archive(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) => archiveHabit(repo, params.id)),
+  );
 
-  app.post(HABIT_API.unarchive(ID_PARAM), async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    return toHttp(reply, () => unarchiveHabit(repo, params.data.id));
-  });
+  app.post(
+    HABIT_API.unarchive(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) => unarchiveHabit(repo, params.id)),
+  );
 
-  app.get(HABIT_API.history(ID_PARAM), async (request, reply) => {
-    const params = idParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    const query = historyQuery.safeParse(request.query);
-    if (!query.success) return badRequest(reply, query.error);
-    return toHttp(reply, () => getHistory(repo, params.data.id, query.data.from, query.data.to));
-  });
+  app.get(
+    HABIT_API.history(ID_PARAM),
+    defineRoute({ params: idParams, query: historyQuery }, ({ params, query }) =>
+      getHistory(repo, params.id, query.from, query.to),
+    ),
+  );
 
-  app.put(HABIT_API.checkin(ID_PARAM, DATE_PARAM), async (request, reply) => {
-    const params = checkinParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    const input = checkinInputSchema.safeParse(request.body);
-    if (!input.success) return badRequest(reply, input.error);
-    return toHttp(reply, () => putCheckin(repo, params.data.id, params.data.date, input.data));
-  });
+  app.put(
+    HABIT_API.checkin(ID_PARAM, DATE_PARAM),
+    defineRoute({ params: checkinParams, body: checkinInputSchema }, ({ params, body }) =>
+      putCheckin(repo, params.id, params.date, body),
+    ),
+  );
 
-  app.delete(HABIT_API.checkin(ID_PARAM, DATE_PARAM), async (request, reply) => {
-    const params = checkinParams.safeParse(request.params);
-    if (!params.success) return badRequest(reply, params.error);
-    const query = clientTodayQuery.safeParse(request.query);
-    if (!query.success) return badRequest(reply, query.error);
-    return toHttp(reply, async () => {
-      await deleteCheckin(repo, params.data.id, params.data.date, query.data.clientToday);
-      return reply.code(204).send();
-    });
-  });
+  app.delete(
+    HABIT_API.checkin(ID_PARAM, DATE_PARAM),
+    defineRoute(
+      { params: checkinParams, query: clientTodayQuery, status: 204 },
+      ({ params, query }) => deleteCheckin(repo, params.id, params.date, query.clientToday),
+    ),
+  );
 }

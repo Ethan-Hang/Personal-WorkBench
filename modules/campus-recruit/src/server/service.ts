@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { nowIso, truncateToMinute, type IsoInstant, type ModuleContext } from '@workbench/core';
+import { notFound } from '@workbench/http-kit';
 import type {
   ApplicationView,
   CreateApplicationData,
@@ -24,8 +25,6 @@ export interface CampusServiceOptions {
   now?: IsoInstant;
 }
 
-export class CampusNotFoundError extends Error {}
-
 const PRIORITY_RANK = { S: 0, A: 1, B: 2, C: 3 } as const;
 
 function resolveNow(opts: CampusServiceOptions): IsoInstant {
@@ -37,13 +36,13 @@ async function requireApplication(
   id: string,
 ): Promise<ApplicationRecord> {
   const application = await repo.getApplication(id);
-  if (application === null) throw new CampusNotFoundError(`投递不存在：${id}`);
+  if (application === null) throw notFound(`投递不存在：${id}`);
   return application;
 }
 
 async function requireRound(repo: CampusRecruitRepository, id: string): Promise<RoundRecord> {
   const round = await repo.getRound(id);
-  if (round === null) throw new CampusNotFoundError(`轮次不存在：${id}`);
+  if (round === null) throw notFound(`轮次不存在：${id}`);
   return round;
 }
 

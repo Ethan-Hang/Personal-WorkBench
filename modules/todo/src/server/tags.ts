@@ -1,11 +1,11 @@
 import { nowIso, type ModuleContext } from '@workbench/core';
 import type { CreateTagInput, TagView, UpdateTagInput } from '../contract.js';
-import { conflict, notFound } from './errors.js';
+import { conflict, notFound } from '@workbench/http-kit';
 import type { TodoRepository } from './repository.js';
 import { toTagView } from './views.js';
 
 /**
- * 标签：**todo 内部概念**，不跨模块（ADR-0014）。
+ * 标签：**todo 内部概念**，不跨模块（ADR-0025）。
  *
  * 已知代价：工作台今日页看不见也筛不了这些标签。让它跨模块需要标签成为 core 级
  * 概念，秋招的 Item 也要能打——那是另一个量级的改动，本轮明确不做。

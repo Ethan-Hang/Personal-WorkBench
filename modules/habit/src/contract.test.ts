@@ -101,3 +101,32 @@ describe('CHECKIN_BACKFILL_DAYS', () => {
     expect(CHECKIN_BACKFILL_DAYS).toBe(7);
   });
 });
+
+describe('todayHabitSchema', () => {
+  it('包含 todayValue 且默认为 0', async () => {
+    const { todayHabitSchema } = await import('./contract.js');
+    const parsed = todayHabitSchema.parse({
+      habit: {
+        id: 'h1',
+        name: '阅读',
+        notes: null,
+        targetValue: 3,
+        unit: '次',
+        freqKind: 'weekly-count',
+        weekdays: null,
+        weeklyCount: 5,
+        startDate: '2026-08-01',
+        archivedAt: null,
+        colorToken: null,
+        position: 0,
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-01T00:00:00.000Z',
+      },
+      dueToday: true,
+      todayValue: 2,
+      progress: { current: 1, target: 5 },
+      streak: 0,
+    });
+    expect(parsed.todayValue).toBe(2);
+  });
+});

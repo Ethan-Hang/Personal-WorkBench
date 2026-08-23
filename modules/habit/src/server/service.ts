@@ -8,7 +8,7 @@ import {
   type TodayHabit,
   type UpdateHabitInput,
 } from '../contract.js';
-import { conflict, invalid, notFound } from './errors.js';
+import { conflict, invalid, notFound } from '@workbench/http-kit';
 import { addDays, isDueOn, progressFor, streakOf, type FrequencyOf } from './frequency.js';
 import type { CheckinRecord, HabitRecord, HabitRepository } from './repository.js';
 
@@ -110,9 +110,11 @@ export async function listToday(
     habits: records.map((record) => {
       const checkins = grouped.get(record.id) ?? [];
       const frequency = frequencyOf(record);
+      const todayCheckin = checkins.find((c) => c.date === date);
       return {
         habit: toView(record),
         dueToday: isDueOn(frequency, date),
+        todayValue: todayCheckin?.value ?? 0,
         progress: progressFor(frequency, date, checkins),
         streak: streakOf(frequency, checkins, date),
       };

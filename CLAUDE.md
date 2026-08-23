@@ -11,18 +11,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 当前状态：Walking Skeleton 完成，秋招模块与工作台模块已全量接入（UI 已全部迁移至
 `modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化落库（`app_settings` 表），
 多账号体系、WebDAV 备份恢复与 Gist 设置零知识加密同步（TASK-038）已全栈贯通。
-现有三个业务模块（todo、workbench、campus-recruit）、一层共享设计基座
+现有五个业务模块（todo、workbench、campus-recruit、habit、notes）、一层共享设计基座
 （`packages/ui`：18+ 个组件 + SettingsProvider 与主题/时区/偏好三套上下文 + Apple-Style 胶囊开关 + 图标集）、以及带请求编号的错误追踪。
 
-两次架构考试都过了，且考的是不同的东西：
+三次架构考试都过了，且考的是不同的东西——三格已经填满：
+
+|                   | 有自有表 | 投影成 core Item | 代表   |
+| ----------------- | -------- | ---------------- | ------ |
+| 有实体、进 core   | 是       | 是               | 秋招   |
+| 零自有表          | 否       | 只消费，不创建   | 工作台 |
+| 有实体、不进 core | 是       | 否               | 习惯   |
 
 - **秋招模块**：模块可以有自己的领域实体。core 只多了一个通用的 `delete(moduleId, id)`。
 - **工作台模块**：模块也可以**零自有表**（`migrations: []`），纯粹是 core 之上的一个
   视图 + 一个动作。core 只多了一个通用查询维度 `unscheduled`。
+- **习惯模块**：模块可以**有自有表却完全不碰 core Item**。由此得出一条供后续模块直接
+  套用的判据（ADR-0023）：**要不要投影成 core Item，取决于它是否需要 core 提供的跨模块
+  能力**（排程、日历、今日聚合、优先级）。需要就投影，不需要就不投影；
+  「它看起来像一件事」不是理由。core 一行未改。
 
 **todo 已不再是零自有表模块。** 2026-08 加入子任务 / 标签 / 重复任务，它长出了四张
 自有表与一份迁移，模块定义随之从常量导出改为接收 Repository 的工厂函数（与秋招同形）。
-三条铁律仍未破：core 一行未改。理由与全部取舍见 `docs/adr/0014`。
+三条铁律仍未破：core 一行未改。理由与全部取舍见 `docs/adr/0025`（该 ADR 原编号 0014，
+2026-08-22 因与时区那份撞号而改编）。
 
 **一处仍在的不对称，动 todo 前必须知道：`GET /api/todo/today` 不按 `sourceModule`
 过滤**，秋招的事项也会出现在它的结果里；而所有写操作（完成、编辑、回收站、子任务、
@@ -45,7 +56,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **不要再往 todo 里加跨模块能力。** 跨模块视图调用源模块写操作的正确机制是 core 的
 `itemActions` 能力槽，方案见
 `docs/superpowers/specs/2026-08-18-item-actions-registry-design.md`。
-`modules/workbench/src/ui/api.ts` 里那 12 条硬编码的 `/api/todo/...` 是待还的债，
+`modules/workbench/src/ui/api.ts` 里那 11 条硬编码的 `/api/todo/...` 是待还的债，
 文件顶部有 TODO 标注，并已由 lint 规则封住新增（见下）。
 
 ## 命令
@@ -108,11 +119,12 @@ packages/data     SQLite + Drizzle + 迁移 + 仓储实现 + 连接持有层 + �
 packages/sync     WebDAV 备份恢复、账号/Device Flow 契约、Gist 设置同步与加密（/contract 与 /node）
 packages/server   Fastify，装配 core + data + sync + 已注册模块
 packages/ui       共享设计基座与壳层 Context，依赖 @workbench/core
+packages/http-kit 模块服务端的路由胶水：DomainError / toHttp / defineRoute（ADR-0024）
 packages/web      React 外壳、导航、页面、SettingsStore HTTP 实现
 modules/*         全栈垂直切片：每个模块含自己的表、迁移、API、service、UI
 ```
 
-项目内依赖箭头**恒指向内层**：`data → core`，`sync → core/data`，`server → core/data/sync`，`ui → core`，`modules → core`，`web → core/ui/sync`。
+项目内依赖箭头**恒指向内层**：`data → core`，`sync → core/data`，`server → core/data/sync`，`ui → core`，`http-kit → core`，`modules → core/http-kit`，`web → core/ui/sync`。
 模块可依赖 React、Zod、Drizzle 等外部库，但不得依赖其他模块或 `@workbench/data`。
 core 定义 `ItemRepository` 与 `SettingsRepository` 接口，data 提供实现（DIP）。
 
@@ -123,14 +135,23 @@ core 定义 `ItemRepository` 与 `SettingsRepository` 接口，data 提供实现
 
 ### 三条铁律
 
-1. **模块只能依赖 core，模块之间零依赖**
+1. **模块只能依赖 core 与 http-kit，模块之间零依赖**
 2. **core 永不感知模块**——加十个模块，core 一行不改
 3. **模块自带迁移与注册项**——删模块 = 删一个目录 + 删一行注册
+
+`http-kit` 是铁律 1 唯一的例外，2026-08-22 由 ADR-0024 开的口子：它装的是四个模块
+原先各写一份的 `DomainError` / `toHttp` 与吃掉 72 处 `safeParse` 样板的 `defineRoute`。
+**这个口子有明确的收口条件**——`packages/http-kit` 由专门的 lint 块禁止依赖模块、
+data、server、web 与 ui（否则 `server → modules → http-kit` 成环），且**包内不得出现
+任何领域词汇**。一旦那里出现「便签」「习惯」，它就从胶水变成了第二个 core。
+
+**新增包命名前先对着 `eslint.config.js` 的 glob 过一遍**：本包最初叫 `module-kit`，
+正好被禁止模块间依赖的 `@workbench/module-*` 命中，报错信息还会指向完全错误的方向。
 
 **前两条由 `eslint.config.js` 的 `no-restricted-imports` 强制**，违反即 CI 失败，且有回归测试（`packages/core/src/eslint.boundaries.test.ts` 用 ESLint 的 Node API 对真实配置断言，包括「测试文件豁免不会波及生产文件」这一条）。
 
 **但 `no-restricted-imports` 只能拦 `import`，拦不住裸字符串。** 2026-08 工作台今日页
-搬迁时，workbench 的 UI 手抄了 12 条 `/api/todo/...` 路径，铁律 1 就此被绕过而 lint 全绿；
+搬迁时，workbench 的 UI 手抄了一批 `/api/todo/...` 路径（现存 11 条），铁律 1 就此被绕过而 lint 全绿；
 手抄的响应形状漏了一个 `kind` 字段，导致六个写操作在生产里必抛。因此另有一条
 `no-restricted-syntax` 规则：**`modules/*/src/ui/**` 里禁止以 `/api/` 开头的字符串
 字面量与模板字面量**，路径一律来自本模块 `contract.ts` 的常量。作用域限定在 `ui/`
@@ -188,8 +209,54 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
   **注意页面数已达 5**（今日、秋招投递、秋招统计、设置、关于），设计文档 §10 给 Playwright
   定的引入门槛是「页面达 3 个以上」——这条门槛已经越过，但尚未动手。
 - **前端不能脱离后端运行**：没有 mock 层，`npm run dev:web` 单跑所有请求都会失败。
-- **传输层每个模块各写一份** `request()`：修一次要改 N 遍。第三个模块出现时再考虑抽取，
-  那时才知道它们真正共享多少。
+
+**已解决（2026-08-22）：传输层不再各写一份。** 五个模块的 `request()` 已收敛为
+`packages/ui` 的 `apiRequest`（`@workbench/ui` 导出），差异实测 100% 是写法、0% 是行为。
+它放在 ui 而不是新开一个包，是为了不再开第二个铁律 1 的例外。**响应形状的 Zod 校验
+仍归各模块 `contract.ts`**——那是前后端接缝的位置，不该被传输层吞掉。
+那条「无 body 的 POST 会撞上 415」的守卫现在只需守一次，见 `packages/ui/src/http.test.ts`。
+
+## 三个后加的部件：便签、习惯、飞书 CLI
+
+这三样在主文档里长期缺席，2026-08-22 的架构扫描把它们补上。
+
+### `modules/notes` —— 仓库里最大的模块
+
+13k 行 / 53 文件，四张自有表（`notes_folders` / `notes_records` / `notes_tags` /
+`notes_todo_links`）、一份迁移。四条会咬人的性质：
+
+- **它是唯一带版本号的模块。** 便签有 `revision` 乐观锁，`PATCH` 要带上它，对不上回
+  **409**。编辑器侧的并发与重试语义收在 `modules/notes/src/ui/autosave.ts`（不认识 React，
+  可直接单测）：同一时刻只有一个在途请求，补发必须带**服务端刚返回的** revision——
+  用发起时草稿里的快照会必然撞 409。
+- **「从便签派发待办」创建的 core Item，`sourceModule` 是 `notes` 而不是 `todo`。**
+  因此它会出现在工作台今日与日历里（跨模块聚合本就不按来源过滤），但 **todo 的写操作
+  认不了它**（那些只认 `sourceModule === 'todo'`）。这是刻意的——伪造来源是更坏的选择，
+  正确机制仍是 core 的 `itemActions` 能力槽。
+- **它是唯一用 `/api/v1/` 前缀的模块**（`NOTES_API_V1`）。其余四个都是
+  `/api/<module>/...`。这处不一致目前没有实际代价，但**照抄模块模板时别跟着抄 v1**。
+- **markdown 渲染有两台走树机**：应用内的 `markdown/renderer.tsx`（Tailwind）与导出用的
+  `exportEngine.ts`（自包含 HTML + 内联 `<style>`）。**这不是重复，是两个不同的渲染目标**，
+  不要「顺手合并」——直接复用 renderer 会让独立导出丢掉全部样式。两者的 switch 都用
+  `never` 穷尽检查封住了漂移：新增 AST 节点类型会编译报错，而不是像此前那样让导出
+  静默少一块（`kbd` / `sub` / `sup` 就这样丢过）。
+
+### `modules/habit` —— 第一个「有自有表、零 core Item」的模块
+
+两张表（`habit_definitions` / `habit_checkins`）、一份迁移。三条性质：
+
+- **不物化每日实例**，`habit_checkins` 只存真的发生过的打卡。「今天该做哪些」「连续多少天」
+  「完成率」全部由纯函数从规则与打卡记录算出，因此**改频率不需要回填或清理历史**。
+- **`server/frequency.ts` 被前端直接 import**（`HabitsPage.tsx`）。同模块内合法，
+  且避免了 streak 数学在客户端再写一遍；但目录名 `server/` 对一个共享纯函数是误导的。
+- **`date` / `clientToday` 必填，由前端算好再发。** 服务端拿不到时区（`ModuleContext`
+  只有 `moduleId` + `items`），缺参时用 `new Date()` 兜底会在跨时区静默算错一天，宁可 400。
+  详见 ADR-0023。
+
+### `packages/cli` —— 飞书任务表同步，与工作台运行时无关
+
+`pwb` 命令，只做一件事：把研发任务同步进飞书多维表格。它**不参与工作台的任何运行时链路**，
+既不被 server 也不被 web 引用，只有 node 内置模块与自身文件的依赖。删掉它不影响应用。
 
 ## 会咬人的约定
 
@@ -267,7 +334,7 @@ drizzle 的迁移器用**一张表里的一个全局水位**判断某条迁移�
 
 三个新子系统的校验放在 service 而非 route（为了能被集成测试直接覆盖），代价是抛出的
 错误默认会落到统一错误出口变成 **500**——冒烟时标签重名就报成了服务器故障。
-`modules/todo/src/server/errors.ts` 的 `DomainError` + `toHttp` 是那座桥。
+`@workbench/http-kit` 的 `DomainError` + `toHttp` 是那座桥（2026-08-22 由四个模块各写一份收敛而来，见 ADR-0024）。
 **未知错误必须继续冒泡**，否则拿不到请求编号也进不了日志。
 
 ### 回收站借用了 `cancelled`
@@ -457,7 +524,7 @@ DB 是唯一权威。写失败会回滚并提示，不做「界面已改、库�
 
 1. `docs/parallel-development.md` — **两人并行时先读这页**：目录归属、分支规则、交接点
 2. `docs/superpowers/specs/2026-08-17-personal-workbench-design.md` — 架构设计与全部取舍理由
-3. `docs/adr/` — 二十二条架构决策记录。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
+3. `docs/adr/` — 二十五条架构决策记录（编号至 0025；0014 有历史撞号，已于 2026-08-22 拆解）。**动 core 之前必读**，其中 `0005-module-boundaries.md` 记着那条 lint 管不住、只能靠人守的铁律
 
 **如果加模块时你发现必须改 `packages/core/`，停下来想清楚**——这通常意味着某个 core 的假设错了，值得记一条新的 ADR，而不是顺手改掉。
 
