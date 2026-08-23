@@ -16,6 +16,8 @@ import type {
   ListWorksQuery,
   MetadataAssertionDraft,
   MetadataAssertionRecord,
+  MetadataCacheDraft,
+  MetadataCacheRecord,
   ResearchRepository,
   SourceRecord,
   SourceRecordDraft,
@@ -208,6 +210,21 @@ function toAssertion(row: Row): MetadataAssertionRecord {
     isUserConfirmed: integer(row, 'is_user_confirmed') === 1,
     isSelected: integer(row, 'is_selected') === 1,
     createdAt: text(row, 'created_at'),
+  };
+}
+
+function toMetadataCache(row: Row): MetadataCacheRecord {
+  const rawValue = nullableText(row, 'value_json');
+  return {
+    id: text(row, 'id'),
+    provider: text(row, 'provider'),
+    lookupKey: text(row, 'lookup_key'),
+    status: text(row, 'status') as MetadataCacheRecord['status'],
+    value: rawValue === null ? null : (JSON.parse(rawValue) as unknown),
+    sourceRecordId: nullableText(row, 'source_record_id'),
+    expiresAt: text(row, 'expires_at'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
   };
 }
 
@@ -555,6 +572,50 @@ export class SqliteResearchRepository implements ResearchRepository {
       )
       .all(entityType, entityId) as Row[];
     return rows.map(toAssertion);
+  }
+
+  async getMetadataCache(
+    provider: string,
+    lookupKey: string,
+    at: string,
+  ): Promise<MetadataCacheRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT * FROM research_metadata_cache
+         WHERE provider = ? AND lookup_key = ? AND expires_at > ?`,
+      )
+      .get(provider, lookupKey, at) as Row | undefined;
+    return row ? toMetadataCache(row) : null;
+  }
+
+  async putMetadataCache(draft: MetadataCacheDraft): Promise<MetadataCacheRecord> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `INSERT INTO research_metadata_cache
+         (id, provider, lookup_key, status, value_json, source_record_id, expires_at,
+          created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(provider, lookup_key) DO UPDATE SET
+           status = excluded.status,
+           value_json = excluded.value_json,
+           source_record_id = excluded.source_record_id,
+           expires_at = excluded.expires_at,
+           updated_at = excluded.updated_at
+         RETURNING *`,
+      )
+      .get(
+        draft.id,
+        draft.provider,
+        draft.lookupKey,
+        draft.status,
+        draft.value === null ? null : JSON.stringify(draft.value),
+        draft.sourceRecordId ?? null,
+        draft.expiresAt,
+        timestamp,
+        timestamp,
+      ) as Row;
+    return toMetadataCache(row);
   }
 
   async commitImport(draft: CommitImportDraft): Promise<CommitImportResult> {

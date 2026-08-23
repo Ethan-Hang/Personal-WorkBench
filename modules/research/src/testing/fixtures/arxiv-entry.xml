@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>arXiv Query</title>
+  <entry>
+    <id>https://arxiv.org/abs/2401.12345v2</id>
+    <updated>2026-08-23T12:00:00Z</updated>
+    <published>2026-01-12T00:00:00Z</published>
+    <title>A Trustworthy Research Library</title>
+    <summary>A local-first library with safe file semantics.</summary>
+    <author><name>Ada Lovelace</name></author>
+    <author><name>Alan Turing</name></author>
+  </entry>
+</feed>

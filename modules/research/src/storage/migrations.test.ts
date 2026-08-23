@@ -20,7 +20,7 @@ function seedWork(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite'], id:
 }
 
 describe('research migrations', () => {
-  it('建立完整切片 A 的 20 张领域表且迁移可重复执行', () => {
+  it('建立完整切片 A 的 21 张领域表且迁移可重复执行', () => {
     const { db, sqlite } = makeResearchDatabase();
     const tables = sqlite
       .prepare(
@@ -30,9 +30,10 @@ describe('research migrations', () => {
       )
       .all() as Array<{ name: string }>;
 
-    expect(tables).toHaveLength(20);
+    expect(tables).toHaveLength(21);
     expect(tables.map((table) => table.name)).toContain('research_works');
     expect(tables.map((table) => table.name)).toContain('research_export_jobs');
+    expect(tables.map((table) => table.name)).toContain('research_metadata_cache');
 
     // 模块迁移有独立 ledger，重复执行不应重放 DDL。
     expect(() => runMigrationsFrom(db, 'modules/research/migrations')).not.toThrow();

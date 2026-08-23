@@ -229,6 +229,28 @@ export interface MetadataAssertionDraft {
   isUserConfirmed?: boolean;
 }
 
+export interface MetadataCacheRecord {
+  id: string;
+  provider: string;
+  lookupKey: string;
+  status: 'success' | 'not-found' | 'transient-failure';
+  value: unknown | null;
+  sourceRecordId: string | null;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MetadataCacheDraft {
+  id: string;
+  provider: string;
+  lookupKey: string;
+  status: MetadataCacheRecord['status'];
+  value: unknown | null;
+  sourceRecordId?: string | null;
+  expiresAt: string;
+}
+
 export interface ImportItemRecord {
   id: string;
   sessionId: string;
@@ -333,6 +355,12 @@ export interface ResearchRepository {
     entityType: 'work' | 'edition',
     entityId: string,
   ): Promise<MetadataAssertionRecord[]>;
+  getMetadataCache(
+    provider: string,
+    lookupKey: string,
+    at: string,
+  ): Promise<MetadataCacheRecord | null>;
+  putMetadataCache(draft: MetadataCacheDraft): Promise<MetadataCacheRecord>;
 
   commitImport(draft: CommitImportDraft): Promise<CommitImportResult>;
   getWork(id: string): Promise<WorkRecord | null>;

@@ -420,6 +420,31 @@ export const researchExternalSourceMaps = sqliteTable(
   ],
 );
 
+export const researchMetadataCache = sqliteTable(
+  'research_metadata_cache',
+  {
+    id: text('id').primaryKey(),
+    provider: text('provider').notNull(),
+    lookupKey: text('lookup_key').notNull(),
+    status: text('status').notNull(),
+    valueJson: text('value_json'),
+    sourceRecordId: text('source_record_id').references(() => researchSourceRecords.id, {
+      onDelete: 'set null',
+    }),
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    check(
+      'ck_research_metadata_cache_status',
+      enumSql('status', ['success', 'not-found', 'transient-failure']),
+    ),
+    unique('uq_research_metadata_cache_lookup').on(table.provider, table.lookupKey),
+    index('idx_research_metadata_cache_expiry').on(table.expiresAt),
+  ],
+);
+
 export const researchImportSessions = sqliteTable(
   'research_import_sessions',
   {

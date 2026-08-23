@@ -1,0 +1,15 @@
+{
+  "status": "ok",
+  "message": {
+    "DOI": "10.1000/EXAMPLE",
+    "type": "journal-article",
+    "title": ["A Trustworthy Research Library"],
+    "author": [
+      { "given": "Ada", "family": "Lovelace" },
+      { "given": "Alan", "family": "Turing" }
+    ],
+    "published": { "date-parts": [[2026, 8, 23]] },
+    "container-title": ["Workbench Journal"],
+    "publisher": "Personal WorkBench"
+  }
+}
