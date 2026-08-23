@@ -1,0 +1,2117 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "1e8ced1a-2929-467a-b298-d6a6c4532341",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "research_asset_locations": {
+      "name": "research_asset_locations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "original_path": {
+          "name": "original_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "resolved_path": {
+          "name": "resolved_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "object_key": {
+          "name": "object_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "file_id": {
+          "name": "file_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "observed_size": {
+          "name": "observed_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "observed_mtime_ms": {
+          "name": "observed_mtime_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_checked_at": {
+          "name": "last_checked_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "recycled_at": {
+          "name": "recycled_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_research_asset_locations_managed": {
+          "name": "uq_research_asset_locations_managed",
+          "columns": ["asset_id"],
+          "isUnique": true,
+          "where": "\"research_asset_locations\".\"mode\" = 'managed'"
+        },
+        "idx_research_asset_locations_asset": {
+          "name": "idx_research_asset_locations_asset",
+          "columns": ["asset_id"],
+          "isUnique": false
+        },
+        "idx_research_asset_locations_state": {
+          "name": "idx_research_asset_locations_state",
+          "columns": ["state"],
+          "isUnique": false
+        },
+        "idx_research_asset_locations_resolved": {
+          "name": "idx_research_asset_locations_resolved",
+          "columns": ["resolved_path"],
+          "isUnique": false
+        },
+        "uq_research_asset_locations_identity": {
+          "name": "uq_research_asset_locations_identity",
+          "columns": ["asset_id", "mode", "original_path"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_asset_locations_asset_id_research_assets_id_fk": {
+          "name": "research_asset_locations_asset_id_research_assets_id_fk",
+          "tableFrom": "research_asset_locations",
+          "tableTo": "research_assets",
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_asset_locations_mode": {
+          "name": "ck_research_asset_locations_mode",
+          "value": "mode IN ('managed', 'linked')"
+        },
+        "ck_research_asset_locations_state": {
+          "name": "ck_research_asset_locations_state",
+          "value": "state IN ('pending', 'available', 'missing', 'changed', 'recycled', 'error')"
+        },
+        "ck_research_asset_locations_object_key": {
+          "name": "ck_research_asset_locations_object_key",
+          "value": "(mode = 'managed' AND object_key IS NOT NULL) OR (mode = 'linked' AND object_key IS NULL)"
+        }
+      }
+    },
+    "research_assets": {
+      "name": "research_assets",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "hash_algorithm": {
+          "name": "hash_algorithm",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'sha256'"
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "byte_size": {
+          "name": "byte_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'application/pdf'"
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "recycled_at": {
+          "name": "recycled_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_research_assets_state": {
+          "name": "idx_research_assets_state",
+          "columns": ["state"],
+          "isUnique": false
+        },
+        "uq_research_assets_hash": {
+          "name": "uq_research_assets_hash",
+          "columns": ["hash_algorithm", "content_hash"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_assets_algorithm": {
+          "name": "ck_research_assets_algorithm",
+          "value": "hash_algorithm = 'sha256'"
+        },
+        "ck_research_assets_hash": {
+          "name": "ck_research_assets_hash",
+          "value": "length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'"
+        },
+        "ck_research_assets_size": {
+          "name": "ck_research_assets_size",
+          "value": "\"research_assets\".\"byte_size\" >= 0"
+        },
+        "ck_research_assets_state": {
+          "name": "ck_research_assets_state",
+          "value": "state IN ('active', 'recycled')"
+        }
+      }
+    },
+    "research_attachments": {
+      "name": "research_attachments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "edition_id": {
+          "name": "edition_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'primary-pdf'"
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "recycled_at": {
+          "name": "recycled_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_research_attachments_asset": {
+          "name": "idx_research_attachments_asset",
+          "columns": ["asset_id"],
+          "isUnique": false
+        },
+        "idx_research_attachments_status": {
+          "name": "idx_research_attachments_status",
+          "columns": ["status"],
+          "isUnique": false
+        },
+        "uq_research_attachments_relation": {
+          "name": "uq_research_attachments_relation",
+          "columns": ["edition_id", "asset_id", "role"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_attachments_edition_id_research_editions_id_fk": {
+          "name": "research_attachments_edition_id_research_editions_id_fk",
+          "tableFrom": "research_attachments",
+          "tableTo": "research_editions",
+          "columnsFrom": ["edition_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "research_attachments_asset_id_research_assets_id_fk": {
+          "name": "research_attachments_asset_id_research_assets_id_fk",
+          "tableFrom": "research_attachments",
+          "tableTo": "research_assets",
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_attachments_role": {
+          "name": "ck_research_attachments_role",
+          "value": "role IN ('primary-pdf', 'supplement', 'dataset', 'code', 'web-snapshot', 'other')"
+        },
+        "ck_research_attachments_status": {
+          "name": "ck_research_attachments_status",
+          "value": "status IN ('active', 'recycled')"
+        }
+      }
+    },
+    "research_collection_entries": {
+      "name": "research_collection_entries",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "collection_id": {
+          "name": "collection_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "work_id": {
+          "name": "work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_collection_entries_work": {
+          "name": "idx_research_collection_entries_work",
+          "columns": ["work_id"],
+          "isUnique": false
+        },
+        "uq_research_collection_entries": {
+          "name": "uq_research_collection_entries",
+          "columns": ["collection_id", "work_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_collection_entries_collection_id_research_collections_id_fk": {
+          "name": "research_collection_entries_collection_id_research_collections_id_fk",
+          "tableFrom": "research_collection_entries",
+          "tableTo": "research_collections",
+          "columnsFrom": ["collection_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "research_collection_entries_work_id_research_works_id_fk": {
+          "name": "research_collection_entries_work_id_research_works_id_fk",
+          "tableFrom": "research_collection_entries",
+          "tableTo": "research_works",
+          "columnsFrom": ["work_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "research_collections": {
+      "name": "research_collections",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
+        },
+        "query_json": {
+          "name": "query_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_research_collections_root_name": {
+          "name": "uq_research_collections_root_name",
+          "columns": ["normalized_name"],
+          "isUnique": true,
+          "where": "\"research_collections\".\"parent_id\" IS NULL"
+        },
+        "idx_research_collections_parent": {
+          "name": "idx_research_collections_parent",
+          "columns": ["parent_id", "sort_order"],
+          "isUnique": false
+        },
+        "uq_research_collections_parent_name": {
+          "name": "uq_research_collections_parent_name",
+          "columns": ["parent_id", "normalized_name"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_collections_kind": {
+          "name": "ck_research_collections_kind",
+          "value": "kind IN ('manual', 'smart', 'system')"
+        },
+        "ck_research_collections_sort": {
+          "name": "ck_research_collections_sort",
+          "value": "\"research_collections\".\"sort_order\" >= 0"
+        }
+      }
+    },
+    "research_contributors": {
+      "name": "research_contributors",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "edition_id": {
+          "name": "edition_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'author'"
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "given_name": {
+          "name": "given_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "family_name": {
+          "name": "family_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "orcid": {
+          "name": "orcid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sequence": {
+          "name": "sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "idx_research_contributors_name": {
+          "name": "idx_research_contributors_name",
+          "columns": ["family_name", "display_name"],
+          "isUnique": false
+        },
+        "uq_research_contributors_edition_sequence": {
+          "name": "uq_research_contributors_edition_sequence",
+          "columns": ["edition_id", "sequence"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_contributors_edition_id_research_editions_id_fk": {
+          "name": "research_contributors_edition_id_research_editions_id_fk",
+          "tableFrom": "research_contributors",
+          "tableTo": "research_editions",
+          "columnsFrom": ["edition_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_contributors_sequence": {
+          "name": "ck_research_contributors_sequence",
+          "value": "\"research_contributors\".\"sequence\" >= 0"
+        }
+      }
+    },
+    "research_editions": {
+      "name": "research_editions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "work_id": {
+          "name": "work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'unknown'"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "publication_title": {
+          "name": "publication_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "publisher": {
+          "name": "publisher",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_date": {
+          "name": "published_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "volume": {
+          "name": "volume",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "issue": {
+          "name": "issue",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pages": {
+          "name": "pages",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_editions_work": {
+          "name": "idx_research_editions_work",
+          "columns": ["work_id"],
+          "isUnique": false
+        },
+        "idx_research_editions_published": {
+          "name": "idx_research_editions_published",
+          "columns": ["published_date"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "research_editions_work_id_research_works_id_fk": {
+          "name": "research_editions_work_id_research_works_id_fk",
+          "tableFrom": "research_editions",
+          "tableTo": "research_works",
+          "columnsFrom": ["work_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_editions_kind": {
+          "name": "ck_research_editions_kind",
+          "value": "kind IN ('journal', 'conference', 'preprint', 'thesis', 'report', 'other', 'unknown')"
+        },
+        "ck_research_editions_revision": {
+          "name": "ck_research_editions_revision",
+          "value": "\"research_editions\".\"revision\" >= 1"
+        }
+      }
+    },
+    "research_export_jobs": {
+      "name": "research_export_jobs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "options_json": {
+          "name": "options_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_path": {
+          "name": "target_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "manifest_json": {
+          "name": "manifest_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_research_export_jobs_status": {
+          "name": "idx_research_export_jobs_status",
+          "columns": ["status", "updated_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_export_jobs_status": {
+          "name": "ck_research_export_jobs_status",
+          "value": "status IN ('draft', 'running', 'completed', 'cancelled', 'failed')"
+        }
+      }
+    },
+    "research_external_source_maps": {
+      "name": "research_external_source_maps",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_fetched_at": {
+          "name": "last_fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "cache_status": {
+          "name": "cache_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'fresh'"
+        },
+        "cache_expires_at": {
+          "name": "cache_expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_external_maps_entity": {
+          "name": "idx_research_external_maps_entity",
+          "columns": ["entity_type", "entity_id"],
+          "isUnique": false
+        },
+        "uq_research_external_maps_provider_id": {
+          "name": "uq_research_external_maps_provider_id",
+          "columns": ["provider", "external_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_external_maps_entity": {
+          "name": "ck_research_external_maps_entity",
+          "value": "entity_type IN ('work', 'edition')"
+        },
+        "ck_research_external_maps_cache": {
+          "name": "ck_research_external_maps_cache",
+          "value": "cache_status IN ('fresh', 'not-found', 'transient-failure')"
+        }
+      }
+    },
+    "research_identifiers": {
+      "name": "research_identifiers",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scheme": {
+          "name": "scheme",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_value": {
+          "name": "normalized_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_record_id": {
+          "name": "source_record_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_identifiers_entity": {
+          "name": "idx_research_identifiers_entity",
+          "columns": ["entity_type", "entity_id"],
+          "isUnique": false
+        },
+        "idx_research_identifiers_lookup": {
+          "name": "idx_research_identifiers_lookup",
+          "columns": ["scheme", "normalized_value"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_identifiers_entity": {
+          "name": "ck_research_identifiers_entity",
+          "value": "entity_type IN ('work', 'edition')"
+        },
+        "ck_research_identifiers_scheme": {
+          "name": "ck_research_identifiers_scheme",
+          "value": "scheme IN ('doi', 'arxiv', 'isbn', 'issn', 'pmid', 'url')"
+        }
+      }
+    },
+    "research_import_items": {
+      "name": "research_import_items",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_path": {
+          "name": "source_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "storage_mode": {
+          "name": "storage_mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'selected'"
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "work_id": {
+          "name": "work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "edition_id": {
+          "name": "edition_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "temp_path": {
+          "name": "temp_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "candidate_json": {
+          "name": "candidate_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "decision_json": {
+          "name": "decision_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "error_detail": {
+          "name": "error_detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "retryable": {
+          "name": "retryable",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_import_items_session": {
+          "name": "idx_research_import_items_session",
+          "columns": ["session_id"],
+          "isUnique": false
+        },
+        "idx_research_import_items_stage": {
+          "name": "idx_research_import_items_stage",
+          "columns": ["stage", "updated_at"],
+          "isUnique": false
+        },
+        "idx_research_import_items_asset": {
+          "name": "idx_research_import_items_asset",
+          "columns": ["asset_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "research_import_items_session_id_research_import_sessions_id_fk": {
+          "name": "research_import_items_session_id_research_import_sessions_id_fk",
+          "tableFrom": "research_import_items",
+          "tableTo": "research_import_sessions",
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "research_import_items_asset_id_research_assets_id_fk": {
+          "name": "research_import_items_asset_id_research_assets_id_fk",
+          "tableFrom": "research_import_items",
+          "tableTo": "research_assets",
+          "columnsFrom": ["asset_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "research_import_items_work_id_research_works_id_fk": {
+          "name": "research_import_items_work_id_research_works_id_fk",
+          "tableFrom": "research_import_items",
+          "tableTo": "research_works",
+          "columnsFrom": ["work_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "research_import_items_edition_id_research_editions_id_fk": {
+          "name": "research_import_items_edition_id_research_editions_id_fk",
+          "tableFrom": "research_import_items",
+          "tableTo": "research_editions",
+          "columnsFrom": ["edition_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_import_items_mode": {
+          "name": "ck_research_import_items_mode",
+          "value": "storage_mode IN ('managed', 'linked')"
+        },
+        "ck_research_import_items_stage": {
+          "name": "ck_research_import_items_stage",
+          "value": "stage IN ('selected', 'hashing', 'staged', 'object-ready', 'linked-verified', 'metadata', 'metadata-failed', 'awaiting-confirmation', 'database-committed', 'available', 'cancelled', 'failed')"
+        }
+      }
+    },
+    "research_import_sessions": {
+      "name": "research_import_sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'draft'"
+        },
+        "item_count": {
+          "name": "item_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_research_import_sessions_status": {
+          "name": "idx_research_import_sessions_status",
+          "columns": ["status", "updated_at"],
+          "isUnique": false
+        },
+        "uq_research_import_sessions_request": {
+          "name": "uq_research_import_sessions_request",
+          "columns": ["request_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_import_sessions_status": {
+          "name": "ck_research_import_sessions_status",
+          "value": "status IN ('draft', 'inspecting', 'awaiting-confirmation', 'committing', 'completed', 'cancelled', 'failed', 'reconciling')"
+        },
+        "ck_research_import_sessions_count": {
+          "name": "ck_research_import_sessions_count",
+          "value": "\"research_import_sessions\".\"item_count\" BETWEEN 0 AND 200"
+        }
+      }
+    },
+    "research_merge_records": {
+      "name": "research_merge_records",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "survivor_id": {
+          "name": "survivor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "merged_id": {
+          "name": "merged_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "snapshot_json": {
+          "name": "snapshot_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'merged'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "reverted_at": {
+          "name": "reverted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_research_merge_records_survivor": {
+          "name": "idx_research_merge_records_survivor",
+          "columns": ["entity_type", "survivor_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_merge_records_entity": {
+          "name": "ck_research_merge_records_entity",
+          "value": "entity_type IN ('work', 'tag')"
+        },
+        "ck_research_merge_records_status": {
+          "name": "ck_research_merge_records_status",
+          "value": "status IN ('merged', 'reverted')"
+        }
+      }
+    },
+    "research_metadata_assertions": {
+      "name": "research_metadata_assertions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "field_name": {
+          "name": "field_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value_json": {
+          "name": "value_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_value": {
+          "name": "normalized_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_record_id": {
+          "name": "source_record_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_user_confirmed": {
+          "name": "is_user_confirmed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "is_selected": {
+          "name": "is_selected",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_metadata_assertions_entity": {
+          "name": "idx_research_metadata_assertions_entity",
+          "columns": ["entity_type", "entity_id", "field_name"],
+          "isUnique": false
+        },
+        "uq_research_metadata_assertions_selected": {
+          "name": "uq_research_metadata_assertions_selected",
+          "columns": ["entity_type", "entity_id", "field_name"],
+          "isUnique": true,
+          "where": "\"research_metadata_assertions\".\"is_selected\" = 1"
+        },
+        "idx_research_metadata_assertions_source_record": {
+          "name": "idx_research_metadata_assertions_source_record",
+          "columns": ["source_record_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "research_metadata_assertions_source_record_id_research_source_records_id_fk": {
+          "name": "research_metadata_assertions_source_record_id_research_source_records_id_fk",
+          "tableFrom": "research_metadata_assertions",
+          "tableTo": "research_source_records",
+          "columnsFrom": ["source_record_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_metadata_assertions_entity": {
+          "name": "ck_research_metadata_assertions_entity",
+          "value": "entity_type IN ('work', 'edition')"
+        },
+        "ck_research_metadata_assertions_source": {
+          "name": "ck_research_metadata_assertions_source",
+          "value": "source_kind IN ('user', 'exact-external', 'external', 'embedded-pdf', 'first-page', 'filename')"
+        }
+      }
+    },
+    "research_source_records": {
+      "name": "research_source_records",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_locator": {
+          "name": "source_locator",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "raw_format": {
+          "name": "raw_format",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "raw_payload": {
+          "name": "raw_payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parser_version": {
+          "name": "parser_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "observed_at": {
+          "name": "observed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_source_records_provider": {
+          "name": "idx_research_source_records_provider",
+          "columns": ["provider", "source_locator"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "research_tag_aliases": {
+      "name": "research_tag_aliases",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_tag_aliases_tag": {
+          "name": "idx_research_tag_aliases_tag",
+          "columns": ["tag_id"],
+          "isUnique": false
+        },
+        "uq_research_tag_aliases_name": {
+          "name": "uq_research_tag_aliases_name",
+          "columns": ["normalized_name"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_tag_aliases_tag_id_research_tags_id_fk": {
+          "name": "research_tag_aliases_tag_id_research_tags_id_fk",
+          "tableFrom": "research_tag_aliases",
+          "tableTo": "research_tags",
+          "columnsFrom": ["tag_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "research_tags": {
+      "name": "research_tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "normalized_name": {
+          "name": "normalized_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "uq_research_tags_name": {
+          "name": "uq_research_tags_name",
+          "columns": ["normalized_name"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "research_work_relations": {
+      "name": "research_work_relations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_work_id": {
+          "name": "source_work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_work_id": {
+          "name": "target_work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_work_relations_target": {
+          "name": "idx_research_work_relations_target",
+          "columns": ["target_work_id"],
+          "isUnique": false
+        },
+        "uq_research_work_relations": {
+          "name": "uq_research_work_relations",
+          "columns": ["source_work_id", "target_work_id", "kind"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_work_relations_source_work_id_research_works_id_fk": {
+          "name": "research_work_relations_source_work_id_research_works_id_fk",
+          "tableFrom": "research_work_relations",
+          "tableTo": "research_works",
+          "columnsFrom": ["source_work_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "research_work_relations_target_work_id_research_works_id_fk": {
+          "name": "research_work_relations_target_work_id_research_works_id_fk",
+          "tableFrom": "research_work_relations",
+          "tableTo": "research_works",
+          "columnsFrom": ["target_work_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_work_relations_kind": {
+          "name": "ck_research_work_relations_kind",
+          "value": "kind IN ('related', 'extends', 'revises', 'cites')"
+        },
+        "ck_research_work_relations_distinct": {
+          "name": "ck_research_work_relations_distinct",
+          "value": "\"research_work_relations\".\"source_work_id\" <> \"research_work_relations\".\"target_work_id\""
+        }
+      }
+    },
+    "research_work_tags": {
+      "name": "research_work_tags",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "work_id": {
+          "name": "work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tag_id": {
+          "name": "tag_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        }
+      },
+      "indexes": {
+        "idx_research_work_tags_tag": {
+          "name": "idx_research_work_tags_tag",
+          "columns": ["tag_id"],
+          "isUnique": false
+        },
+        "uq_research_work_tags": {
+          "name": "uq_research_work_tags",
+          "columns": ["work_id", "tag_id"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "research_work_tags_work_id_research_works_id_fk": {
+          "name": "research_work_tags_work_id_research_works_id_fk",
+          "tableFrom": "research_work_tags",
+          "tableTo": "research_works",
+          "columnsFrom": ["work_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "research_work_tags_tag_id_research_tags_id_fk": {
+          "name": "research_work_tags_tag_id_research_tags_id_fk",
+          "tableFrom": "research_work_tags",
+          "tableTo": "research_tags",
+          "columnsFrom": ["tag_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "research_works": {
+      "name": "research_works",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'unknown'"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "title_sort": {
+          "name": "title_sort",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "abstract": {
+          "name": "abstract",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "year": {
+          "name": "year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "preferred_edition_id": {
+          "name": "preferred_edition_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'active'"
+        },
+        "redirect_to_work_id": {
+          "name": "redirect_to_work_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))"
+        },
+        "trashed_at": {
+          "name": "trashed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_research_works_status_updated": {
+          "name": "idx_research_works_status_updated",
+          "columns": ["status", "updated_at"],
+          "isUnique": false
+        },
+        "idx_research_works_title_sort": {
+          "name": "idx_research_works_title_sort",
+          "columns": ["title_sort"],
+          "isUnique": false
+        },
+        "idx_research_works_redirect": {
+          "name": "idx_research_works_redirect",
+          "columns": ["redirect_to_work_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_research_works_type": {
+          "name": "ck_research_works_type",
+          "value": "type IN ('article', 'conference-paper', 'preprint', 'thesis', 'book-chapter', 'report', 'standard', 'dataset', 'web', 'unknown')"
+        },
+        "ck_research_works_status": {
+          "name": "ck_research_works_status",
+          "value": "status IN ('active', 'trashed', 'merged')"
+        },
+        "ck_research_works_revision": {
+          "name": "ck_research_works_revision",
+          "value": "\"research_works\".\"revision\" >= 1"
+        },
+        "ck_research_works_year": {
+          "name": "ck_research_works_year",
+          "value": "\"research_works\".\"year\" IS NULL OR \"research_works\".\"year\" BETWEEN 0 AND 9999"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

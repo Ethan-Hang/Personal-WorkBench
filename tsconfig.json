@@ -45,7 +45,11 @@
       "@workbench/module-campus-recruit/storage": [
         "modules/campus-recruit/src/storage/sqlite-repository.ts"
       ],
-      "@workbench/module-campus-recruit/ui": ["modules/campus-recruit/src/ui/index.tsx"]
+      "@workbench/module-campus-recruit/ui": ["modules/campus-recruit/src/ui/index.tsx"],
+      "@workbench/module-research": ["modules/research/src/server/index.ts"],
+      "@workbench/module-research/contract": ["modules/research/src/contract.ts"],
+      "@workbench/module-research/storage": ["modules/research/src/storage/sqlite-repository.ts"],
+      "@workbench/module-research/ui": ["modules/research/src/ui/index.tsx"]
     }
   },
   "include": ["packages/**/*", "modules/**/*", "*.ts", "*.config.ts"],

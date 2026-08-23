@@ -32,6 +32,19 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
 
+  // 仓库脚本是 Node ESM，不经过 TypeScript 的 Node 类型环境。
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+      },
+    },
+  },
+
   // 铁律 1：core 不得依赖外层（spec §4.2 铁律 2 + §9 DIP）
   {
     files: ['packages/core/**/*.ts'],
