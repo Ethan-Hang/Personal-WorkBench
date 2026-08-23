@@ -5,14 +5,18 @@ import { FileStatus, StorageModes } from './FileStatus.js';
 export function LibraryList({
   works,
   selectedId,
+  selectedIds,
   loading,
   onSelect,
+  onToggleSelection,
   onImport,
 }: {
   works: WorksPage['works'];
   selectedId: string | null;
+  selectedIds: string[];
   loading: boolean;
   onSelect: (id: string) => void;
+  onToggleSelection: (id: string) => void;
   onImport: () => void;
 }) {
   if (loading) {
@@ -47,35 +51,46 @@ export function LibraryList({
       {works.map((work) => {
         const selected = selectedId === work.id;
         return (
-          <button
+          <div
             key={work.id}
-            type="button"
-            onClick={() => onSelect(work.id)}
-            className={`group w-full px-5 py-4 text-left transition-all duration-200 ${
+            className={`group flex w-full items-start gap-3 px-4 py-4 text-left transition-all duration-200 ${
               selected
                 ? 'bg-accent-soft/80 shadow-[inset_3px_0_0_var(--color-accent)]'
                 : 'hover:bg-surface-2/55'
             }`}
           >
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-ink">
-                  {work.title || '未命名作品'}
-                </h3>
-                <p className="mt-1 truncate text-xs text-secondary">
-                  {work.authors.length > 0 ? work.authors.join('、') : '作者待补充'}
-                  {work.year !== null ? ` · ${work.year}` : ''}
-                </p>
+            <input
+              type="checkbox"
+              aria-label={`选择 ${work.title || '未命名作品'}`}
+              className="mt-1 shrink-0"
+              checked={selectedIds.includes(work.id)}
+              onChange={() => onToggleSelection(work.id)}
+            />
+            <button
+              type="button"
+              onClick={() => onSelect(work.id)}
+              className="min-w-0 flex-1 text-left"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-ink">
+                    {work.title || '未命名作品'}
+                  </h3>
+                  <p className="mt-1 truncate text-xs text-secondary">
+                    {work.authors.length > 0 ? work.authors.join('、') : '作者待补充'}
+                    {work.year !== null ? ` · ${work.year}` : ''}
+                  </p>
+                </div>
+                <FileStatus status={work.fileStatus} compact />
               </div>
-              <FileStatus status={work.fileStatus} compact />
-            </div>
-            <div className="mt-3 flex items-center justify-between gap-3">
-              <StorageModes modes={work.storageModes} />
-              <span className="text-[11px] tabular-nums text-muted">
-                {work.attachmentCount} 个附件
-              </span>
-            </div>
-          </button>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <StorageModes modes={work.storageModes} />
+                <span className="text-[11px] tabular-nums text-muted">
+                  {work.attachmentCount} 个附件
+                </span>
+              </div>
+            </button>
+          </div>
         );
       })}
     </div>

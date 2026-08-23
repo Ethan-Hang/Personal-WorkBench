@@ -610,19 +610,22 @@ describe('ResearchService A2 导入箱', () => {
       .poll(async () => (await service.getImportSession(session.id)).status)
       .toBe('awaiting-confirmation');
     const afterInspection = await service.getImportInspection(session.id);
-    expect(afterInspection.items.map((item) => item.item.stage)).toEqual([
-      'failed',
+    expect(afterInspection.items.map((item) => item.item.stage).sort()).toEqual([
       'awaiting-confirmation',
+      'failed',
     ]);
 
     await pdf(missingPath, { title: 'Arrived Later' });
-    await service.retryImportItem(session.id, afterInspection.items[0]!.item.id, {
+    const failedItem = afterInspection.items.find((item) => item.item.stage === 'failed')!;
+    await service.retryImportItem(session.id, failedItem.item.id, {
       allowExternal: false,
       forceRefresh: false,
     });
-    expect((await service.getImportInspection(session.id)).items[0]!.item.stage).toBe(
-      'awaiting-confirmation',
-    );
+    expect(
+      (await service.getImportInspection(session.id)).items.every(
+        (item) => item.item.stage === 'awaiting-confirmation',
+      ),
+    ).toBe(true);
     expect((await service.listImportSessions('awaiting-confirmation', 10)).sessions).toEqual([
       expect.objectContaining({ id: session.id }),
     ]);

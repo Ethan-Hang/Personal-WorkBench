@@ -12,9 +12,14 @@ export const RESEARCH_API_V1 = {
   workDeletionPreview: (id: string) => `${API_ROOT}/works/${id}/deletion-preview`,
   workPermanentDelete: (id: string) => `${API_ROOT}/works/${id}/permanent-delete`,
   workManual: `${API_ROOT}/works/manual`,
+  workBulkPreview: `${API_ROOT}/works/bulk/preview`,
+  workBulk: `${API_ROOT}/works/bulk`,
+  workRelations: (id: string) => `${API_ROOT}/works/${id}/relations`,
+  workRelation: (id: string) => `${API_ROOT}/work-relations/${id}`,
   editionAttachments: (id: string) => `${API_ROOT}/editions/${id}/attachments`,
   collections: `${API_ROOT}/collections`,
   collection: (id: string) => `${API_ROOT}/collections/${id}`,
+  collectionDeletionPreview: (id: string) => `${API_ROOT}/collections/${id}/deletion-preview`,
   importSessions: `${API_ROOT}/import-sessions`,
   importSession: (id: string) => `${API_ROOT}/import-sessions/${id}`,
   importPickFiles: `${API_ROOT}/import-sessions/pick-files`,
@@ -51,6 +56,19 @@ export type WorkType = (typeof WORK_TYPES)[number];
 
 export const WORK_STATUSES = ['active', 'trashed', 'merged'] as const;
 export type WorkStatus = (typeof WORK_STATUSES)[number];
+
+export const SYSTEM_VIEWS = [
+  'all',
+  'uncategorized',
+  'trash',
+  'missing-files',
+  'metadata-review',
+  'duplicate-candidates',
+] as const;
+export type SystemView = (typeof SYSTEM_VIEWS)[number];
+
+export const WORK_RELATION_KINDS = ['related', 'extends', 'revises', 'cites'] as const;
+export type WorkRelationKind = (typeof WORK_RELATION_KINDS)[number];
 
 export const EDITION_KINDS = [
   'journal',
@@ -283,6 +301,24 @@ export const workDetailViewSchema = z.object({
   work: workViewSchema,
   editions: z.array(editionViewSchema),
   assertions: z.array(metadataAssertionViewSchema),
+  relations: z
+    .array(
+      z.object({
+        id: researchIdSchema,
+        kind: z.enum(WORK_RELATION_KINDS),
+        direction: z.enum(['outgoing', 'incoming']),
+        sourceWorkId: researchIdSchema,
+        targetWorkId: researchIdSchema,
+        counterpart: z.object({
+          id: researchIdSchema,
+          title: z.string(),
+          status: z.enum(WORK_STATUSES),
+        }),
+        note: z.string().nullable(),
+        createdAt: instantSchema,
+      }),
+    )
+    .default([]),
 });
 export type WorkDetailView = z.infer<typeof workDetailViewSchema>;
 
@@ -465,6 +501,7 @@ export type UploadPdfQuery = z.infer<typeof uploadPdfQuerySchema>;
 
 export const listWorksQuerySchema = z.object({
   status: z.enum(WORK_STATUSES).default('active'),
+  systemView: z.enum(SYSTEM_VIEWS).default('all'),
   collectionId: researchIdSchema.optional(),
   fileStatus: z.enum(['none', 'available', 'missing', 'changed', 'recycled', 'mixed']).optional(),
   query: z.string().trim().min(1).max(300).optional(),
@@ -512,6 +549,30 @@ export const createCollectionInputSchema = z.object({
   parentId: researchIdSchema.nullish(),
 });
 
+export const updateCollectionInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    parentId: researchIdSchema.nullable().optional(),
+    sortOrder: z.number().int().nonnegative().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, '至少提供一项修改');
+export type UpdateCollectionInput = z.infer<typeof updateCollectionInputSchema>;
+
+export const collectionDeletionPreviewSchema = z.object({
+  id: researchIdSchema,
+  name: z.string(),
+  parentId: researchIdSchema.nullable(),
+  childCount: z.number().int().nonnegative(),
+  directWorkCount: z.number().int().nonnegative(),
+  parentStrategyTargetId: researchIdSchema.nullable(),
+  parentStrategyNameConflicts: z.array(z.string()),
+  unclassifiedStrategyNameConflicts: z.array(z.string()),
+});
+
+export const deleteCollectionQuerySchema = z.object({
+  strategy: z.enum(['parent', 'unclassified']),
+});
+
 export const collectionViewSchema = z.object({
   id: researchIdSchema,
   parentId: researchIdSchema.nullable(),
@@ -522,6 +583,53 @@ export const collectionViewSchema = z.object({
 });
 
 export const collectionsResponseSchema = z.object({ collections: z.array(collectionViewSchema) });
+
+export const createWorkRelationInputSchema = z.object({
+  targetWorkId: researchIdSchema,
+  kind: z.enum(WORK_RELATION_KINDS),
+  note: z.string().trim().max(2_000).nullable().default(null),
+});
+export type CreateWorkRelationInput = z.infer<typeof createWorkRelationInputSchema>;
+
+export const bulkWorkActionInputSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('add-to-collections'),
+    workIds: z.array(researchIdSchema).min(1).max(100),
+    collectionIds: z.array(researchIdSchema).min(1).max(100),
+  }),
+  z.object({
+    action: z.literal('remove-from-collections'),
+    workIds: z.array(researchIdSchema).min(1).max(100),
+    collectionIds: z.array(researchIdSchema).min(1).max(100),
+  }),
+  z.object({ action: z.literal('trash'), workIds: z.array(researchIdSchema).min(1).max(100) }),
+  z.object({ action: z.literal('restore'), workIds: z.array(researchIdSchema).min(1).max(100) }),
+]);
+export type BulkWorkActionInput = z.infer<typeof bulkWorkActionInputSchema>;
+
+export const bulkWorkPreviewSchema = z.object({
+  action: z.enum(['add-to-collections', 'remove-from-collections', 'trash', 'restore']),
+  items: z.array(
+    z.object({
+      workId: researchIdSchema,
+      title: z.string(),
+      currentStatus: z.enum(WORK_STATUSES),
+      attachmentCount: z.number().int().nonnegative(),
+      missingLocationCount: z.number().int().nonnegative(),
+    }),
+  ),
+});
+
+export const bulkWorkResultSchema = z.object({
+  action: z.enum(['add-to-collections', 'remove-from-collections', 'trash', 'restore']),
+  results: z.array(
+    z.object({
+      workId: researchIdSchema,
+      status: z.enum(['succeeded', 'skipped', 'failed']),
+      message: z.string().nullable(),
+    }),
+  ),
+});
 
 export const setWorkCollectionsInputSchema = z.object({
   collectionIds: z.array(researchIdSchema).max(100),

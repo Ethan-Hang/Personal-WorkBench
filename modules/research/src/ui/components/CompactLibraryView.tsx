@@ -1,6 +1,8 @@
 import { Button, IconDatabase, IconPlus, IconRefreshCw, IconSearch } from '@workbench/ui';
+import type { BulkWorkActionInput, SystemView } from '../../contract.js';
 import type { CollectionView, WorkDetail, WorksPage } from '../api.js';
 import { CollectionSidebar } from './CollectionSidebar.js';
+import { BulkActionsBar } from './BulkActionsBar.js';
 import { LayoutSwitch, type ResearchLayout } from './LayoutSwitch.js';
 import { LibraryList } from './LibraryList.js';
 import { WorkDetailPanel, type WorkDetailPanelProps } from './WorkDetailPanel.js';
@@ -16,7 +18,9 @@ export interface CompactLibraryViewProps {
   selectedCollectionId: string | null;
   selectedWorkId: string | null;
   selectedCollectionIds: string[];
+  selectedWorkIds: string[];
   status: 'active' | 'trashed';
+  systemView: SystemView;
   search: string;
   creatingCollection: boolean;
   savingCollections: boolean;
@@ -26,9 +30,13 @@ export interface CompactLibraryViewProps {
   onInbox: () => void;
   onManualWork: () => void;
   onReconcile: () => void;
+  onManageCollections: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
   onSelectWork: (id: string) => void;
+  onToggleWorkSelection: (id: string) => void;
+  onSystemView: (view: SystemView) => void;
+  onBulkAction: (action: BulkWorkActionInput['action'], collectionId?: string) => Promise<void>;
   onStatus: (status: 'active' | 'trashed') => void;
   onSearch: (value: string) => void;
   detailActions: Omit<
@@ -48,7 +56,9 @@ export function CompactLibraryView({
   selectedCollectionId,
   selectedWorkId,
   selectedCollectionIds,
+  selectedWorkIds,
   status,
+  systemView,
   search,
   creatingCollection,
   savingCollections,
@@ -58,9 +68,13 @@ export function CompactLibraryView({
   onInbox,
   onManualWork,
   onReconcile,
+  onManageCollections,
   onCreateCollection,
   onSelectCollection,
   onSelectWork,
+  onToggleWorkSelection,
+  onSystemView,
+  onBulkAction,
   onStatus,
   onSearch,
   detailActions,
@@ -106,10 +120,13 @@ export function CompactLibraryView({
           collections={collections}
           selectedId={selectedCollectionId}
           status={status}
+          systemView={systemView}
           creating={creatingCollection}
           onSelect={onSelectCollection}
           onStatus={onStatus}
+          onSystemView={onSystemView}
           onCreate={onCreateCollection}
+          onManage={onManageCollections}
         />
 
         <section className="flex min-w-[360px] flex-1 flex-col border-r border-line bg-surface">
@@ -124,12 +141,20 @@ export function CompactLibraryView({
               />
             </label>
           </div>
+          <BulkActionsBar
+            selectedCount={selectedWorkIds.length}
+            collections={collections}
+            status={status}
+            onAction={onBulkAction}
+          />
           <div className="min-h-0 flex-1 overflow-y-auto">
             <LibraryList
               works={works}
               selectedId={selectedWorkId}
+              selectedIds={selectedWorkIds}
               loading={worksLoading}
               onSelect={onSelectWork}
+              onToggleSelection={onToggleWorkSelection}
               onImport={onImport}
             />
           </div>

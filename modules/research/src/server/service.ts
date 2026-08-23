@@ -6,12 +6,15 @@ import {
   RESEARCH_ERROR_CODES,
   WORK_TYPES,
   type AddLocalAttachmentInput,
+  type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateManualWorkInput,
+  type CreateWorkRelationInput,
   type ImportItemView,
   type ImportSessionView,
   type InspectImportInput,
   type ResearchErrorCode,
+  type UpdateCollectionInput,
   type WorkDetailView,
   type WorkView,
 } from '../contract.js';
@@ -1100,6 +1103,30 @@ export class ResearchService {
         )
       ).flat(),
     ];
+    const relationRecords = await this.repository.listWorkRelations(id);
+    const relations = await Promise.all(
+      relationRecords.map(async (relation) => {
+        const direction = relation.sourceWorkId === id ? 'outgoing' : 'incoming';
+        const counterpartId =
+          direction === 'outgoing' ? relation.targetWorkId : relation.sourceWorkId;
+        const counterpart = await this.repository.getWork(counterpartId);
+        if (!counterpart) throw conflict('作品关系引用的作品不存在');
+        return {
+          id: relation.id,
+          kind: relation.kind,
+          direction,
+          sourceWorkId: relation.sourceWorkId,
+          targetWorkId: relation.targetWorkId,
+          counterpart: {
+            id: counterpart.id,
+            title: counterpart.title,
+            status: counterpart.status,
+          },
+          note: relation.note,
+          createdAt: relation.createdAt,
+        } as const;
+      }),
+    );
     return {
       work: toWorkView(listed),
       editions: editionViews,
@@ -1115,6 +1142,7 @@ export class ResearchService {
         isUserConfirmed: assertion.isUserConfirmed,
         isSelected: assertion.isSelected,
       })),
+      relations,
     };
   }
 
@@ -1259,17 +1287,97 @@ export class ResearchService {
   async createCollection(input: { name: string; parentId?: string | null }) {
     const siblings = await this.repository.listCollections();
     const parentId = input.parentId ?? null;
-    if (siblings.some((value) => value.parentId === parentId && value.name === input.name.trim())) {
+    if (parentId && !siblings.some((value) => value.id === parentId)) {
+      throw notFound('父目录不存在');
+    }
+    const normalizedName = input.name.trim().toLocaleLowerCase();
+    if (
+      siblings.some(
+        (value) => value.parentId === parentId && value.normalizedName === normalizedName,
+      )
+    ) {
       throw conflict('同一目录下已有同名目录');
     }
     const created = await this.repository.createCollection({
       id: this.createId(),
       parentId,
       name: input.name.trim(),
-      normalizedName: input.name.trim().toLocaleLowerCase(),
+      normalizedName,
       sortOrder: siblings.filter((value) => value.parentId === parentId).length,
     });
     return this.collectionView(created);
+  }
+
+  async updateCollection(id: string, input: UpdateCollectionInput) {
+    const collections = await this.repository.listCollections();
+    const current = collections.find((collection) => collection.id === id);
+    if (!current) throw notFound('目录不存在');
+    const parentId = input.parentId === undefined ? current.parentId : input.parentId;
+    if (parentId === id) throw invalid('目录不能成为自己的父目录');
+    if (parentId && !collections.some((collection) => collection.id === parentId)) {
+      throw notFound('父目录不存在');
+    }
+    let ancestor = parentId;
+    while (ancestor) {
+      if (ancestor === id) throw invalid('不能把目录移动到自己的子目录中');
+      ancestor = collections.find((collection) => collection.id === ancestor)?.parentId ?? null;
+    }
+    const name = (input.name ?? current.name).trim();
+    const normalizedName = name.toLocaleLowerCase();
+    if (
+      collections.some(
+        (collection) =>
+          collection.id !== id &&
+          collection.parentId === parentId &&
+          collection.normalizedName === normalizedName,
+      )
+    ) {
+      throw conflict('目标目录下已有同名目录');
+    }
+    const siblings = collections
+      .filter((collection) => collection.parentId === parentId && collection.id !== id)
+      .sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
+    const sortOrder = Math.min(input.sortOrder ?? siblings.length, siblings.length);
+    const orderedSiblingIds = siblings.map((collection) => collection.id);
+    orderedSiblingIds.splice(sortOrder, 0, id);
+    const updated = await this.repository.moveCollection({
+      id,
+      parentId,
+      name,
+      normalizedName,
+      orderedSiblingIds,
+    });
+    if (!updated) throw notFound('目录不存在');
+    return this.collectionView(updated);
+  }
+
+  async collectionDeletionPreview(id: string) {
+    const impact = await this.repository.getCollectionDeletionImpact(id);
+    if (!impact) throw notFound('目录不存在');
+    return {
+      id: impact.collection.id,
+      name: impact.collection.name,
+      parentId: impact.collection.parentId,
+      childCount: impact.childCount,
+      directWorkCount: impact.directWorkCount,
+      parentStrategyTargetId: impact.collection.parentId,
+      parentStrategyNameConflicts: impact.parentStrategyNameConflicts,
+      unclassifiedStrategyNameConflicts: impact.unclassifiedStrategyNameConflicts,
+    };
+  }
+
+  async deleteCollection(id: string, strategy: 'parent' | 'unclassified') {
+    const impact = await this.repository.getCollectionDeletionImpact(id);
+    if (!impact) throw notFound('目录不存在');
+    const conflicts =
+      strategy === 'parent'
+        ? impact.parentStrategyNameConflicts
+        : impact.unclassifiedStrategyNameConflicts;
+    if (conflicts.length > 0) {
+      throw conflict(`移动后会出现同名目录：${conflicts.join('、')}`);
+    }
+    if (!(await this.repository.deleteCollection(id, strategy))) throw notFound('目录不存在');
+    return { deleted: true as const, strategy };
   }
 
   async setWorkCollections(workId: string, collectionIds: string[]) {
@@ -1282,6 +1390,119 @@ export class ResearchService {
       })),
     );
     return this.getWork(workId);
+  }
+
+  async addWorkRelation(sourceWorkId: string, input: CreateWorkRelationInput) {
+    if (sourceWorkId === input.targetWorkId) throw invalid('作品不能关联自己');
+    const [source, target] = await Promise.all([
+      this.repository.getWork(sourceWorkId),
+      this.repository.getWork(input.targetWorkId),
+    ]);
+    if (!source || !target) throw notFound('关联作品不存在');
+    await this.repository.upsertWorkRelation({
+      id: this.createId(),
+      sourceWorkId,
+      targetWorkId: input.targetWorkId,
+      kind: input.kind,
+      note: input.note,
+    });
+    return this.getWork(sourceWorkId);
+  }
+
+  async deleteWorkRelation(id: string) {
+    if (!(await this.repository.deleteWorkRelation(id))) throw notFound('作品关系不存在');
+  }
+
+  async previewBulkWorkAction(input: BulkWorkActionInput) {
+    const items = await Promise.all(
+      input.workIds.map(async (workId) => {
+        const detail = await this.getWork(workId);
+        return {
+          workId,
+          title: detail.work.title,
+          currentStatus: detail.work.status,
+          attachmentCount: detail.work.attachmentCount,
+          missingLocationCount: detail.editions
+            .flatMap((edition) => edition.attachments)
+            .flatMap((attachment) => attachment.asset.locations)
+            .filter((location) => location.state === 'missing' || location.state === 'changed')
+            .length,
+        };
+      }),
+    );
+    return { action: input.action, items };
+  }
+
+  async applyBulkWorkAction(input: BulkWorkActionInput) {
+    return this.exclusive(async () => {
+      if ('collectionIds' in input) {
+        const collections = await this.repository.listCollections();
+        if (input.collectionIds.some((id) => !collections.some((value) => value.id === id))) {
+          throw notFound('批量操作包含不存在的目录');
+        }
+      }
+      const results: Array<{
+        workId: string;
+        status: 'succeeded' | 'skipped' | 'failed';
+        message: string | null;
+      }> = [];
+      for (const workId of input.workIds) {
+        try {
+          const work = await this.repository.getWorkListRecord(workId);
+          if (!work) {
+            results.push({ workId, status: 'failed', message: '作品不存在' });
+            continue;
+          }
+          if (input.action === 'trash') {
+            const changed = await this.repository.trashWork(workId, this.instant());
+            results.push({
+              workId,
+              status: changed ? 'succeeded' : 'skipped',
+              message: changed ? null : '作品不在可回收状态',
+            });
+          } else if (input.action === 'restore') {
+            const changed = await this.repository.restoreWork(workId, this.instant());
+            let message: string | null = changed ? null : '作品不在可恢复状态';
+            if (changed) {
+              const restored = await this.getWork(workId);
+              const missing = restored.editions
+                .flatMap((edition) => edition.attachments)
+                .flatMap((attachment) => attachment.asset.locations)
+                .filter(
+                  (location) => location.state === 'missing' || location.state === 'changed',
+                ).length;
+              if (missing > 0) message = `作品已恢复，仍有 ${missing} 个缺失或变化的位置`;
+            }
+            results.push({
+              workId,
+              status: changed ? 'succeeded' : 'skipped',
+              message,
+            });
+          } else {
+            const selected = new Set(work.collectionIds);
+            for (const collectionId of input.collectionIds) {
+              if (input.action === 'add-to-collections') selected.add(collectionId);
+              else selected.delete(collectionId);
+            }
+            await this.repository.setWorkCollections(
+              workId,
+              [...selected].map((collectionId) => ({
+                entryId: this.createId(),
+                collectionId,
+              })),
+            );
+            results.push({ workId, status: 'succeeded', message: null });
+          }
+        } catch (error) {
+          results.push({
+            workId,
+            status: 'failed',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+      return { action: input.action, results };
+    });
   }
 
   async checkLocation(id: string) {

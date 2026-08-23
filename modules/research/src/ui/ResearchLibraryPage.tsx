@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  deleteCollection as deleteResearchCollection,
   deleteAttachment,
+  deleteWorkRelation,
   fetchCollections,
+  fetchCollectionDeletionPreview,
   fetchDeletionPreview,
   fetchWork,
   fetchWorks,
+  patchCollection,
   postAddLocalAttachment,
+  postBulkWorkAction,
+  postBulkWorkPreview,
   postCheckLocation,
   postCollection,
   postCreateManualWork,
@@ -15,10 +21,18 @@ import {
   postRelinkLocation,
   postRestoreWork,
   postTrashWork,
+  postWorkRelation,
   putWorkCollections,
 } from './api.js';
+import type {
+  BulkWorkActionInput,
+  SystemView,
+  UpdateCollectionInput,
+  WorkRelationKind,
+} from '../contract.js';
 import { CompactLibraryView } from './components/CompactLibraryView.js';
 import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
+import { CollectionManagerDialog } from './components/CollectionManagerDialog.js';
 import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
@@ -38,13 +52,16 @@ export function ResearchLibraryPage() {
   const [activeView, setActiveView] = useState<'library' | 'inbox'>('library');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [status, setStatus] = useState<'active' | 'trashed'>('active');
+  const [systemView, setSystemView] = useState<SystemView>('all');
   const [search, setSearch] = useState('');
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const [selectedWorkIds, setSelectedWorkIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [manualWorkOpen, setManualWorkOpen] = useState(false);
   const [manualWorkBusy, setManualWorkBusy] = useState(false);
   const [attachmentEditionId, setAttachmentEditionId] = useState<string | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -57,11 +74,15 @@ export function ResearchLibraryPage() {
     queryFn: fetchCollections,
   });
   const worksQuery = useQuery({
-    queryKey: ['research', 'works', status, selectedCollectionId, search],
+    queryKey: ['research', 'works', status, systemView, selectedCollectionId, search],
     queryFn: () =>
       fetchWorks({
         status,
-        collectionId: status === 'active' ? (selectedCollectionId ?? undefined) : undefined,
+        systemView,
+        collectionId:
+          status === 'active' && systemView === 'all'
+            ? (selectedCollectionId ?? undefined)
+            : undefined,
         query: search.trim() || undefined,
         limit: 100,
       }),
@@ -84,6 +105,11 @@ export function ResearchLibraryPage() {
   }, [worksQuery.data, selectedWorkId]);
 
   useEffect(() => {
+    const visibleIds = new Set((worksQuery.data?.works ?? []).map((work) => work.id));
+    setSelectedWorkIds((ids) => ids.filter((id) => visibleIds.has(id)));
+  }, [worksQuery.data]);
+
+  useEffect(() => {
     if (detailQuery.data) setSelectedCollectionIds(detailQuery.data.work.collectionIds);
   }, [detailQuery.data]);
 
@@ -92,7 +118,7 @@ export function ResearchLibraryPage() {
   };
 
   const createCollectionMutation = useMutation({
-    mutationFn: (name: string) => postCollection({ name }),
+    mutationFn: (input: { name: string; parentId?: string | null }) => postCollection(input),
     onSuccess: invalidate,
   });
   const saveCollectionsMutation = useMutation({
@@ -123,10 +149,10 @@ export function ResearchLibraryPage() {
     }
   };
 
-  const createCollection = async (name: string) => {
+  const createCollection = async (name: string, parentId?: string | null) => {
     setMessage(null);
     try {
-      await createCollectionMutation.mutateAsync(name);
+      await createCollectionMutation.mutateAsync({ name, parentId });
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : '目录创建失败');
     }
@@ -153,6 +179,62 @@ export function ResearchLibraryPage() {
     setSelectedCollectionIds((values) =>
       values.includes(id) ? values.filter((value) => value !== id) : [...values, id],
     );
+  };
+
+  const selectSystemView = (next: SystemView) => {
+    setSystemView(next);
+    setStatus(next === 'trash' ? 'trashed' : 'active');
+    setSelectedCollectionId(null);
+    setSelectedWorkIds([]);
+  };
+
+  const selectCollection = (id: string | null) => {
+    setSystemView('all');
+    setStatus('active');
+    setSelectedCollectionId(id);
+    setSelectedWorkIds([]);
+  };
+
+  const toggleWorkSelection = (id: string) => {
+    setSelectedWorkIds((ids) =>
+      ids.includes(id) ? ids.filter((value) => value !== id) : [...ids, id],
+    );
+  };
+
+  const runBulkAction = async (action: BulkWorkActionInput['action'], collectionId?: string) => {
+    if (selectedWorkIds.length === 0) return;
+    if (
+      (action === 'add-to-collections' || action === 'remove-from-collections') &&
+      !collectionId
+    ) {
+      setMessage('请选择目录');
+      return;
+    }
+    const input: BulkWorkActionInput =
+      action === 'add-to-collections' || action === 'remove-from-collections'
+        ? { action, workIds: selectedWorkIds, collectionIds: [collectionId!] }
+        : { action, workIds: selectedWorkIds };
+    setMessage(null);
+    try {
+      const preview = await postBulkWorkPreview(input);
+      const missing = preview.items.reduce((sum, item) => sum + item.missingLocationCount, 0);
+      if (
+        !window.confirm(
+          `将处理 ${preview.items.length} 个作品，共 ${preview.items.reduce((sum, item) => sum + item.attachmentCount, 0)} 个附件${missing ? `，其中 ${missing} 个位置缺失或变化` : ''}。继续吗？`,
+        )
+      ) {
+        return;
+      }
+      const result = await postBulkWorkAction(input);
+      const succeeded = result.results.filter((item) => item.status === 'succeeded').length;
+      const skipped = result.results.filter((item) => item.status === 'skipped').length;
+      const failed = result.results.filter((item) => item.status === 'failed').length;
+      setMessage(`批量操作完成：成功 ${succeeded}，跳过 ${skipped}，失败 ${failed}`);
+      setSelectedWorkIds([]);
+      await invalidate();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : '批量操作失败');
+    }
   };
 
   const detailActions = {
@@ -186,6 +268,28 @@ export function ResearchLibraryPage() {
       }
     },
     onAddAttachment: (editionId: string) => setAttachmentEditionId(editionId),
+    onAddRelation: (workId: string) => {
+      const targetWorkId = window.prompt('输入目标 Work ID');
+      if (!targetWorkId) return;
+      const requested = window.prompt('关系类型：related / extends / revises / cites', 'related');
+      if (!requested || !['related', 'extends', 'revises', 'cites'].includes(requested)) {
+        setMessage('关系类型无效');
+        return;
+      }
+      const note = window.prompt('关系说明（可留空）');
+      void run(
+        () =>
+          postWorkRelation(workId, {
+            targetWorkId,
+            kind: requested as WorkRelationKind,
+            note: note?.trim() || null,
+          }),
+        '作品关系已保存',
+      );
+    },
+    onRemoveRelation: (id: string) => {
+      void run(() => deleteWorkRelation(id), '作品关系已移除');
+    },
     onTrashWork: (id: string) => {
       void run(() => postTrashWork(id), '作品已移入回收站');
     },
@@ -208,7 +312,9 @@ export function ResearchLibraryPage() {
     selectedCollectionId,
     selectedWorkId,
     selectedCollectionIds,
+    selectedWorkIds,
     status,
+    systemView,
     search,
     creatingCollection: createCollectionMutation.isPending,
     savingCollections: saveCollectionsMutation.isPending,
@@ -219,9 +325,14 @@ export function ResearchLibraryPage() {
     onManualWork: () => setManualWorkOpen(true),
     onReconcile: () => reconcileMutation.mutate(),
     onCreateCollection: createCollection,
-    onSelectCollection: setSelectedCollectionId,
+    onManageCollections: () => setCollectionManagerOpen(true),
+    onSelectCollection: selectCollection,
     onSelectWork: setSelectedWorkId,
-    onStatus: setStatus,
+    onToggleWorkSelection: toggleWorkSelection,
+    onSystemView: selectSystemView,
+    onBulkAction: runBulkAction,
+    onStatus: (next: 'active' | 'trashed') =>
+      selectSystemView(next === 'trashed' ? 'trash' : 'all'),
     onSearch: setSearch,
     detailActions,
   };
@@ -253,6 +364,28 @@ export function ResearchLibraryPage() {
         }}
       />
 
+      <CollectionManagerDialog
+        open={collectionManagerOpen}
+        collections={sharedProps.collections}
+        onClose={() => setCollectionManagerOpen(false)}
+        onCreate={async (name, parentId) => {
+          await createCollectionMutation.mutateAsync({ name, parentId });
+          setMessage('目录已经创建');
+        }}
+        onUpdate={async (id: string, input: UpdateCollectionInput) => {
+          await patchCollection(id, input);
+          setMessage('目录已经更新');
+          await invalidate();
+        }}
+        onPreviewDelete={fetchCollectionDeletionPreview}
+        onDelete={async (id, strategy) => {
+          await deleteResearchCollection(id, strategy);
+          if (selectedCollectionId === id) selectCollection(null);
+          setMessage('目录已删除，作品和附件保持不变');
+          await invalidate();
+        }}
+      />
+
       <ManualWorkDialog
         open={manualWorkOpen}
         collections={sharedProps.collections}
@@ -264,6 +397,8 @@ export function ResearchLibraryPage() {
             const created = await postCreateManualWork(input);
             setSelectedWorkId(created.work.id);
             setStatus('active');
+            setSystemView('all');
+            setSelectedCollectionId(null);
             setActiveView('library');
             setManualWorkOpen(false);
             setMessage('手工记录已经创建');

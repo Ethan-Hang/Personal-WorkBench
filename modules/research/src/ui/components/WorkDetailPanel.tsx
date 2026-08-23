@@ -15,6 +15,8 @@ export interface WorkDetailPanelProps {
   onRelinkLocation: (id: string) => void;
   onRemoveAttachment: (id: string) => void;
   onAddAttachment: (editionId: string) => void;
+  onAddRelation: (workId: string) => void;
+  onRemoveRelation: (id: string) => void;
   onTrashWork: (id: string) => void;
   onRestoreWork: (id: string) => void;
   onPermanentDelete: (id: string) => void;
@@ -33,6 +35,8 @@ export function WorkDetailPanel({
   onRelinkLocation,
   onRemoveAttachment,
   onAddAttachment,
+  onAddRelation,
+  onRemoveRelation,
   onTrashWork,
   onRestoreWork,
   onPermanentDelete,
@@ -66,6 +70,49 @@ export function WorkDetailPanel({
             </p>
           </div>
           <FileStatus status={detail.work.fileStatus} />
+        </div>
+      </section>
+
+      <section className={sectionClass}>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">作品关系</h3>
+          <Button
+            size="sm"
+            icon={<IconPlus size={12} />}
+            onClick={() => onAddRelation(detail.work.id)}
+          >
+            添加
+          </Button>
+        </div>
+        <div className="mt-3 space-y-2">
+          {detail.relations.map((relation) => (
+            <div key={relation.id} className="rounded-control border border-line bg-surface p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-ink">
+                    {relation.direction === 'outgoing' ? '指向' : '来自'} · {relation.kind}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] text-secondary">
+                    {relation.counterpart.title || relation.counterpart.id}
+                    {relation.counterpart.status === 'trashed' ? ' · 已在回收站' : ''}
+                  </p>
+                  {relation.note && <p className="mt-1 text-[11px] text-muted">{relation.note}</p>}
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 text-[11px] font-semibold text-critical"
+                  onClick={() => onRemoveRelation(relation.id)}
+                >
+                  移除
+                </button>
+              </div>
+            </div>
+          ))}
+          {detail.relations.length === 0 && (
+            <p className="text-[11px] leading-5 text-muted">
+              尚未建立 related、extends、revises 或 cites 关系。
+            </p>
+          )}
         </div>
       </section>
 

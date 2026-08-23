@@ -4,9 +4,12 @@ import { defineRoute } from '@workbench/http-kit';
 import {
   RESEARCH_API_V1,
   addLocalAttachmentInputSchema,
+  bulkWorkActionInputSchema,
   confirmImportInputSchema,
+  createWorkRelationInputSchema,
   createCollectionInputSchema,
   createManualWorkInputSchema,
+  deleteCollectionQuerySchema,
   inspectImportInputSchema,
   listImportSessionsQuerySchema,
   listWorksQuerySchema,
@@ -16,6 +19,7 @@ import {
   relinkLocationInputSchema,
   setWorkCollectionsInputSchema,
   uploadPdfQuerySchema,
+  updateCollectionInputSchema,
 } from '../contract.js';
 import type { ResearchService } from './service.js';
 
@@ -41,6 +45,18 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     RESEARCH_API_V1.works,
     defineRoute({ query: listWorksQuerySchema }, ({ query }) => service.listWorks(query)),
   );
+  app.post(
+    RESEARCH_API_V1.workBulkPreview,
+    defineRoute({ body: bulkWorkActionInputSchema }, ({ body }) =>
+      service.previewBulkWorkAction(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.workBulk,
+    defineRoute({ body: bulkWorkActionInputSchema }, ({ body }) =>
+      service.applyBulkWorkAction(body),
+    ),
+  );
   app.get(
     RESEARCH_API_V1.work(':id'),
     defineRoute({ params: idParams }, ({ params }) => service.getWork(params.id)),
@@ -62,6 +78,18 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     RESEARCH_API_V1.workCollections(':id'),
     defineRoute({ params: idParams, body: setWorkCollectionsInputSchema }, ({ params, body }) =>
       service.setWorkCollections(params.id, body.collectionIds),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.workRelations(':id'),
+    defineRoute({ params: idParams, body: createWorkRelationInputSchema }, ({ params, body }) =>
+      service.addWorkRelation(params.id, body),
+    ),
+  );
+  app.delete(
+    RESEARCH_API_V1.workRelation(':id'),
+    defineRoute({ params: idParams, status: 204 }, ({ params }) =>
+      service.deleteWorkRelation(params.id),
     ),
   );
   app.post(
@@ -91,6 +119,22 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     RESEARCH_API_V1.collections,
     defineRoute({ body: createCollectionInputSchema, status: 201 }, ({ body }) =>
       service.createCollection(body),
+    ),
+  );
+  app.patch(
+    RESEARCH_API_V1.collection(':id'),
+    defineRoute({ params: idParams, body: updateCollectionInputSchema }, ({ params, body }) =>
+      service.updateCollection(params.id, body),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.collectionDeletionPreview(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.collectionDeletionPreview(params.id)),
+  );
+  app.delete(
+    RESEARCH_API_V1.collection(':id'),
+    defineRoute({ params: idParams, query: deleteCollectionQuerySchema }, ({ params, query }) =>
+      service.deleteCollection(params.id, query.strategy),
     ),
   );
 

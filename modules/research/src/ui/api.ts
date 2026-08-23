@@ -2,7 +2,10 @@ import type { z } from 'zod';
 import { apiRequest, jsonBody } from '@workbench/ui';
 import {
   RESEARCH_API_V1,
+  bulkWorkPreviewSchema,
+  bulkWorkResultSchema,
   collectionViewSchema,
+  collectionDeletionPreviewSchema,
   collectionsResponseSchema,
   deletionPreviewSchema,
   importCommitResultSchema,
@@ -14,12 +17,16 @@ import {
   workDetailViewSchema,
   worksPageResponseSchema,
   type AddLocalAttachmentInput,
+  type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateManualWorkInput,
+  type CreateWorkRelationInput,
   type ImportSessionStatus,
   type InspectImportInput,
   type PrepareImportInput,
   type RelinkLocationResponse,
+  type SystemView,
+  type UpdateCollectionInput,
   type WorkStatus,
 } from '../contract.js';
 
@@ -27,6 +34,9 @@ export type WorksPage = z.infer<typeof worksPageResponseSchema>;
 export type WorkDetail = z.infer<typeof workDetailViewSchema>;
 export type CollectionsResponse = z.infer<typeof collectionsResponseSchema>;
 export type CollectionView = z.infer<typeof collectionViewSchema>;
+export type CollectionDeletionPreview = z.infer<typeof collectionDeletionPreviewSchema>;
+export type BulkWorkPreview = z.infer<typeof bulkWorkPreviewSchema>;
+export type BulkWorkResult = z.infer<typeof bulkWorkResultSchema>;
 export type ImportSession = z.infer<typeof importSessionViewSchema>;
 export type ImportSessions = z.infer<typeof importSessionsResponseSchema>;
 export type ImportInspection = z.infer<typeof importInspectionResponseSchema>;
@@ -36,6 +46,7 @@ export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
 
 export interface FetchWorksOptions {
   status?: WorkStatus;
+  systemView?: SystemView;
   collectionId?: string;
   fileStatus?: 'none' | 'available' | 'missing' | 'changed' | 'recycled' | 'mixed';
   query?: string;
@@ -46,6 +57,7 @@ export interface FetchWorksOptions {
 export async function fetchWorks(options: FetchWorksOptions = {}): Promise<WorksPage> {
   const params = new URLSearchParams();
   if (options.status) params.set('status', options.status);
+  if (options.systemView) params.set('systemView', options.systemView);
   if (options.collectionId) params.set('collectionId', options.collectionId);
   if (options.fileStatus) params.set('fileStatus', options.fileStatus);
   if (options.query) params.set('query', options.query);
@@ -71,6 +83,57 @@ export async function postCollection(input: {
 }): Promise<CollectionView> {
   return collectionViewSchema.parse(
     await apiRequest(RESEARCH_API_V1.collections, jsonBody('POST', input)),
+  );
+}
+
+export async function patchCollection(
+  id: string,
+  input: UpdateCollectionInput,
+): Promise<CollectionView> {
+  return collectionViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.collection(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function fetchCollectionDeletionPreview(
+  id: string,
+): Promise<CollectionDeletionPreview> {
+  return collectionDeletionPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.collectionDeletionPreview(id)),
+  );
+}
+
+export async function deleteCollection(
+  id: string,
+  strategy: 'parent' | 'unclassified',
+): Promise<void> {
+  await apiRequest(`${RESEARCH_API_V1.collection(id)}?strategy=${strategy}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function postWorkRelation(
+  workId: string,
+  input: CreateWorkRelationInput,
+): Promise<WorkDetail> {
+  return workDetailViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workRelations(workId), jsonBody('POST', input)),
+  );
+}
+
+export async function deleteWorkRelation(id: string): Promise<void> {
+  await apiRequest(RESEARCH_API_V1.workRelation(id), { method: 'DELETE' });
+}
+
+export async function postBulkWorkPreview(input: BulkWorkActionInput): Promise<BulkWorkPreview> {
+  return bulkWorkPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workBulkPreview, jsonBody('POST', input)),
+  );
+}
+
+export async function postBulkWorkAction(input: BulkWorkActionInput): Promise<BulkWorkResult> {
+  return bulkWorkResultSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workBulk, jsonBody('POST', input)),
   );
 }
 

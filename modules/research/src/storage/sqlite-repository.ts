@@ -6,6 +6,8 @@ import type {
   AssetRecord,
   AttachmentRecord,
   CollectionDraft,
+  CollectionDeletionImpact,
+  CollectionMoveDraft,
   CollectionRecord,
   CommitImportDraft,
   CommitImportResult,
@@ -33,6 +35,8 @@ import type {
   ManualWorkResult,
   WorkListRecord,
   WorkPage,
+  WorkRelationDraft,
+  WorkRelationRecord,
   WorkRecord,
 } from '../server/repository.js';
 import type {
@@ -48,6 +52,7 @@ import type {
   StorageMode,
   WorkStatus,
   WorkType,
+  WorkRelationKind,
 } from '../contract.js';
 
 type Row = Record<string, unknown>;
@@ -194,6 +199,17 @@ function toCollection(row: Row): CollectionRecord {
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at'),
     trashedAt: nullableText(row, 'trashed_at'),
+  };
+}
+
+function toWorkRelation(row: Row): WorkRelationRecord {
+  return {
+    id: text(row, 'id'),
+    sourceWorkId: text(row, 'source_work_id'),
+    targetWorkId: text(row, 'target_work_id'),
+    kind: text(row, 'kind') as WorkRelationKind,
+    note: nullableText(row, 'note'),
+    createdAt: text(row, 'created_at'),
   };
 }
 
@@ -1247,7 +1263,49 @@ export class SqliteResearchRepository implements ResearchRepository {
 
   async listWorks(query: ListWorksQuery): Promise<WorkPage> {
     const conditions = ['w.status = ?'];
-    const params: unknown[] = [query.status];
+    const params: unknown[] = [query.systemView === 'trash' ? 'trashed' : query.status];
+    if (query.systemView === 'uncategorized') {
+      conditions.push(
+        'NOT EXISTS (SELECT 1 FROM research_collection_entries ce WHERE ce.work_id = w.id)',
+      );
+    } else if (query.systemView === 'missing-files') {
+      conditions.push(
+        `EXISTS (
+           SELECT 1 FROM research_editions e
+           JOIN research_attachments att ON att.edition_id = e.id AND att.status = 'active'
+           JOIN research_asset_locations loc ON loc.asset_id = att.asset_id
+           WHERE e.work_id = w.id AND loc.state IN ('missing', 'changed')
+         )`,
+      );
+    } else if (query.systemView === 'metadata-review') {
+      conditions.push(
+        `NOT EXISTS (
+           SELECT 1 FROM research_metadata_assertions ma
+           WHERE ma.entity_type = 'work' AND ma.entity_id = w.id
+             AND ma.field_name = 'title' AND ma.is_selected = 1 AND ma.is_user_confirmed = 1
+         )`,
+      );
+    } else if (query.systemView === 'duplicate-candidates') {
+      conditions.push(
+        `(
+           EXISTS (
+             SELECT 1 FROM research_editions own_e
+             JOIN research_attachments own_a ON own_a.edition_id = own_e.id AND own_a.status = 'active'
+             JOIN research_attachments other_a ON other_a.asset_id = own_a.asset_id AND other_a.status = 'active'
+             JOIN research_editions other_e ON other_e.id = other_a.edition_id
+             WHERE own_e.work_id = w.id AND other_e.work_id <> w.id
+           )
+           OR EXISTS (
+             SELECT 1 FROM research_editions own_e
+             JOIN research_identifiers own_i ON own_i.entity_type = 'edition' AND own_i.entity_id = own_e.id
+             JOIN research_identifiers other_i
+               ON other_i.scheme = own_i.scheme AND other_i.normalized_value = own_i.normalized_value
+             JOIN research_editions other_e ON other_i.entity_type = 'edition' AND other_i.entity_id = other_e.id
+             WHERE own_e.work_id = w.id AND other_e.work_id <> w.id
+           )
+         )`,
+      );
+    }
     if (query.collectionId) {
       conditions.push(
         `EXISTS (SELECT 1 FROM research_collection_entries ce
@@ -1542,6 +1600,129 @@ export class SqliteResearchRepository implements ResearchRepository {
     return rows.map(toCollection);
   }
 
+  async getCollection(id: string): Promise<CollectionRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_collections WHERE id = ?').get(id) as
+      Row | undefined;
+    return row ? toCollection(row) : null;
+  }
+
+  async moveCollection(draft: CollectionMoveDraft): Promise<CollectionRecord | null> {
+    return this.sqlite.transaction(() => {
+      const existing = this.sqlite
+        .prepare('SELECT parent_id FROM research_collections WHERE id = ? AND trashed_at IS NULL')
+        .get(draft.id) as { parent_id: string | null } | undefined;
+      if (!existing) return null;
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `UPDATE research_collections
+           SET parent_id = ?, name = ?, normalized_name = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(draft.parentId, draft.name, draft.normalizedName, timestamp, draft.id);
+
+      const updateOrder = this.sqlite.prepare(
+        'UPDATE research_collections SET sort_order = ?, updated_at = ? WHERE id = ?',
+      );
+      draft.orderedSiblingIds.forEach((id, index) => updateOrder.run(index, timestamp, id));
+      if (existing.parent_id !== draft.parentId) {
+        const oldSiblings = this.sqlite
+          .prepare(
+            `SELECT id FROM research_collections
+             WHERE parent_id IS ? AND trashed_at IS NULL ORDER BY sort_order, id`,
+          )
+          .all(existing.parent_id) as Array<{ id: string }>;
+        oldSiblings.forEach((row, index) => updateOrder.run(index, timestamp, row.id));
+      }
+      const updated = this.sqlite
+        .prepare('SELECT * FROM research_collections WHERE id = ?')
+        .get(draft.id) as Row;
+      return toCollection(updated);
+    })();
+  }
+
+  async getCollectionDeletionImpact(id: string): Promise<CollectionDeletionImpact | null> {
+    const collection = await this.getCollection(id);
+    if (!collection) return null;
+    const counts = this.sqlite
+      .prepare(
+        `SELECT
+           (SELECT COUNT(*) FROM research_collections WHERE parent_id = ? AND trashed_at IS NULL) AS child_count,
+           (SELECT COUNT(*) FROM research_collection_entries WHERE collection_id = ?) AS work_count`,
+      )
+      .get(id, id) as { child_count: number; work_count: number };
+    const conflictQuery = this.sqlite.prepare(
+      `SELECT child.name
+         FROM research_collections child
+         WHERE child.parent_id = ? AND child.trashed_at IS NULL
+           AND EXISTS (
+             SELECT 1 FROM research_collections sibling
+             WHERE sibling.parent_id IS ? AND sibling.trashed_at IS NULL
+               AND sibling.id <> ?
+               AND sibling.normalized_name = child.normalized_name
+           )
+         ORDER BY child.name`,
+    );
+    const parentConflicts = conflictQuery.all(id, collection.parentId, id) as Array<{
+      name: string;
+    }>;
+    const unclassifiedConflicts = conflictQuery.all(id, null, id) as Array<{ name: string }>;
+    return {
+      collection,
+      childCount: counts.child_count,
+      directWorkCount: counts.work_count,
+      parentStrategyNameConflicts: parentConflicts.map((row) => row.name),
+      unclassifiedStrategyNameConflicts: unclassifiedConflicts.map((row) => row.name),
+    };
+  }
+
+  async deleteCollection(id: string, strategy: 'parent' | 'unclassified'): Promise<boolean> {
+    return this.sqlite.transaction(() => {
+      const collection = this.sqlite
+        .prepare('SELECT * FROM research_collections WHERE id = ? AND trashed_at IS NULL')
+        .get(id) as Row | undefined;
+      if (!collection) return false;
+      const parentId = nullableText(collection, 'parent_id');
+      const targetParentId = strategy === 'parent' ? parentId : null;
+      const timestamp = this.clock();
+
+      if (strategy === 'parent' && parentId !== null) {
+        const entries = this.sqlite
+          .prepare('SELECT id, work_id FROM research_collection_entries WHERE collection_id = ?')
+          .all(id) as Array<{ id: string; work_id: string }>;
+        const exists = this.sqlite.prepare(
+          'SELECT 1 FROM research_collection_entries WHERE collection_id = ? AND work_id = ?',
+        );
+        const move = this.sqlite.prepare(
+          'UPDATE research_collection_entries SET collection_id = ? WHERE id = ?',
+        );
+        for (const entry of entries) {
+          if (!exists.get(parentId, entry.work_id)) move.run(parentId, entry.id);
+        }
+      }
+
+      this.sqlite
+        .prepare(
+          `UPDATE research_collections SET parent_id = ?, updated_at = ?
+           WHERE parent_id = ? AND trashed_at IS NULL`,
+        )
+        .run(targetParentId, timestamp, id);
+      this.sqlite.prepare('DELETE FROM research_collections WHERE id = ?').run(id);
+
+      const siblings = this.sqlite
+        .prepare(
+          `SELECT id FROM research_collections
+           WHERE parent_id IS ? AND trashed_at IS NULL ORDER BY sort_order, id`,
+        )
+        .all(targetParentId) as Array<{ id: string }>;
+      const reorder = this.sqlite.prepare(
+        'UPDATE research_collections SET sort_order = ?, updated_at = ? WHERE id = ?',
+      );
+      siblings.forEach((row, index) => reorder.run(index, timestamp, row.id));
+      return true;
+    })();
+  }
+
   async setWorkCollections(
     workId: string,
     entries: Array<{ entryId: string; collectionId: string }>,
@@ -1556,5 +1737,42 @@ export class SqliteResearchRepository implements ResearchRepository {
       const timestamp = this.clock();
       for (const entry of entries) insert.run(entry.entryId, entry.collectionId, workId, timestamp);
     })();
+  }
+
+  async upsertWorkRelation(draft: WorkRelationDraft): Promise<WorkRelationRecord> {
+    const row = this.sqlite
+      .prepare(
+        `INSERT INTO research_work_relations
+         (id, source_work_id, target_work_id, kind, note, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(source_work_id, target_work_id, kind) DO UPDATE SET note = excluded.note
+         RETURNING *`,
+      )
+      .get(
+        draft.id,
+        draft.sourceWorkId,
+        draft.targetWorkId,
+        draft.kind,
+        draft.note,
+        this.clock(),
+      ) as Row;
+    return toWorkRelation(row);
+  }
+
+  async listWorkRelations(workId: string): Promise<WorkRelationRecord[]> {
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_work_relations
+         WHERE source_work_id = ? OR target_work_id = ?
+         ORDER BY created_at, id`,
+      )
+      .all(workId, workId) as Row[];
+    return rows.map(toWorkRelation);
+  }
+
+  async deleteWorkRelation(id: string): Promise<boolean> {
+    return (
+      this.sqlite.prepare('DELETE FROM research_work_relations WHERE id = ?').run(id).changes === 1
+    );
   }
 }

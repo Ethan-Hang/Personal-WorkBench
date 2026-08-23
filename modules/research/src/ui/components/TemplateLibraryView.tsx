@@ -10,7 +10,9 @@ import {
   IconSearch,
   IconTrash,
 } from '@workbench/ui';
+import type { BulkWorkActionInput, SystemView } from '../../contract.js';
 import type { CollectionView, WorkDetail, WorksPage } from '../api.js';
+import { BulkActionsBar } from './BulkActionsBar.js';
 import { FileStatus, StorageModes } from './FileStatus.js';
 import { LayoutSwitch, type ResearchLayout } from './LayoutSwitch.js';
 import { WorkDetailPanel, type WorkDetailPanelProps } from './WorkDetailPanel.js';
@@ -26,7 +28,9 @@ export interface TemplateLibraryViewProps {
   selectedCollectionId: string | null;
   selectedWorkId: string | null;
   selectedCollectionIds: string[];
+  selectedWorkIds: string[];
   status: 'active' | 'trashed';
+  systemView: SystemView;
   search: string;
   creatingCollection: boolean;
   savingCollections: boolean;
@@ -36,9 +40,13 @@ export interface TemplateLibraryViewProps {
   onInbox: () => void;
   onManualWork: () => void;
   onReconcile: () => void;
+  onManageCollections: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
   onSelectWork: (id: string) => void;
+  onToggleWorkSelection: (id: string) => void;
+  onSystemView: (view: SystemView) => void;
+  onBulkAction: (action: BulkWorkActionInput['action'], collectionId?: string) => Promise<void>;
   onStatus: (status: 'active' | 'trashed') => void;
   onSearch: (value: string) => void;
   detailActions: Omit<
@@ -76,7 +84,9 @@ export function TemplateLibraryView({
   selectedCollectionId,
   selectedWorkId,
   selectedCollectionIds,
+  selectedWorkIds,
   status,
+  systemView,
   search,
   creatingCollection,
   savingCollections,
@@ -86,9 +96,13 @@ export function TemplateLibraryView({
   onInbox,
   onManualWork,
   onReconcile,
+  onManageCollections,
   onCreateCollection,
   onSelectCollection,
   onSelectWork,
+  onToggleWorkSelection,
+  onSystemView,
+  onBulkAction,
   onStatus,
   onSearch,
   detailActions,
@@ -202,22 +216,27 @@ export function TemplateLibraryView({
                 >
                   全部
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onStatus('trashed');
-                    onSelectCollection(null);
-                  }}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    status === 'trashed'
-                      ? 'border-accent/20 bg-accent-soft text-accent'
-                      : 'border-line text-secondary hover:text-ink'
-                  }`}
+                <select
+                  className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs font-semibold text-secondary outline-none focus:border-accent"
+                  value={systemView}
+                  onChange={(event) => onSystemView(event.target.value as SystemView)}
                 >
-                  回收站
-                </button>
+                  <option value="all">全部</option>
+                  <option value="uncategorized">未分类</option>
+                  <option value="missing-files">缺失文件</option>
+                  <option value="metadata-review">待确认元数据</option>
+                  <option value="duplicate-candidates">重复候选</option>
+                  <option value="trash">回收站</option>
+                </select>
               </div>
             </div>
+
+            <BulkActionsBar
+              selectedCount={selectedWorkIds.length}
+              collections={collections}
+              status={status}
+              onAction={onBulkAction}
+            />
 
             {worksLoading ? (
               <div className="divide-y divide-line/70" aria-label="正在加载文献">
@@ -249,42 +268,53 @@ export function TemplateLibraryView({
                 {works.map((work) => {
                   const selected = selectedWorkId === work.id;
                   return (
-                    <button
+                    <div
                       key={work.id}
-                      type="button"
-                      onClick={() => onSelectWork(work.id)}
-                      className={`group w-full px-5 py-5 text-left transition sm:px-6 ${
+                      className={`group flex w-full items-start gap-3 px-5 py-5 text-left transition sm:px-6 ${
                         selected ? 'bg-accent-soft/45' : 'hover:bg-surface-2/45'
                       }`}
                     >
-                      <div className="flex items-start gap-4">
-                        <span
-                          className={`mt-1 block h-9 w-1 shrink-0 rounded-full transition ${
-                            selected ? 'bg-accent' : 'bg-line group-hover:bg-accent/35'
-                          }`}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <h2 className="line-clamp-2 text-[15px] font-semibold leading-6 text-ink">
-                                {work.title || '未命名作品'}
-                              </h2>
-                              <p className="mt-1 truncate text-xs text-secondary">
-                                {work.authors.join('、') || '作者待补充'}
-                                {work.year !== null ? ` · ${work.year}` : ''}
-                              </p>
+                      <input
+                        type="checkbox"
+                        aria-label={`选择 ${work.title || '未命名作品'}`}
+                        className="mt-2 shrink-0"
+                        checked={selectedWorkIds.includes(work.id)}
+                        onChange={() => onToggleWorkSelection(work.id)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onSelectWork(work.id)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <div className="flex items-start gap-4">
+                          <span
+                            className={`mt-1 block h-9 w-1 shrink-0 rounded-full transition ${
+                              selected ? 'bg-accent' : 'bg-line group-hover:bg-accent/35'
+                            }`}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <h2 className="line-clamp-2 text-[15px] font-semibold leading-6 text-ink">
+                                  {work.title || '未命名作品'}
+                                </h2>
+                                <p className="mt-1 truncate text-xs text-secondary">
+                                  {work.authors.join('、') || '作者待补充'}
+                                  {work.year !== null ? ` · ${work.year}` : ''}
+                                </p>
+                              </div>
+                              <FileStatus status={work.fileStatus} />
                             </div>
-                            <FileStatus status={work.fileStatus} />
-                          </div>
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <StorageModes modes={work.storageModes} />
-                            <span className="text-[11px] tabular-nums text-muted">
-                              {work.attachmentCount} 个附件
-                            </span>
+                            <div className="mt-3 flex items-center justify-between gap-3">
+                              <StorageModes modes={work.storageModes} />
+                              <span className="text-[11px] tabular-nums text-muted">
+                                {work.attachmentCount} 个附件
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </button>
+                      </button>
+                    </div>
                   );
                 })}
               </div>
@@ -363,6 +393,13 @@ export function TemplateLibraryView({
               >
                 <IconTrash size={13} />
                 回收站
+              </button>
+              <button
+                type="button"
+                onClick={onManageCollections}
+                className="mt-2 w-full text-left text-[11px] font-semibold text-accent"
+              >
+                移动、排序或删除目录
               </button>
             </section>
 

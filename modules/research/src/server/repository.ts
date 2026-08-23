@@ -9,6 +9,8 @@ import type {
   LocationState,
   MetadataSourceKind,
   StorageMode,
+  SystemView,
+  WorkRelationKind,
   WorkStatus,
   WorkType,
 } from '../contract.js';
@@ -54,6 +56,7 @@ export interface WorkPage {
 
 export interface ListWorksQuery {
   status: WorkStatus;
+  systemView?: SystemView;
   collectionId?: string;
   fileStatus?: WorkListRecord['fileStatus'];
   query?: string;
@@ -232,6 +235,39 @@ export interface CollectionDraft {
   name: string;
   normalizedName: string;
   sortOrder: number;
+}
+
+export interface CollectionMoveDraft {
+  id: string;
+  parentId: string | null;
+  name: string;
+  normalizedName: string;
+  orderedSiblingIds: string[];
+}
+
+export interface CollectionDeletionImpact {
+  collection: CollectionRecord;
+  childCount: number;
+  directWorkCount: number;
+  parentStrategyNameConflicts: string[];
+  unclassifiedStrategyNameConflicts: string[];
+}
+
+export interface WorkRelationRecord {
+  id: string;
+  sourceWorkId: string;
+  targetWorkId: string;
+  kind: WorkRelationKind;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface WorkRelationDraft {
+  id: string;
+  sourceWorkId: string;
+  targetWorkId: string;
+  kind: WorkRelationKind;
+  note: string | null;
 }
 
 export interface SourceRecord {
@@ -483,8 +519,15 @@ export interface ResearchRepository {
 
   createCollection(draft: CollectionDraft): Promise<CollectionRecord>;
   listCollections(): Promise<CollectionRecord[]>;
+  getCollection(id: string): Promise<CollectionRecord | null>;
+  moveCollection(draft: CollectionMoveDraft): Promise<CollectionRecord | null>;
+  getCollectionDeletionImpact(id: string): Promise<CollectionDeletionImpact | null>;
+  deleteCollection(id: string, strategy: 'parent' | 'unclassified'): Promise<boolean>;
   setWorkCollections(
     workId: string,
     entries: Array<{ entryId: string; collectionId: string }>,
   ): Promise<void>;
+  upsertWorkRelation(draft: WorkRelationDraft): Promise<WorkRelationRecord>;
+  listWorkRelations(workId: string): Promise<WorkRelationRecord[]>;
+  deleteWorkRelation(id: string): Promise<boolean>;
 }

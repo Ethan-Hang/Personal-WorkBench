@@ -416,19 +416,21 @@ RUN_RESEARCH_BATCH=1 npx vitest run modules/research/src/ingest/batch-acceptance
 
 **提交：** `feat(research): add library organization workflows`
 
-- [ ] 目录以 parentId 保存任意层级，支持同父级唯一命名、排序、移动和批量归档。
-- [ ] 删除目录前选择把子目录/条目移到父级、移到未分类或取消；任何选择都不删除 Work/Attachment/Asset。
-- [ ] 系统视图覆盖全部、未分类、回收站、缺失文件、待确认元数据和重复候选。
-- [ ] 支持 Work 间 manual related/extends/revises/cites 等关系，双向展示但保留有向语义。
-- [ ] Work 回收采用软删除并保留关系；恢复时重显可用关系，缺失附件单独报告。
-- [ ] 批量加入目录、移出目录、回收和恢复使用同一影响预览与结果摘要。
-- [ ] API 与 UI 测试覆盖多层目录、多目录归属、删除目录不删文件和部分恢复。
+- [x] 目录以 parentId 保存任意层级，支持同父级唯一命名、排序、移动和批量归档。
+- [x] 删除目录前选择把子目录/条目移到父级、移到未分类或取消；任何选择都不删除 Work/Attachment/Asset。
+- [x] 系统视图覆盖全部、未分类、回收站、缺失文件、待确认元数据和重复候选。
+- [x] 支持 Work 间 manual related/extends/revises/cites 等关系，双向展示但保留有向语义。
+- [x] Work 回收采用软删除并保留关系；恢复时重显可用关系，缺失附件单独报告。
+- [x] 批量加入目录、移出目录、回收和恢复使用同一影响预览与结果摘要。
+- [x] API 与 UI 覆盖多层目录、多目录归属、删除目录不删文件和部分恢复；两套布局共用系统视图、选择工具栏、目录管理器和关系操作。
 
 **验证：**
 
 ```bash
 npx vitest run modules/research/src/library/collections.test.ts modules/research/src/library/relations.test.ts modules/research/src/server/library-routes.test.ts
 ```
+
+**验收记录（2026-08-23，macOS）：** Task 10 三个专项文件共 7 项通过；完整 research 默认套件 19 个测试文件通过、4 个 opt-in 文件跳过，共 122 项通过。生产 Vite 构建通过。目录删除测试直接核对 Work 保留且 Asset 未受影响；关系测试覆盖回收与恢复后的双向可见性；维护视图分别覆盖缺失位置、未确认标题和共享 Asset 重复候选。
 
 ### Task 11：完成标签治理和可撤销合并
 

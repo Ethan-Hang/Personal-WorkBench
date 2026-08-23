@@ -1,5 +1,14 @@
 import { useState, type FormEvent } from 'react';
-import { IconBookOpen, IconFolder, IconPlus, IconTrash } from '@workbench/ui';
+import {
+  IconAlertCircle,
+  IconBookOpen,
+  IconDatabase,
+  IconFolder,
+  IconPlus,
+  IconRefreshCw,
+  IconTrash,
+} from '@workbench/ui';
+import type { SystemView } from '../../contract.js';
 import type { CollectionView } from '../api.js';
 
 function navClass(active: boolean): string {
@@ -38,18 +47,24 @@ export function CollectionSidebar({
   collections,
   selectedId,
   status,
+  systemView,
   creating,
   onSelect,
   onStatus,
+  onSystemView,
   onCreate,
+  onManage,
 }: {
   collections: CollectionView[];
   selectedId: string | null;
   status: 'active' | 'trashed';
+  systemView: SystemView;
   creating: boolean;
   onSelect: (id: string | null) => void;
   onStatus: (status: 'active' | 'trashed') => void;
+  onSystemView: (view: SystemView) => void;
   onCreate: (name: string) => Promise<void>;
+  onManage: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -85,7 +100,7 @@ export function CollectionSidebar({
         </p>
         <button
           type="button"
-          className={navClass(status === 'active' && selectedId === null)}
+          className={navClass(systemView === 'all' && status === 'active' && selectedId === null)}
           onClick={() => {
             onStatus('active');
             onSelect(null);
@@ -96,7 +111,39 @@ export function CollectionSidebar({
         </button>
         <button
           type="button"
-          className={navClass(status === 'trashed')}
+          className={navClass(systemView === 'uncategorized')}
+          onClick={() => onSystemView('uncategorized')}
+        >
+          <IconFolder size={14} />
+          未分类
+        </button>
+        <button
+          type="button"
+          className={navClass(systemView === 'missing-files')}
+          onClick={() => onSystemView('missing-files')}
+        >
+          <IconAlertCircle size={14} />
+          缺失文件
+        </button>
+        <button
+          type="button"
+          className={navClass(systemView === 'metadata-review')}
+          onClick={() => onSystemView('metadata-review')}
+        >
+          <IconRefreshCw size={14} />
+          待确认元数据
+        </button>
+        <button
+          type="button"
+          className={navClass(systemView === 'duplicate-candidates')}
+          onClick={() => onSystemView('duplicate-candidates')}
+        >
+          <IconDatabase size={14} />
+          重复候选
+        </button>
+        <button
+          type="button"
+          className={navClass(systemView === 'trash')}
           onClick={() => {
             onStatus('trashed');
             onSelect(null);
@@ -110,14 +157,23 @@ export function CollectionSidebar({
       <div className="min-h-0 flex-1 overflow-y-auto border-t border-line/70 p-3">
         <div className="mb-2 flex items-center justify-between px-2">
           <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">目录</p>
-          <button
-            type="button"
-            aria-label="新建目录"
-            onClick={() => setAdding(true)}
-            className="rounded-control p-1 text-muted transition hover:bg-surface-2 hover:text-accent"
-          >
-            <IconPlus size={13} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onManage}
+              className="text-[10px] font-semibold text-muted hover:text-accent"
+            >
+              管理
+            </button>
+            <button
+              type="button"
+              aria-label="新建目录"
+              onClick={() => setAdding(true)}
+              className="rounded-control p-1 text-muted transition hover:bg-surface-2 hover:text-accent"
+            >
+              <IconPlus size={13} />
+            </button>
+          </div>
         </div>
         <div className="space-y-0.5">
           {ordered.map(({ collection, depth }) => (
