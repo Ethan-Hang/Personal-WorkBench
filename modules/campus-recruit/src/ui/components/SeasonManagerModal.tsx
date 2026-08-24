@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from 'react';
-import { Button, controlClass, Field, IconTrash, Modal } from '@workbench/ui';
+import { Button, controlClass, DatePicker, Field, IconTrash, Modal } from '@workbench/ui';
 import type {
   CreateSeasonInput,
   SeasonKind,
   SeasonView,
   UpdateSeasonInput,
 } from '../../contract.js';
-import { SEASON_KIND_LABEL, SEASON_KIND_OPTIONS } from './SeasonSwitcher.js';
+import { SEASON_KIND_OPTIONS } from './SeasonSwitcher.js';
 
 interface SeasonManagerModalProps {
   isOpen: boolean;
@@ -62,7 +62,21 @@ function SeasonRow({
         className={`${controlClass} min-w-0 flex-1 py-1 text-[12px]`}
       />
 
-      <span className="shrink-0 text-[11px] text-muted">{SEASON_KIND_LABEL[season.kind]}</span>
+      {/* 类型与起止一样，建完之后也要能改——建错了不该只能删掉重建 */}
+      <select
+        value={season.kind}
+        disabled={isBusy}
+        onChange={(e) => void onUpdate(season.id, { kind: e.target.value as SeasonKind })}
+        className={`${controlClass} shrink-0 py-0.5 text-[11px]`}
+        title="招聘季类型"
+      >
+        {SEASON_KIND_OPTIONS.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+
       <span className="shrink-0 text-[11px] text-muted tabular-nums">
         {season.applicationCount} 条投递
       </span>
@@ -70,24 +84,26 @@ function SeasonRow({
       {/*
         起止日期建完之后同样要能改——招聘季的时间范围本来就是边走边明确的，
         只在新建时可填等于逼人删掉重建。清空即置 null（「还没定」是合法状态）。
-        这两个值是浮动日期，原样收发，绝不转 UTC。
+        这两个值是**浮动日期**，只到天（showTime={false}），原样收发不转 UTC。
       */}
-      <input
-        type="date"
-        value={season.startDate ?? ''}
+      <DatePicker
+        value={season.startDate}
+        size="sm"
+        showTime={false}
         disabled={isBusy}
-        onChange={(e) => void onUpdate(season.id, { startDate: nullableDate(e.target.value) })}
-        className={`${controlClass} shrink-0 py-0.5 text-[11px]`}
-        title="开始日期"
+        placeholder="开始日期"
+        onChange={(value) => void onUpdate(season.id, { startDate: nullableDate(value) })}
+        className="shrink-0"
       />
       <span className="shrink-0 text-[11px] text-muted">–</span>
-      <input
-        type="date"
-        value={season.endDate ?? ''}
+      <DatePicker
+        value={season.endDate}
+        size="sm"
+        showTime={false}
         disabled={isBusy}
-        onChange={(e) => void onUpdate(season.id, { endDate: nullableDate(e.target.value) })}
-        className={`${controlClass} shrink-0 py-0.5 text-[11px]`}
-        title="结束日期"
+        placeholder="结束日期"
+        onChange={(value) => void onUpdate(season.id, { endDate: nullableDate(value) })}
+        className="shrink-0"
       />
 
       <Button
@@ -196,21 +212,21 @@ export function SeasonManagerModal({
               </select>
             </Field>
             <Field label="开始日期（选填）">
-              <input
-                type="date"
+              <DatePicker
                 value={form.startDate}
+                showTime={false}
                 disabled={isBusy}
-                onChange={(e) => setForm((prev) => ({ ...prev, startDate: e.target.value }))}
-                className={`${controlClass} py-1 text-[12px]`}
+                onChange={(value) => setForm((prev) => ({ ...prev, startDate: value }))}
+                className="w-full"
               />
             </Field>
             <Field label="结束日期（选填）">
-              <input
-                type="date"
+              <DatePicker
                 value={form.endDate}
+                showTime={false}
                 disabled={isBusy}
-                onChange={(e) => setForm((prev) => ({ ...prev, endDate: e.target.value }))}
-                className={`${controlClass} py-1 text-[12px]`}
+                onChange={(value) => setForm((prev) => ({ ...prev, endDate: value }))}
+                className="w-full"
               />
             </Field>
           </div>
