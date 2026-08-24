@@ -33,6 +33,7 @@ import {
   uploadPdfQuerySchema,
   updateCollectionInputSchema,
   updateTagInputSchema,
+  updateWorkMetadataInputSchema,
   workMergePreviewInputSchema,
 } from '../contract.js';
 import type { ResearchService } from './service.js';
@@ -58,6 +59,12 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
   app.get(
     RESEARCH_API_V1.works,
     defineRoute({ query: listWorksQuerySchema }, ({ query }) => service.listWorks(query)),
+  );
+  app.patch(
+    RESEARCH_API_V1.workMetadata(':id'),
+    defineRoute({ params: idParams, body: updateWorkMetadataInputSchema }, ({ params, body }) =>
+      service.updateWorkMetadata(params.id, body),
+    ),
   );
   app.post(
     RESEARCH_API_V1.workSearch,
@@ -325,6 +332,22 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     RESEARCH_API_V1.attachment(':id'),
     defineRoute({ params: idParams, status: 204 }, ({ params }) =>
       service.recycleAttachment(params.id),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.attachmentRestore(':id'),
+    defineRoute({ params: idParams, status: 204 }, ({ params }) =>
+      service.restoreAttachment(params.id),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.attachmentDeletionPreview(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.attachmentDeletionPreview(params.id)),
+  );
+  app.post(
+    RESEARCH_API_V1.attachmentPermanentDelete(':id'),
+    defineRoute({ params: idParams, body: permanentDeleteInputSchema }, ({ params, body }) =>
+      service.permanentlyDeleteAttachment(params.id, body.confirmationToken),
     ),
   );
   app.post(

@@ -3,6 +3,7 @@ import type {
   AssetLocationDraft,
   AssetLocationRecord,
   AttachmentDraft,
+  AttachmentDeletionImpact,
   AssetRecord,
   AttachmentRecord,
   CollectionDraft,
@@ -14,6 +15,7 @@ import type {
   ContributorRecord,
   DeletionImpact,
   EditionRecord,
+  ExternalSourceMapRecord,
   ExportJobChanges,
   ExportJobDraft,
   ExportJobRecord,
@@ -43,6 +45,7 @@ import type {
   TagSummaryRecord,
   TagUpdateDraft,
   WorkListRecord,
+  WorkMetadataUpdateDraft,
   WorkMergeDraft,
   WorkPage,
   WorkRelationDraft,
@@ -299,6 +302,21 @@ function toSource(row: Row): SourceRecord {
     parserVersion: text(row, 'parser_version'),
     observedAt: text(row, 'observed_at'),
     createdAt: text(row, 'created_at'),
+  };
+}
+
+function toExternalSourceMap(row: Row): ExternalSourceMapRecord {
+  return {
+    id: text(row, 'id'),
+    provider: text(row, 'provider'),
+    externalId: text(row, 'external_id'),
+    entityType: text(row, 'entity_type') as ExternalSourceMapRecord['entityType'],
+    entityId: text(row, 'entity_id'),
+    lastFetchedAt: nullableText(row, 'last_fetched_at'),
+    cacheStatus: text(row, 'cache_status') as ExternalSourceMapRecord['cacheStatus'],
+    cacheExpiresAt: nullableText(row, 'cache_expires_at'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
   };
 }
 
@@ -969,6 +987,36 @@ export class SqliteResearchRepository implements ResearchRepository {
     return rows.map(toAssertion);
   }
 
+  async listSourceRecords(ids: string[]): Promise<SourceRecord[]> {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length === 0) return [];
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_source_records
+         WHERE id IN (${uniqueIds.map(() => '?').join(', ')}) ORDER BY observed_at DESC, id`,
+      )
+      .all(...uniqueIds) as Row[];
+    return rows.map(toSource);
+  }
+
+  async listExternalSourceMaps(
+    workId: string,
+    editionIds: string[],
+  ): Promise<ExternalSourceMapRecord[]> {
+    const editionCondition =
+      editionIds.length === 0
+        ? '0'
+        : `entity_type = 'edition' AND entity_id IN (${editionIds.map(() => '?').join(', ')})`;
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_external_source_maps
+         WHERE (entity_type = 'work' AND entity_id = ?) OR (${editionCondition})
+         ORDER BY provider, external_id, id`,
+      )
+      .all(workId, ...editionIds) as Row[];
+    return rows.map(toExternalSourceMap);
+  }
+
   async getMetadataCache(
     provider: string,
     lookupKey: string,
@@ -1360,6 +1408,114 @@ export class SqliteResearchRepository implements ResearchRepository {
         insertCollection.run(entry.entryId, entry.collectionId, draft.work.id, timestamp);
       }
       return { workId: draft.work.id, editionId: draft.edition.id };
+    })();
+  }
+
+  async updateWorkMetadata(draft: WorkMetadataUpdateDraft): Promise<boolean> {
+    return this.sqlite.transaction(() => {
+      const work = this.sqlite
+        .prepare('SELECT revision, status FROM research_works WHERE id = ?')
+        .get(draft.workId) as { revision: number; status: string } | undefined;
+      if (!work || work.status !== 'active' || work.revision !== draft.expectedWorkRevision) {
+        return false;
+      }
+      if (draft.edition) {
+        const edition = this.sqlite
+          .prepare('SELECT revision, work_id FROM research_editions WHERE id = ?')
+          .get(draft.edition.id) as { revision: number; work_id: string } | undefined;
+        if (
+          !edition ||
+          edition.work_id !== draft.workId ||
+          edition.revision !== draft.edition.expectedRevision
+        ) {
+          return false;
+        }
+      }
+
+      const timestamp = this.clock();
+      const workAssignments = ['updated_at = ?', 'revision = revision + 1'];
+      const workValues: unknown[] = [timestamp];
+      if (draft.work?.title !== undefined) {
+        workAssignments.push('title = ?');
+        workValues.push(draft.work.title);
+      }
+      if (draft.work?.titleSort !== undefined) {
+        workAssignments.push('title_sort = ?');
+        workValues.push(draft.work.titleSort);
+      }
+      if (draft.work?.type !== undefined) {
+        workAssignments.push('type = ?');
+        workValues.push(draft.work.type);
+      }
+      if (draft.work?.abstract !== undefined) {
+        workAssignments.push('abstract = ?');
+        workValues.push(draft.work.abstract);
+      }
+      if (draft.work?.year !== undefined) {
+        workAssignments.push('year = ?');
+        workValues.push(draft.work.year);
+      }
+      const updatedWork = this.sqlite
+        .prepare(
+          `UPDATE research_works SET ${workAssignments.join(', ')}
+           WHERE id = ? AND revision = ?`,
+        )
+        .run(...workValues, draft.workId, draft.expectedWorkRevision);
+      if (updatedWork.changes !== 1) return false;
+
+      if (draft.edition) {
+        const editionAssignments = ['updated_at = ?', 'revision = revision + 1'];
+        const editionValues: unknown[] = [timestamp];
+        if (draft.edition.title !== undefined) {
+          editionAssignments.push('title = ?');
+          editionValues.push(draft.edition.title);
+        }
+        if (draft.edition.publicationTitle !== undefined) {
+          editionAssignments.push('publication_title = ?');
+          editionValues.push(draft.edition.publicationTitle);
+        }
+        if (draft.edition.publisher !== undefined) {
+          editionAssignments.push('publisher = ?');
+          editionValues.push(draft.edition.publisher);
+        }
+        if (draft.edition.publishedDate !== undefined) {
+          editionAssignments.push('published_date = ?');
+          editionValues.push(draft.edition.publishedDate);
+        }
+        const updatedEdition = this.sqlite
+          .prepare(
+            `UPDATE research_editions SET ${editionAssignments.join(', ')}
+             WHERE id = ? AND revision = ? AND work_id = ?`,
+          )
+          .run(...editionValues, draft.edition.id, draft.edition.expectedRevision, draft.workId);
+        if (updatedEdition.changes !== 1) return false;
+
+        if (draft.edition.authors !== undefined) {
+          this.sqlite
+            .prepare("DELETE FROM research_contributors WHERE edition_id = ? AND role = 'author'")
+            .run(draft.edition.id);
+          const insert = this.sqlite.prepare(
+            `INSERT INTO research_contributors
+             (id, edition_id, role, display_name, given_name, family_name, orcid, sequence)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          );
+          for (const author of draft.edition.authors) {
+            insert.run(
+              author.id,
+              draft.edition.id,
+              author.role ?? 'author',
+              author.displayName,
+              author.givenName ?? null,
+              author.familyName ?? null,
+              author.orcid ?? null,
+              author.sequence,
+            );
+          }
+        }
+      }
+
+      for (const assertion of draft.assertions) this.writeAssertion(assertion, true);
+      return true;
     })();
   }
 
@@ -1827,6 +1983,74 @@ export class SqliteResearchRepository implements ResearchRepository {
       )
       .run(at, id);
     return result.changes === 1;
+  }
+
+  async restoreAttachment(id: string): Promise<boolean> {
+    const result = this.sqlite
+      .prepare(
+        `UPDATE research_attachments SET status = 'active', recycled_at = NULL
+         WHERE id = ? AND status = 'recycled'`,
+      )
+      .run(id);
+    return result.changes === 1;
+  }
+
+  async getAttachmentDeletionImpact(id: string): Promise<AttachmentDeletionImpact | null> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT att.id AS attachment_id, att.asset_id, att.display_name, att.status,
+                asset.content_hash, asset.byte_size,
+                (SELECT COUNT(*) FROM research_attachments other
+                 WHERE other.asset_id = att.asset_id AND other.id <> att.id) AS other_count,
+                (SELECT COUNT(*) FROM research_asset_locations linked
+                 WHERE linked.asset_id = att.asset_id AND linked.mode = 'linked') AS linked_count,
+                (SELECT managed.object_key FROM research_asset_locations managed
+                 WHERE managed.asset_id = att.asset_id AND managed.mode = 'managed' LIMIT 1) AS object_key
+         FROM research_attachments att
+         JOIN research_assets asset ON asset.id = att.asset_id
+         WHERE att.id = ?`,
+      )
+      .get(id) as Row | undefined;
+    if (!row) return null;
+    const otherAttachmentCount = integer(row, 'other_count');
+    const objectKey = nullableText(row, 'object_key');
+    return {
+      attachmentId: text(row, 'attachment_id'),
+      assetId: text(row, 'asset_id'),
+      displayName: text(row, 'display_name'),
+      otherAttachmentCount,
+      linkedLocationCount: integer(row, 'linked_count'),
+      orphanedAssetId: otherAttachmentCount === 0 ? text(row, 'asset_id') : null,
+      removableManagedAsset:
+        otherAttachmentCount === 0 && objectKey
+          ? {
+              assetId: text(row, 'asset_id'),
+              objectKey,
+              contentHash: text(row, 'content_hash'),
+              byteSize: integer(row, 'byte_size'),
+            }
+          : null,
+    };
+  }
+
+  async permanentlyDeleteAttachment(id: string, removableAssetId: string | null): Promise<boolean> {
+    return this.sqlite.transaction(() => {
+      const row = this.sqlite
+        .prepare('SELECT asset_id, status FROM research_attachments WHERE id = ?')
+        .get(id) as { asset_id: string; status: string } | undefined;
+      if (!row || row.status !== 'recycled') return false;
+      const count = this.sqlite
+        .prepare(
+          'SELECT COUNT(*) AS count FROM research_attachments WHERE asset_id = ? AND id <> ?',
+        )
+        .get(row.asset_id, id) as { count: number };
+      const expectedOrphan = count.count === 0 ? row.asset_id : null;
+      if (expectedOrphan !== removableAssetId) return false;
+      this.sqlite.prepare('DELETE FROM research_attachments WHERE id = ?').run(id);
+      if (expectedOrphan)
+        this.sqlite.prepare('DELETE FROM research_assets WHERE id = ?').run(expectedOrphan);
+      return true;
+    })();
   }
 
   async trashWork(id: string, at: string): Promise<boolean> {

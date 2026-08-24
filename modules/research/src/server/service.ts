@@ -27,6 +27,7 @@ import {
   type ResearchSearchAst,
   type StructuredSearchInput,
   type UpdateCollectionInput,
+  type UpdateWorkMetadataInput,
   type UpdateTagInput,
   type WorkDetailView,
   type WorkView,
@@ -47,6 +48,7 @@ import type {
   CollectionRecord,
   CommitImportResult,
   DeletionImpact,
+  AttachmentDeletionImpact,
   ExportJobRecord,
   ImportItemRecord,
   ListWorksQuery,
@@ -112,6 +114,12 @@ interface InspectionPayload {
 
 interface DeletionToken {
   workId: string;
+  fingerprint: string;
+  expiresAt: number;
+}
+
+interface AttachmentDeletionToken {
+  attachmentId: string;
   fingerprint: string;
   expiresAt: number;
 }
@@ -265,6 +273,7 @@ function toWorkView(record: WorkListRecord): WorkView {
     id: record.id,
     type: record.type,
     title: record.title,
+    abstract: record.abstract,
     year: record.year,
     status: record.status,
     preferredEditionId: record.preferredEditionId,
@@ -276,6 +285,7 @@ function toWorkView(record: WorkListRecord): WorkView {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     trashedAt: record.trashedAt,
+    revision: record.revision,
     searchScore: record.searchScore,
     matchedFields: record.matchedFields,
   };
@@ -314,6 +324,17 @@ function deletionFingerprint(impact: DeletionImpact): string {
     attachmentCount: impact.attachmentCount,
     linkedLocationCount: impact.linkedLocationCount,
     removableManagedAssets: impact.removableManagedAssets,
+  });
+}
+
+function attachmentDeletionFingerprint(impact: AttachmentDeletionImpact): string {
+  return JSON.stringify({
+    attachmentId: impact.attachmentId,
+    assetId: impact.assetId,
+    otherAttachmentCount: impact.otherAttachmentCount,
+    linkedLocationCount: impact.linkedLocationCount,
+    orphanedAssetId: impact.orphanedAssetId,
+    removableManagedAsset: impact.removableManagedAsset,
   });
 }
 
@@ -362,6 +383,7 @@ export class ResearchService {
   private readonly clock: () => Date;
   private readonly createId: () => string;
   private readonly deletionTokens = new Map<string, DeletionToken>();
+  private readonly attachmentDeletionTokens = new Map<string, AttachmentDeletionToken>();
   private readonly inspectionJobs = new Map<
     string,
     { controller: AbortController; promise: Promise<unknown> }
@@ -1220,6 +1242,7 @@ export class ResearchService {
     const listed = await this.repository.getWorkListRecord(id);
     if (!listed) throw notFound('作品不存在');
     const editions = await this.repository.listEditions(id);
+    const sourceRecordIds = new Set<string>();
     const editionViews = await Promise.all(
       editions.map(async (edition) => {
         const [contributors, identifiers, attachments] = await Promise.all([
@@ -1261,13 +1284,18 @@ export class ResearchService {
             };
           }),
         );
+        for (const identifier of identifiers) {
+          if (identifier.sourceRecordId) sourceRecordIds.add(identifier.sourceRecordId);
+        }
         return {
           id: edition.id,
           workId: id,
           kind: edition.kind,
           title: edition.title,
           publicationTitle: edition.publicationTitle,
+          publisher: edition.publisher,
           publishedDate: edition.publishedDate,
+          revision: edition.revision,
           contributors: contributors.map((contributor) => ({
             id: contributor.id,
             role: contributor.role,
@@ -1293,9 +1321,17 @@ export class ResearchService {
         )
       ).flat(),
     ];
-    const [relationRecords, tagRecords] = await Promise.all([
+    for (const assertion of assertions) {
+      if (assertion.sourceRecordId) sourceRecordIds.add(assertion.sourceRecordId);
+    }
+    const [relationRecords, tagRecords, sources, externalMappings] = await Promise.all([
       this.repository.listWorkRelations(id),
       this.repository.listTagsForWork(id),
+      this.repository.listSourceRecords([...sourceRecordIds]),
+      this.repository.listExternalSourceMaps(
+        id,
+        editions.map((edition) => edition.id),
+      ),
     ]);
     const relations = await Promise.all(
       relationRecords.map(async (relation) => {
@@ -1335,9 +1371,110 @@ export class ResearchService {
         isUserConfirmed: assertion.isUserConfirmed,
         isSelected: assertion.isSelected,
       })),
+      sources: sources.map((source) => ({
+        id: source.id,
+        provider: source.provider,
+        sourceLocator: source.sourceLocator,
+        rawFormat: source.rawFormat,
+        rawPayload: source.rawPayload,
+        parserVersion: source.parserVersion,
+        observedAt: source.observedAt,
+        createdAt: source.createdAt,
+      })),
+      externalMappings: externalMappings.map((mapping) => ({
+        id: mapping.id,
+        provider: mapping.provider,
+        externalId: mapping.externalId,
+        entityType: mapping.entityType,
+        entityId: mapping.entityId,
+        lastFetchedAt: mapping.lastFetchedAt,
+        cacheStatus: mapping.cacheStatus,
+        cacheExpiresAt: mapping.cacheExpiresAt,
+      })),
       relations,
       tags: tagRecords.map(toTagView),
     };
+  }
+
+  async updateWorkMetadata(id: string, input: UpdateWorkMetadataInput): Promise<WorkDetailView> {
+    const work = await this.repository.getWork(id);
+    if (!work) throw notFound('作品不存在');
+    if (work.status !== 'active') throw conflict('只能编辑活动作品的元数据');
+    if (work.revision !== input.expectedWorkRevision) {
+      throw conflict('作品已经被其他操作修改，请刷新后重试');
+    }
+    let edition = null;
+    if (input.edition) {
+      edition = await this.repository.getEdition(input.edition.id);
+      if (!edition || edition.workId !== id) throw notFound('版本不存在');
+      if (edition.revision !== input.edition.expectedRevision) {
+        throw conflict('版本已经被其他操作修改，请刷新后重试');
+      }
+    }
+
+    const observedAt = this.instant();
+    const assertion = (
+      entityType: 'work' | 'edition',
+      entityId: string,
+      fieldName: string,
+      value: unknown,
+    ): MetadataAssertionDraft => ({
+      id: this.createId(),
+      entityType,
+      entityId,
+      fieldName,
+      value,
+      normalizedValue: typeof value === 'string' ? value.trim().toLocaleLowerCase() : null,
+      sourceKind: 'user',
+      sourceRecordId: null,
+      observedAt,
+      isUserConfirmed: true,
+    });
+    const assertions: MetadataAssertionDraft[] = [];
+    for (const [fieldName, value] of Object.entries(input.work ?? {})) {
+      assertions.push(assertion('work', id, fieldName, value));
+    }
+    for (const [fieldName, value] of Object.entries(input.edition ?? {})) {
+      if (fieldName === 'id' || fieldName === 'expectedRevision') continue;
+      assertions.push(assertion('edition', input.edition!.id, fieldName, value));
+    }
+    const updated = await this.repository.updateWorkMetadata({
+      workId: id,
+      expectedWorkRevision: input.expectedWorkRevision,
+      ...(input.work
+        ? {
+            work: {
+              ...input.work,
+              ...(input.work.title !== undefined
+                ? { titleSort: normalizeTitle(input.work.title) }
+                : {}),
+            },
+          }
+        : {}),
+      ...(input.edition
+        ? {
+            edition: (() => {
+              const { authors, ...fields } = input.edition;
+              return {
+                ...fields,
+                ...(authors !== undefined
+                  ? {
+                      authors: authors.map((displayName, sequence) => ({
+                        id: this.createId(),
+                        displayName,
+                        role: 'author',
+                        sequence,
+                      })),
+                    }
+                  : {}),
+              };
+            })(),
+          }
+        : {}),
+      assertions,
+    });
+    if (!updated) throw conflict('元数据已经变化，请刷新后重试');
+    return this.getWork(id);
   }
 
   async createManualWork(input: CreateManualWorkInput): Promise<WorkDetailView> {
@@ -2113,6 +2250,76 @@ export class ResearchService {
     if (!(await this.repository.recycleAttachment(id, this.instant()))) {
       throw notFound('可移除的附件不存在');
     }
+  }
+
+  async restoreAttachment(id: string) {
+    if (!(await this.repository.restoreAttachment(id))) throw notFound('可恢复的附件不存在');
+  }
+
+  async attachmentDeletionPreview(id: string) {
+    const impact = await this.repository.getAttachmentDeletionImpact(id);
+    if (!impact) throw notFound('附件不存在');
+    const token = this.createId();
+    this.attachmentDeletionTokens.set(token, {
+      attachmentId: id,
+      fingerprint: attachmentDeletionFingerprint(impact),
+      expiresAt: this.clock().getTime() + 5 * 60 * 1_000,
+    });
+    return {
+      attachmentId: id,
+      assetId: impact.assetId,
+      displayName: impact.displayName,
+      otherAttachmentCount: impact.otherAttachmentCount,
+      managedObjectCount: impact.removableManagedAsset ? 1 : 0,
+      linkedLocationCount: impact.linkedLocationCount,
+      confirmationToken: token,
+    };
+  }
+
+  async permanentlyDeleteAttachment(id: string, confirmationToken: string) {
+    return this.exclusive(async () => {
+      const token = this.attachmentDeletionTokens.get(confirmationToken);
+      this.attachmentDeletionTokens.delete(confirmationToken);
+      if (!token || token.attachmentId !== id || token.expiresAt < this.clock().getTime()) {
+        throw conflict('附件永久删除确认已失效，请重新查看影响');
+      }
+      const impact = await this.repository.getAttachmentDeletionImpact(id);
+      if (!impact || attachmentDeletionFingerprint(impact) !== token.fingerprint) {
+        throw conflict('附件引用已经变化，请重新查看影响');
+      }
+      let quarantined: QuarantinedManagedObject | null = null;
+      try {
+        if (impact.removableManagedAsset) {
+          quarantined = await this.contentStore.quarantineManagedObject(
+            impact.removableManagedAsset.objectKey,
+            impact.removableManagedAsset.contentHash,
+            impact.removableManagedAsset.byteSize,
+          );
+        }
+        const deleted = await this.repository.permanentlyDeleteAttachment(
+          id,
+          impact.orphanedAssetId,
+        );
+        if (!deleted) throw conflict('附件引用已经变化，永久删除未完成');
+      } catch (error) {
+        if (quarantined) await this.contentStore.restoreQuarantinedObject(quarantined);
+        throw error;
+      }
+      let cleanupPending = false;
+      if (quarantined) {
+        try {
+          await this.contentStore.finalizeQuarantinedObject(quarantined);
+        } catch {
+          cleanupPending = true;
+        }
+      }
+      return {
+        deleted: true,
+        assetDeleted: impact.orphanedAssetId !== null,
+        linkedSourcesDeleted: false,
+        cleanupPending,
+      };
+    });
   }
 
   async trashWork(id: string) {

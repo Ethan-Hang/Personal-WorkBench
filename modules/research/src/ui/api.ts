@@ -4,6 +4,7 @@ import {
   RESEARCH_API_V1,
   bulkWorkPreviewSchema,
   bulkWorkResultSchema,
+  attachmentDeletionPreviewSchema,
   collectionViewSchema,
   collectionDeletionPreviewSchema,
   collectionsResponseSchema,
@@ -46,6 +47,7 @@ import {
   type SystemView,
   type UpdateCollectionInput,
   type UpdateTagInput,
+  type UpdateWorkMetadataInput,
   type WorkStatus,
 } from '../contract.js';
 
@@ -68,6 +70,7 @@ export type TagCandidates = z.infer<typeof tagCandidatesResponseSchema>;
 export type TagDeletionPreview = z.infer<typeof tagDeletionPreviewSchema>;
 export type WorkMergePreview = z.infer<typeof workMergePreviewSchema>;
 export type MergeRecordView = z.infer<typeof mergeRecordViewSchema>;
+export type AttachmentDeletionPreview = z.infer<typeof attachmentDeletionPreviewSchema>;
 
 export async function postPortableExportPreview(
   input: PortableExportPreviewInput,
@@ -122,6 +125,37 @@ export async function fetchWorks(options: FetchWorksOptions = {}): Promise<Works
 
 export async function fetchWork(id: string): Promise<WorkDetail> {
   return workDetailViewSchema.parse(await apiRequest(RESEARCH_API_V1.work(id)));
+}
+
+export async function patchWorkMetadata(
+  id: string,
+  input: UpdateWorkMetadataInput,
+): Promise<WorkDetail> {
+  return workDetailViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.workMetadata(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function postRestoreAttachment(id: string): Promise<void> {
+  await apiRequest(RESEARCH_API_V1.attachmentRestore(id), { method: 'POST' });
+}
+
+export async function fetchAttachmentDeletionPreview(
+  id: string,
+): Promise<AttachmentDeletionPreview> {
+  return attachmentDeletionPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.attachmentDeletionPreview(id)),
+  );
+}
+
+export async function postPermanentDeleteAttachment(
+  id: string,
+  confirmationToken: string,
+): Promise<void> {
+  await apiRequest(
+    RESEARCH_API_V1.attachmentPermanentDelete(id),
+    jsonBody('POST', { confirmationToken }),
+  );
 }
 
 export async function postStructuredSearch(input: StructuredSearchInput): Promise<WorksPage> {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@workbench/server';
 import {
   RESEARCH_API_V1,
+  attachmentDeletionPreviewSchema,
   bulkWorkPreviewSchema,
   bulkWorkResultSchema,
   collectionDeletionPreviewSchema,
@@ -154,6 +155,96 @@ describe('research library routes', () => {
         url: RESEARCH_API_V1.workRelation(related.relations[0]!.id),
       });
       expect(removedRelation.statusCode).toBe(204);
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('元数据编辑和附件回收站接口使用同一份详情契约', async () => {
+    const { app, repo, sqlite } = await fixture();
+    try {
+      const created = await createWork(app, 'Editable route work');
+      const edition = created.editions[0]!;
+      const editedResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.workMetadata(created.work.id),
+        payload: {
+          expectedWorkRevision: created.work.revision,
+          work: { title: 'Edited route work', abstract: 'Edited through API' },
+          edition: {
+            id: edition.id,
+            expectedRevision: edition.revision,
+            publisher: 'Route Press',
+            authors: ['Route Author'],
+          },
+        },
+      });
+      expect(editedResponse.statusCode).toBe(200);
+      const edited = workDetailViewSchema.parse(editedResponse.json());
+      expect(edited.work).toMatchObject({
+        title: 'Edited route work',
+        abstract: 'Edited through API',
+        authors: ['Route Author'],
+      });
+      expect(edited.editions[0]).toMatchObject({ publisher: 'Route Press' });
+
+      const stored = await repo.storeAsset(
+        {
+          id: 'route-linked-asset',
+          contentHash: 'd'.repeat(64),
+          byteSize: 24,
+          mimeType: 'text/plain',
+        },
+        {
+          id: 'route-linked-location',
+          mode: 'linked',
+          originalPath: '/source/route-notes.txt',
+          resolvedPath: '/source/route-notes.txt',
+          objectKey: null,
+          state: 'available',
+        },
+      );
+      await repo.addAttachment({
+        id: 'route-linked-attachment',
+        editionId: edition.id,
+        assetId: stored.asset.id,
+        role: 'other',
+        displayName: 'route-notes.txt',
+      });
+
+      const recycled = await app.inject({
+        method: 'DELETE',
+        url: RESEARCH_API_V1.attachment('route-linked-attachment'),
+      });
+      expect(recycled.statusCode).toBe(204);
+      const restored = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.attachmentRestore('route-linked-attachment'),
+      });
+      expect(restored.statusCode).toBe(204);
+      await app.inject({
+        method: 'DELETE',
+        url: RESEARCH_API_V1.attachment('route-linked-attachment'),
+      });
+      const previewResponse = await app.inject({
+        method: 'GET',
+        url: RESEARCH_API_V1.attachmentDeletionPreview('route-linked-attachment'),
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = attachmentDeletionPreviewSchema.parse(previewResponse.json());
+      expect(preview).toMatchObject({ linkedLocationCount: 1, managedObjectCount: 0 });
+      const permanentlyDeleted = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.attachmentPermanentDelete('route-linked-attachment'),
+        payload: { confirmationToken: preview.confirmationToken },
+      });
+      expect(permanentlyDeleted.statusCode).toBe(200);
+      expect(permanentlyDeleted.json()).toMatchObject({
+        deleted: true,
+        linkedSourcesDeleted: false,
+      });
+      expect(await repo.getAsset('route-linked-asset')).toBeNull();
     } finally {
       await app.close();
       sqlite.close();

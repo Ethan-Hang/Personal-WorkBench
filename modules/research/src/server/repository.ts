@@ -424,6 +424,19 @@ export interface MetadataCacheDraft {
   expiresAt: string;
 }
 
+export interface ExternalSourceMapRecord {
+  id: string;
+  provider: string;
+  externalId: string;
+  entityType: 'work' | 'edition';
+  entityId: string;
+  lastFetchedAt: string | null;
+  cacheStatus: 'fresh' | 'not-found' | 'transient-failure';
+  cacheExpiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ImportItemRecord {
   id: string;
   sessionId: string;
@@ -533,6 +546,43 @@ export interface ManualWorkResult {
   editionId: string;
 }
 
+export interface WorkMetadataUpdateDraft {
+  workId: string;
+  expectedWorkRevision: number;
+  work?: {
+    title?: string;
+    titleSort?: string;
+    type?: WorkType;
+    abstract?: string | null;
+    year?: number | null;
+  };
+  edition?: {
+    id: string;
+    expectedRevision: number;
+    title?: string;
+    publicationTitle?: string | null;
+    publisher?: string | null;
+    publishedDate?: string | null;
+    authors?: ContributorDraft[];
+  };
+  assertions: MetadataAssertionDraft[];
+}
+
+export interface AttachmentDeletionImpact {
+  attachmentId: string;
+  assetId: string;
+  displayName: string;
+  otherAttachmentCount: number;
+  linkedLocationCount: number;
+  orphanedAssetId: string | null;
+  removableManagedAsset: {
+    assetId: string;
+    objectKey: string;
+    contentHash: string;
+    byteSize: number;
+  } | null;
+}
+
 export interface ExportJobRecord {
   id: string;
   status: 'draft' | 'running' | 'completed' | 'cancelled' | 'failed';
@@ -610,6 +660,8 @@ export interface ResearchRepository {
     entityType: 'work' | 'edition',
     entityId: string,
   ): Promise<MetadataAssertionRecord[]>;
+  listSourceRecords(ids: string[]): Promise<SourceRecord[]>;
+  listExternalSourceMaps(workId: string, editionIds: string[]): Promise<ExternalSourceMapRecord[]>;
   getMetadataCache(
     provider: string,
     lookupKey: string,
@@ -619,6 +671,7 @@ export interface ResearchRepository {
 
   commitImport(draft: CommitImportDraft): Promise<CommitImportResult>;
   createManualWork(draft: ManualWorkDraft): Promise<ManualWorkResult>;
+  updateWorkMetadata(draft: WorkMetadataUpdateDraft): Promise<boolean>;
   addAttachment(draft: AttachmentDraft): Promise<AttachmentRecord>;
   getWork(id: string): Promise<WorkRecord | null>;
   getWorkListRecord(id: string): Promise<WorkListRecord | null>;
@@ -630,6 +683,9 @@ export interface ResearchRepository {
   listIdentifiers(entityType: 'work' | 'edition', entityId: string): Promise<IdentifierRecord[]>;
   listAttachments(editionId: string): Promise<AttachmentRecord[]>;
   recycleAttachment(id: string, at: string): Promise<boolean>;
+  restoreAttachment(id: string): Promise<boolean>;
+  getAttachmentDeletionImpact(id: string): Promise<AttachmentDeletionImpact | null>;
+  permanentlyDeleteAttachment(id: string, removableAssetId: string | null): Promise<boolean>;
   trashWork(id: string, at: string): Promise<boolean>;
   restoreWork(id: string, at: string): Promise<boolean>;
   getDeletionImpact(workId: string): Promise<DeletionImpact | null>;

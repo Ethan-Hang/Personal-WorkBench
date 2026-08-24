@@ -7,6 +7,7 @@ export const RESEARCH_API_V1 = {
   works: `${API_ROOT}/works`,
   workSearch: `${API_ROOT}/works/search`,
   work: (id: string) => `${API_ROOT}/works/${id}`,
+  workMetadata: (id: string) => `${API_ROOT}/works/${id}/metadata`,
   workCollections: (id: string) => `${API_ROOT}/works/${id}/collections`,
   workTrash: (id: string) => `${API_ROOT}/works/${id}/trash`,
   workRestore: (id: string) => `${API_ROOT}/works/${id}/restore`,
@@ -52,6 +53,9 @@ export const RESEARCH_API_V1 = {
   locationCheck: (id: string) => `${API_ROOT}/locations/${id}/check`,
   locationRelink: (id: string) => `${API_ROOT}/locations/${id}/relink`,
   attachment: (id: string) => `${API_ROOT}/attachments/${id}`,
+  attachmentRestore: (id: string) => `${API_ROOT}/attachments/${id}/restore`,
+  attachmentDeletionPreview: (id: string) => `${API_ROOT}/attachments/${id}/deletion-preview`,
+  attachmentPermanentDelete: (id: string) => `${API_ROOT}/attachments/${id}/permanent-delete`,
   reconcile: `${API_ROOT}/reconcile`,
   exportPreview: `${API_ROOT}/exports/preview`,
   exports: `${API_ROOT}/exports`,
@@ -308,6 +312,28 @@ export const metadataAssertionViewSchema = z.object({
 });
 export type MetadataAssertionView = z.infer<typeof metadataAssertionViewSchema>;
 
+export const sourceRecordViewSchema = z.object({
+  id: researchIdSchema,
+  provider: z.string(),
+  sourceLocator: z.string().nullable(),
+  rawFormat: z.string(),
+  rawPayload: z.string(),
+  parserVersion: z.string(),
+  observedAt: instantSchema,
+  createdAt: instantSchema,
+});
+
+export const externalSourceMapViewSchema = z.object({
+  id: researchIdSchema,
+  provider: z.string(),
+  externalId: z.string(),
+  entityType: z.enum(['work', 'edition']),
+  entityId: researchIdSchema,
+  lastFetchedAt: instantSchema.nullable(),
+  cacheStatus: z.enum(['fresh', 'not-found', 'transient-failure']),
+  cacheExpiresAt: instantSchema.nullable(),
+});
+
 export const assetLocationViewSchema = z
   .object({
     id: researchIdSchema,
@@ -358,7 +384,9 @@ export const editionViewSchema = z.object({
   kind: z.enum(EDITION_KINDS),
   title: z.string(),
   publicationTitle: z.string().nullable(),
+  publisher: z.string().nullable().default(null),
   publishedDate: z.string().nullable(),
+  revision: z.number().int().positive().default(1),
   contributors: z.array(
     z.object({
       id: researchIdSchema,
@@ -379,6 +407,7 @@ export const workViewSchema = z.object({
   id: researchIdSchema,
   type: z.enum(WORK_TYPES),
   title: z.string(),
+  abstract: z.string().nullable().default(null),
   year: z.number().int().min(0).max(9999).nullable(),
   status: z.enum(WORK_STATUSES),
   preferredEditionId: researchIdSchema.nullable(),
@@ -390,6 +419,7 @@ export const workViewSchema = z.object({
   createdAt: instantSchema,
   updatedAt: instantSchema,
   trashedAt: instantSchema.nullable(),
+  revision: z.number().int().positive().default(1),
   searchScore: z.number().min(0).max(1).nullable().default(null),
   matchedFields: z
     .array(z.enum(['title', 'abstract', 'authors', 'publication', 'identifiers']))
@@ -401,6 +431,8 @@ export const workDetailViewSchema = z.object({
   work: workViewSchema,
   editions: z.array(editionViewSchema),
   assertions: z.array(metadataAssertionViewSchema),
+  sources: z.array(sourceRecordViewSchema).default([]),
+  externalMappings: z.array(externalSourceMapViewSchema).default([]),
   relations: z
     .array(
       z.object({
@@ -430,6 +462,49 @@ export const workDetailViewSchema = z.object({
     .default([]),
 });
 export type WorkDetailView = z.infer<typeof workDetailViewSchema>;
+
+const workMetadataChangesSchema = z
+  .object({
+    title: z.string().trim().min(1).max(1_000).optional(),
+    type: z.enum(WORK_TYPES).optional(),
+    abstract: z.string().trim().max(100_000).nullable().optional(),
+    year: z.number().int().min(0).max(9999).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, '没有作品字段修改');
+
+const editionMetadataChangesSchema = z
+  .object({
+    id: researchIdSchema,
+    expectedRevision: z.number().int().positive(),
+    title: z.string().trim().min(1).max(1_000).optional(),
+    publicationTitle: z.string().trim().max(1_000).nullable().optional(),
+    publisher: z.string().trim().max(1_000).nullable().optional(),
+    publishedDate: z.string().trim().max(100).nullable().optional(),
+    authors: z.array(z.string().trim().min(1).max(300)).max(100).optional(),
+  })
+  .refine(
+    (value) => Object.keys(value).some((key) => key !== 'id' && key !== 'expectedRevision'),
+    '没有版本字段修改',
+  );
+
+export const updateWorkMetadataInputSchema = z
+  .object({
+    expectedWorkRevision: z.number().int().positive(),
+    work: workMetadataChangesSchema.optional(),
+    edition: editionMetadataChangesSchema.optional(),
+  })
+  .refine((value) => value.work !== undefined || value.edition !== undefined, '没有元数据修改');
+export type UpdateWorkMetadataInput = z.infer<typeof updateWorkMetadataInputSchema>;
+
+export const attachmentDeletionPreviewSchema = z.object({
+  attachmentId: researchIdSchema,
+  assetId: researchIdSchema,
+  displayName: z.string(),
+  otherAttachmentCount: z.number().int().nonnegative(),
+  managedObjectCount: z.number().int().nonnegative(),
+  linkedLocationCount: z.number().int().nonnegative(),
+  confirmationToken: researchIdSchema,
+});
 
 export const importItemViewSchema = z.object({
   id: researchIdSchema,
