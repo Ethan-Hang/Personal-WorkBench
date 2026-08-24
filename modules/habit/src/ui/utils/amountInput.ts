@@ -47,3 +47,20 @@ export function resolveAmountCommit(draft: string, currentValue: number): Amount
 
   return { kind: 'commit', value };
 }
+
+/**
+ * 滑条上限。
+ *
+ * 常规是目标值；但已超额打卡时要跟到当前值，否则滑条一出现就把超额部分截掉了。
+ */
+export function sliderMaxFor(target: number, current: number): number {
+  const safeTarget = Number.isFinite(target) ? Math.floor(target) : 0;
+  const safeCurrent = Number.isFinite(current) ? Math.floor(current) : 0;
+  return Math.min(MAX_AMOUNT_VALUE, Math.max(1, safeTarget, safeCurrent));
+}
+
+/** 把滑条读数夹进 [0, max] 并取整——打卡值在服务端是 int */
+export function clampSliderValue(raw: number, max: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  return Math.min(max, Math.max(0, Math.floor(raw)));
+}

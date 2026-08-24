@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   MAX_AMOUNT_DIGITS,
+  MAX_AMOUNT_VALUE,
+  clampSliderValue,
   formatAmountDraft,
   resolveAmountCommit,
   sanitizeAmountInput,
+  sliderMaxFor,
 } from './amountInput.js';
 
 describe('sanitizeAmountInput', () => {
@@ -65,5 +68,41 @@ describe('resolveAmountCommit', () => {
     expect(resolveAmountCommit('0042', 5)).toEqual({ kind: 'commit', value: 42 });
     expect(resolveAmountCommit('3天', 5)).toEqual({ kind: 'commit', value: 3 });
     expect(resolveAmountCommit('9999999', 5)).toEqual({ kind: 'commit', value: 999999 });
+  });
+});
+
+describe('sliderMaxFor', () => {
+  it('常规情况下上限就是目标值', () => {
+    expect(sliderMaxFor(100, 5)).toBe(100);
+  });
+
+  it('已超额打卡时上限跟到当前值——滑条不能把超额部分截掉', () => {
+    expect(sliderMaxFor(100, 130)).toBe(130);
+  });
+
+  it('目标值为 1 或异常值时上限至少为 1，避免出现零长度滑轨', () => {
+    expect(sliderMaxFor(1, 0)).toBe(1);
+    expect(sliderMaxFor(0, 0)).toBe(1);
+    expect(sliderMaxFor(Number.NaN, Number.NaN)).toBe(1);
+  });
+
+  it('上限不超过打卡值本身的上限', () => {
+    expect(sliderMaxFor(MAX_AMOUNT_VALUE + 100, 0)).toBe(MAX_AMOUNT_VALUE);
+  });
+});
+
+describe('clampSliderValue', () => {
+  it('落在区间内的值原样返回', () => {
+    expect(clampSliderValue(42, 100)).toBe(42);
+  });
+
+  it('越界值被夹到 [0, max]', () => {
+    expect(clampSliderValue(-8, 100)).toBe(0);
+    expect(clampSliderValue(140, 100)).toBe(100);
+  });
+
+  it('小数与非法值被规整成整数——打卡值在服务端是 int', () => {
+    expect(clampSliderValue(7.9, 100)).toBe(7);
+    expect(clampSliderValue(Number.NaN, 100)).toBe(0);
   });
 });
