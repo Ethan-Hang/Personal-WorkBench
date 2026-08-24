@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 当前状态：Walking Skeleton 完成，秋招模块与工作台模块已全量接入（UI 已全部迁移至
 `modules/workbench` 聚合正主），系统设置支持主题、时区与工作台偏好全链路持久化落库（`app_settings` 表），
 多账号体系、WebDAV 备份恢复与 Gist 设置零知识加密同步（TASK-038）已全栈贯通。
-现有五个业务模块（todo、workbench、campus-recruit、habit、notes）、一层共享设计基座
+现有五个业务模块（todo、workbench、campus-recruit［界面称「招聘管理」］、habit、notes）、一层共享设计基座
 （`packages/ui`：18+ 个组件 + SettingsProvider 与主题/时区/偏好三套上下文 + Apple-Style 胶囊开关 + 图标集）、以及带请求编号的错误追踪。
 
 三次架构考试都过了，且考的是不同的东西——三格已经填满：
@@ -343,7 +343,16 @@ drizzle-kit 于是拿不到基线，`generate` 出来的是**整份 CREATE TABLE
 `@workbench/http-kit` 的 `DomainError` + `toHttp` 是那座桥（2026-08-22 由四个模块各写一份收敛而来，见 ADR-0024）。
 **未知错误必须继续冒泡**，否则拿不到请求编号也进不了日志。
 
-### 秋招的两条状态语义
+### 招聘模块的五条语义
+
+**界面叫「招聘管理」，代码里仍叫 `campus-recruit`。** 2026-08-24 加入招聘季后，
+模块从「只有一次秋招」变成可并存秋招 / 春招 / 社招，但**目录、模块 id、表前缀
+`campus_recruit_`、API 前缀 `/api/campus`、路由 `/campus` 全部没改**——读到
+`campus-recruit` 时不要以为是漏改的。理由与代价见
+`docs/superpowers/specs/2026-08-24-recruit-seasons-design.md` §7：迁移账本按目录名
+派生（`packages/data/src/db.ts:53`），改名会让四份迁移在已有库上从头重跑并
+`table already exists`；另有已存 core Item 的 `sourceModule` 要改写、备份水位要对齐。
+换来的只是「名字更准」。
 
 - **「泡池子」是 `shelved_at` 一列，不是 `outcome` 的取值**（ADR-0026）。手标为主、
   90 天派生兜底。前端那个下拉把 `outcome` 与 `shelved` 两个互斥概念合在一起，
@@ -352,6 +361,19 @@ drizzle-kit 于是拿不到基线，`generate` 出来的是**整份 CREATE TABLE
 - **点「标记已投递」会自动补一轮待定的「简历初筛」**（零轮次时才补，幂等）。因此
   **任何「这条投递有没有轮次」的判断都已经失真**，要问的是「有没有一轮出过结果」——
   自动泡池子判定就是为此从「轮次数为 0」改成「全部轮次仍 pending」的。
+- **`season_id` 在 DB 上可空，非空由应用层保证。** SQLite 给已有表 `ADD COLUMN` 时带
+  `NOT NULL` 就必须带 `DEFAULT`，而那个 `DEFAULT` 会永久留在 schema 里——将来漏传
+  `seasonId` 不会报错，会静默落进 legacy 季。真正的 `NOT NULL` 要整表重建，而
+  `campus_recruit_rounds` 有外键指向该表。非空由 contract 必填 + service 的存在性校验
+  - `ApplicationRecord.seasonId` 的 TS 类型三处共同保证。
+- **归档招聘季只影响界面，不停止投影。** 归档的季不出现在切换器里，但它的投递照旧
+  投影成 core `Item`，日历与今日照旧显示。归档若同时停止投影，等于「整理了一下界面」
+  把日历上的面试悄悄删了。删除招聘季则在两种情况下回 **409**：季里还有投递（**不做
+  级联删除**）、它是最后一个未归档的季。
+- **日历与今日不跟着招聘季切换器走。** 投影是跨模块聚合、不认季——你在招聘页切到
+  「社招」，日历上照样有秋招的面试。这是对的（面试时间是客观事实），但与切换器的直觉
+  不一致，**不写在这里下次会被当成 bug 报**。统计页则恒传 `seasonId`，因为秋招与社招
+  混算转化率没有意义；而命令面板（⌘K）刻意**不**传，保持跨季搜索。
 
 ### 回收站借用了 `cancelled`
 
