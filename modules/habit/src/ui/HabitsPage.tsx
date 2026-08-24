@@ -42,6 +42,7 @@ import {
   type HistoryResponse,
 } from './api.js';
 import { addDays, isDueOn, progressFor, startOfWeek, streakOf } from '../server/frequency.js';
+import { CheckinAmountInput } from './components/CheckinAmountInput.js';
 
 const WEEKDAY_NAMES = ['一', '二', '三', '四', '五', '六', '日'];
 const COLOR_TOKENS = ['habit', 'good', 'accent', 'goal', 'warning', 'critical'] as const;
@@ -254,10 +255,13 @@ function HabitCard({
     checkinMutation.mutate({ date: clientToday, value: nextVal });
   };
 
-  const handleTodayStep = (delta: number) => {
+  const handleTodaySetValue = (value: number) => {
     if (clientToday < habit.startDate) return;
-    const nextVal = Math.max(0, todayValue + delta);
-    checkinMutation.mutate({ date: clientToday, value: nextVal });
+    checkinMutation.mutate({ date: clientToday, value: Math.max(0, value) });
+  };
+
+  const handleTodayStep = (delta: number) => {
+    handleTodaySetValue(todayValue + delta);
   };
 
   return (
@@ -397,9 +401,14 @@ function HabitCard({
                 >
                   -
                 </button>
-                <span className="tabular-nums text-xs font-bold text-ink px-1 min-w-[36px] text-center">
-                  {todayValue}/{habit.targetValue}
-                </span>
+                <CheckinAmountInput
+                  value={todayValue}
+                  target={habit.targetValue}
+                  unit={habit.unit}
+                  disabled={checkinMutation.isPending || clientToday < habit.startDate}
+                  size="md"
+                  onCommit={handleTodaySetValue}
+                />
                 <button
                   type="button"
                   disabled={checkinMutation.isPending}
