@@ -1,10 +1,13 @@
-import { IconCheck, IconClock, IconBriefcase, IconX } from '@workbench/ui';
+import type { KeyboardEvent } from 'react';
+import { IconCheck, IconClock, IconBriefcase, IconX, useTimezone } from '@workbench/ui';
 import type { ApplicationView, RoundView } from '../../contract.js';
 import { ROUND_KIND_LABEL } from './StatusChip.js';
 
 interface HiringProcessStepperProps {
   application: ApplicationView;
   onMarkApplied: (id: string) => void;
+  /** 传了才让轮次节点可点——步进条本身只负责显示，改哪一轮由上层决定怎么开编辑器 */
+  onEditRound?: (roundId: string) => void;
   isBusy: boolean;
 }
 
@@ -17,33 +20,22 @@ interface ProcessStep {
   badgeText: string;
   badgeTone: 'good' | 'warning' | 'critical' | 'neutral' | 'accent';
   timeText?: string | null;
-}
-
-function formatShortTime(value: string | null): string {
-  if (!value) return '';
-  try {
-    const d = new Date(value);
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d);
-  } catch {
-    return value;
-  }
-}
-
-function formatShortDate(value: string | null): string {
-  if (!value) return '';
-  return value.slice(0, 10);
+  /** 只有轮次节点有。投递节点与终局节点不对应任何一条 round 记录 */
+  roundId?: string;
 }
 
 export function HiringProcessStepper({
   application,
   onMarkApplied,
+  onEditRound,
   isBusy,
 }: HiringProcessStepperProps) {
+  // 时刻一律按设置里的时区渲染。之前这里用不带 timeZone 的 Intl，
+  // 换时区界面纹丝不动；appliedAt 那几处更是直接切 UTC 字符串的前 10 位，
+  // 本地日的傍晚会显示成前一天
+  const { formatUtcShort, formatUtcToLocal } = useTimezone();
+  const formatDay = (utcIso: string | null): string =>
+    utcIso === null ? '' : formatUtcToLocal(utcIso).date;
   const sortedRounds = [...application.rounds].sort((a, b) => a.sequence - b.sequence);
 
   // 1. 构建全流程节点列表 (投递 -> 各轮次 -> 终局)
@@ -55,7 +47,7 @@ export function HiringProcessStepper({
     id: 'step-apply',
     title: '网申投递',
     subtitle: isApplied
-      ? `已投递 ${formatShortDate(application.appliedAt)}`
+      ? `已投递 ${formatDay(application.appliedAt)}`
       : application.applyDeadlineDate
         ? `截止 ${application.applyDeadlineDate}`
         : '待完善简历投递',
@@ -64,7 +56,7 @@ export function HiringProcessStepper({
     badgeText: isApplied ? '已提交' : '待投递',
     badgeTone: isApplied ? 'good' : 'warning',
     timeText: isApplied
-      ? formatShortDate(application.appliedAt)
+      ? formatDay(application.appliedAt)
       : application.applyDeadlineDate
         ? `截止: ${application.applyDeadlineDate}`
         : null,
@@ -86,12 +78,19 @@ export function HiringProcessStepper({
       badgeText = '未通过';
       badgeTone = 'critical';
       hasFailedInRounds = true;
+    } else if (round.outcome === 'completed') {
+      // 做完了但还没开奖：流程仍停在这一轮，所以是 current 而不是 completed
+      state = 'current';
+      badgeText = '已完成 · 待开奖';
+      badgeTone = 'warning';
     } else if (round.outcome === 'pending') {
-      // 判定是否是当前正在活跃进行的轮次
+      // 判定是否是当前正在活跃进行的轮次。前面那些轮次「已完成」也算走过去了
       const isCurrentActive =
         isApplied &&
         !hasFailedInRounds &&
-        sortedRounds.slice(0, index).every((r) => r.outcome === 'passed');
+        sortedRounds
+          .slice(0, index)
+          .every((r) => r.outcome === 'passed' || r.outcome === 'completed');
 
       if (isCurrentActive) {
         state = 'current';
@@ -106,13 +105,14 @@ export function HiringProcessStepper({
 
     steps.push({
       id: `step-round-${round.id}`,
+      roundId: round.id,
       title: round.name,
       subtitle: `${ROUND_KIND_LABEL[round.kind]}${round.format ? ` · ${round.format}` : ''}`,
       kind: 'round',
       state,
       badgeText,
       badgeTone,
-      timeText: round.scheduledAt ? formatShortTime(round.scheduledAt) : null,
+      timeText: round.scheduledAt ? formatUtcShort(round.scheduledAt) : null,
     });
   });
 
@@ -166,7 +166,7 @@ export function HiringProcessStepper({
     state: finalState,
     badgeText: finalBadge,
     badgeTone: finalTone,
-    timeText: application.outcomeAt ? formatShortDate(application.outcomeAt) : null,
+    timeText: application.outcomeAt ? formatDay(application.outcomeAt) : null,
   });
 
   // 计算当前总进度百分比
@@ -205,6 +205,8 @@ export function HiringProcessStepper({
         <ol className="flex w-full min-w-[620px] items-center justify-between">
           {steps.map((step, idx) => {
             const isLast = idx === steps.length - 1;
+            const editableRoundId =
+              step.roundId !== undefined && onEditRound !== undefined ? step.roundId : null;
 
             // 节点样式判定
             let nodeBg = 'bg-surface border-line text-muted';
@@ -237,9 +239,27 @@ export function HiringProcessStepper({
                 key={step.id}
                 className={`flex items-center min-w-0 ${isLast ? 'shrink-0' : 'flex-1'}`}
               >
-                {/* 流程卡片 */}
+                {/* 流程卡片。轮次节点可点开就地编辑——投递与终局节点不对应 round，保持静态 */}
                 <div
-                  className={`flex flex-col shrink-0 rounded-md border px-3 py-2 min-w-[130px] sm:min-w-[145px] transition-all shadow-2xs ${nodeBg}`}
+                  {...(editableRoundId === null
+                    ? {}
+                    : {
+                        role: 'button',
+                        tabIndex: 0,
+                        title: '点击编辑这一轮',
+                        onClick: () => onEditRound?.(editableRoundId),
+                        onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onEditRound?.(editableRoundId);
+                          }
+                        },
+                      })}
+                  className={`flex flex-col shrink-0 rounded-md border px-3 py-2 min-w-[130px] sm:min-w-[145px] transition-all shadow-2xs ${nodeBg} ${
+                    editableRoundId === null
+                      ? ''
+                      : 'cursor-pointer hover:border-accent hover:shadow-xs'
+                  }`}
                 >
                   {/* 节点顶行：序号徽标 + 状态药丸 */}
                   <div className="flex items-center justify-between gap-1.5 mb-1">

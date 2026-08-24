@@ -59,6 +59,8 @@ export interface RoundRecord {
   kind: RoundKind;
   name: string;
   scheduledAt: string | null;
+  /** 截止时刻（UTC ISO）。与 scheduledAt 是两件事：一个「什么时候做」，一个「最晚做完」 */
+  deadlineAt: string | null;
   format: string | null;
   durationMin: number | null;
   outcome: RoundOutcome;

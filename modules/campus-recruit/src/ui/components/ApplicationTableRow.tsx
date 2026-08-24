@@ -27,7 +27,9 @@ import {
   type UpdateRoundInput,
 } from '../../contract.js';
 import { outcomeSelectChange, outcomeSelectValue } from '../utils/outcomeSelect.js';
+import { nameForKindChange, suggestRoundKind } from '../utils/roundNaming.js';
 import { PriorityBadge } from './PriorityBadge.js';
+import { RoundEditForm } from './RoundEditForm.js';
 import {
   ApplicationStatusChip,
   ROUND_KIND_LABEL,
@@ -58,35 +60,6 @@ function nullableText(value: string): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
-function formatShortDate(value: string | null): string {
-  if (!value) return '—';
-  return value.slice(0, 10);
-}
-
-function formatShortInstant(value: string | null): string {
-  if (!value) return '—';
-  try {
-    const d = new Date(value);
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d);
-  } catch {
-    return value;
-  }
-}
-
-function suggestRoundKind(name: string): RoundKind {
-  if (name.includes('简历') || name.includes('初筛') || name.includes('网申')) return 'screening';
-  if (name.includes('笔试')) return 'written';
-  if (name.includes('测评')) return 'assessment';
-  if (/hr/i.test(name)) return 'hr';
-  if (name.includes('面')) return 'technical';
-  return 'other';
-}
-
 function getLatestRound(rounds: RoundView[]): RoundView | null {
   if (rounds.length === 0) return null;
   return [...rounds].sort((a, b) => b.sequence - a.sequence)[0] ?? null;
@@ -100,18 +73,48 @@ function InlineRoundItem({
   onUpdate,
   onRemove,
   disabled,
+  isEditing,
+  onStartEdit,
+  onStopEdit,
 }: {
   round: RoundView;
   onUpdate: (input: UpdateRoundInput) => void;
   onRemove: () => void;
   disabled: boolean;
+  // 编辑态住在上层：步进条上的那个节点也要能把它打开，而它不在这个组件里
+  isEditing: boolean;
+  onStartEdit: () => void;
+  onStopEdit: () => void;
 }) {
+  const { formatUtcShort } = useTimezone();
   const [notes, setNotes] = useState(round.notes ?? '');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
 
   useEffect(() => {
     setNotes(round.notes ?? '');
   }, [round.notes]);
+
+  if (isEditing) {
+    return (
+      <div className="rounded-lg border border-accent/40 bg-accent/5 p-3.5 shadow-sm">
+        <div className="mb-2.5 flex items-center gap-2">
+          <span className="flex size-5 items-center justify-center rounded-full bg-ink text-[10px] font-bold text-white">
+            {round.sequence}
+          </span>
+          <h5 className="text-[13px] font-bold text-ink">编辑轮次</h5>
+        </div>
+        <RoundEditForm
+          round={round}
+          disabled={disabled}
+          onCancel={onStopEdit}
+          onSave={(input) => {
+            onUpdate(input);
+            onStopEdit();
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-line bg-surface p-3.5 shadow-2xs transition-all hover:border-line/90">
@@ -120,17 +123,31 @@ function InlineRoundItem({
           <span className="flex size-5 items-center justify-center rounded-full bg-ink text-[10px] font-bold text-white">
             {round.sequence}
           </span>
-          <span className="text-[13px] font-bold text-ink">{round.name}</span>
+          <button
+            type="button"
+            onClick={onStartEdit}
+            className="text-[13px] font-bold text-ink hover:text-accent hover:underline"
+            title="编辑这一轮"
+          >
+            {round.name}
+          </button>
           <RoundKindChip kind={round.kind} />
           <RoundOutcomeChip outcome={round.outcome} />
 
           {round.scheduledAt ? (
             <span className="flex items-center gap-1 text-[12px] font-medium text-accent">
               <IconClock size={12} />
-              <span>{formatShortInstant(round.scheduledAt)}</span>
+              <span>{formatUtcShort(round.scheduledAt)}</span>
             </span>
           ) : (
             <span className="text-[11px] text-muted">时间待定</span>
+          )}
+
+          {round.deadlineAt && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-warning">
+              <IconCalendar size={11} />
+              <span>截止 {formatUtcShort(round.deadlineAt)}</span>
+            </span>
           )}
 
           {round.format && <span className="text-[11px] text-secondary">· {round.format}</span>}
@@ -140,6 +157,17 @@ function InlineRoundItem({
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:pt-0">
+          {round.outcome !== 'completed' && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onUpdate({ outcome: 'completed' })}
+              className="rounded bg-warning-soft px-2 py-0.5 text-[11px] font-bold text-warning hover:bg-warning/20 transition-colors"
+              title="做完了，但结果还没出来"
+            >
+              已完成
+            </button>
+          )}
           {round.outcome !== 'passed' && (
             <button
               type="button"
@@ -170,6 +198,15 @@ function InlineRoundItem({
               重置
             </button>
           )}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={onStartEdit}
+            className="rounded p-1 text-muted hover:bg-accent-soft hover:text-accent transition-colors"
+            title="编辑轮次"
+          >
+            <IconEdit size={12} />
+          </button>
           <button
             type="button"
             disabled={disabled}
@@ -254,6 +291,7 @@ function InlineAddRoundForm({
   const [kind, setKind] = useState<RoundKind>('other');
   const [kindChosen, setKindChosen] = useState(false);
   const [scheduledLocal, setScheduledLocal] = useState('');
+  const [deadlineLocal, setDeadlineLocal] = useState('');
   const [format, setFormat] = useState('');
   const [duration, setDuration] = useState('');
 
@@ -265,6 +303,7 @@ function InlineAddRoundForm({
         name: name.trim(),
         kind,
         scheduledAt: scheduledLocal === '' ? null : toUtcIso(scheduledLocal),
+        deadlineAt: deadlineLocal === '' ? null : toUtcIso(deadlineLocal),
         format: nullableText(format),
         durationMin: duration === '' ? null : Number(duration),
       });
@@ -272,6 +311,7 @@ function InlineAddRoundForm({
       setKind('other');
       setKindChosen(false);
       setScheduledLocal('');
+      setDeadlineLocal('');
       setFormat('');
       setDuration('');
       setIsExpanded(false);
@@ -283,6 +323,15 @@ function InlineAddRoundForm({
   function handleNameChange(val: string) {
     setName(val);
     if (!kindChosen) setKind(suggestRoundKind(val));
+  }
+
+  // 类型与名称绝大多数时候重叠，所以选完类型顺手把名字带过去；
+  // 「其他」和手打过的名字不动（规则与测试都在 utils/roundNaming.ts）
+  function handleKindChange(next: RoundKind) {
+    setKind(next);
+    setKindChosen(true);
+    const suggested = nameForKindChange(next, name);
+    if (suggested !== null) setName(suggested);
   }
 
   return (
@@ -325,10 +374,7 @@ function InlineAddRoundForm({
             <Field label="轮次类型">
               <select
                 value={kind}
-                onChange={(e) => {
-                  setKind(e.target.value as RoundKind);
-                  setKindChosen(true);
-                }}
+                onChange={(e) => handleKindChange(e.target.value as RoundKind)}
                 className={controlClass}
               >
                 {ROUND_KINDS.map((k) => (
@@ -340,8 +386,8 @@ function InlineAddRoundForm({
             </Field>
           </div>
 
-          <div className="grid gap-2.5 sm:grid-cols-3">
-            <Field label="面试时间 (时分一体)" className="sm:col-span-2">
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <Field label="安排时间 (时分一体)">
               <DatePicker
                 value={scheduledLocal}
                 onChange={setScheduledLocal}
@@ -350,11 +396,34 @@ function InlineAddRoundForm({
                 className="w-full"
               />
             </Field>
+            <Field label="截止时间 (测评 / 笔试常用)">
+              <DatePicker
+                value={deadlineLocal}
+                onChange={setDeadlineLocal}
+                placeholder="最晚做完的时刻"
+                showTime={true}
+                className="w-full"
+              />
+            </Field>
+          </div>
+
+          <div className="grid gap-2.5 sm:grid-cols-2">
             <Field label="形式">
               <input
                 value={format}
                 onChange={(e) => setFormat(e.target.value)}
                 placeholder="视频 / 现场 / 电话"
+                className={controlClass}
+              />
+            </Field>
+            <Field label="时长 (分钟)">
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                placeholder="60"
                 className={controlClass}
               />
             </Field>
@@ -389,6 +458,8 @@ function FullProfileViewCard({
   application: ApplicationView;
   onStartEdit: () => void;
 }) {
+  const { formatUtcShort } = useTimezone();
+
   return (
     <div className="rounded-lg border border-line bg-surface p-4 space-y-4 shadow-xs">
       <div className="flex items-center justify-between border-b border-line pb-2.5">
@@ -488,7 +559,7 @@ function FullProfileViewCard({
         <div>
           <dt className="text-muted font-medium">投递确认时间</dt>
           <dd className="mt-0.5 font-medium text-ink">
-            {application.appliedAt ? formatShortInstant(application.appliedAt) : '尚未标记投递'}
+            {application.appliedAt ? formatUtcShort(application.appliedAt) : '尚未标记投递'}
           </dd>
         </div>
 
@@ -761,7 +832,9 @@ export function ApplicationTableRow({
   onRemoveRound,
   isBusy,
 }: ApplicationTableRowProps) {
+  const { formatUtcShort, formatUtcToLocal } = useTimezone();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editingRoundId, setEditingRoundId] = useState<string | null>(null);
   const latestRound = getLatestRound(application.rounds);
   const sortedRounds = [...application.rounds].sort((a, b) => a.sequence - b.sequence);
 
@@ -830,13 +903,15 @@ export function ApplicationTableRow({
                     ? '通过'
                     : latestRound.outcome === 'failed'
                       ? '未过'
-                      : '待定'}
+                      : latestRound.outcome === 'completed'
+                        ? '已完成'
+                        : '待定'}
                   )
                 </span>
                 {latestRound.scheduledAt && (
                   <span className="flex items-center gap-0.5 text-accent text-[11px]">
                     <IconClock size={11} />
-                    <span>{formatShortInstant(latestRound.scheduledAt)}</span>
+                    <span>{formatUtcShort(latestRound.scheduledAt)}</span>
                   </span>
                 )}
               </div>
@@ -855,7 +930,7 @@ export function ApplicationTableRow({
             ) : (
               <span className="text-muted">
                 {application.appliedAt
-                  ? `已投 ${formatShortDate(application.appliedAt)}`
+                  ? `已投 ${formatUtcToLocal(application.appliedAt).date}`
                   : '无截止日'}
               </span>
             )}
@@ -983,6 +1058,7 @@ export function ApplicationTableRow({
             <HiringProcessStepper
               application={application}
               onMarkApplied={onMarkApplied}
+              onEditRound={setEditingRoundId}
               isBusy={isBusy}
             />
 
@@ -1029,6 +1105,9 @@ export function ApplicationTableRow({
                         disabled={isBusy}
                         onUpdate={(input) => onUpdateRound(application.id, round.id, input)}
                         onRemove={() => onRemoveRound(application.id, round.id)}
+                        isEditing={editingRoundId === round.id}
+                        onStartEdit={() => setEditingRoundId(round.id)}
+                        onStopEdit={() => setEditingRoundId(null)}
                       />
                     ))}
                   </div>

@@ -45,6 +45,7 @@ const APPLICATION = {
       kind: 'written',
       name: '笔试',
       scheduledAt: '2026-09-03T02:00:00.000Z',
+      deadlineAt: null,
       format: '线上',
       durationMin: 90,
       outcome: 'pending',

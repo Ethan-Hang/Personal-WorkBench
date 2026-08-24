@@ -39,6 +39,7 @@ export function roundFixture(overrides: Partial<RoundRecord> = {}): RoundRecord 
     kind: 'technical',
     name: '一面',
     scheduledAt: null,
+    deadlineAt: null,
     format: null,
     durationMin: null,
     outcome: 'pending',

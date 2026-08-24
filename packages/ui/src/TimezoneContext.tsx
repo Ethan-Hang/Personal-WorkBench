@@ -178,6 +178,8 @@ interface TimezoneContextValue {
   };
   toUtcIso: (localStr: string) => string;
   formatUtcToLocal: (utcIso: string) => { date: string; time: string; full: string };
+  /** `9/21 10:00`。列表与卡片上显示时刻一律走它，别再手搓不带 timeZone 的 Intl */
+  formatUtcShort: (utcIso: string) => string;
 }
 
 const TimezoneContext = createContext<TimezoneContextValue | null>(null);
@@ -258,6 +260,30 @@ export function formatUtcToLocal(
   }
 }
 
+/**
+ * 紧凑显示用：把 UTC 时刻在指定时区下渲染成 `9/21 10:00`。
+ *
+ * 存在的理由是**必须传 `timeZone`**。`new Intl.DateTimeFormat('zh-CN', {...})` 不带这一项
+ * 时按宿主机器的时区渲染，于是设置里换时区，界面上的时刻纹丝不动——而且不报错，
+ * 只是显示的一直是另一个时区的钟点。凡是拿 UTC 时刻往界面上写的地方都该走这里。
+ */
+export function formatUtcShort(utcIso: string, timeZone: string): string {
+  const d = new Date(utcIso);
+  if (isNaN(d.getTime())) return utcIso;
+  try {
+    return new Intl.DateTimeFormat('zh-CN', {
+      timeZone,
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(d);
+  } catch {
+    return utcIso;
+  }
+}
+
 export function getTimezoneInfo(timeZone: string) {
   const now = new Date();
   try {
@@ -316,6 +342,7 @@ export function TimezoneProvider({ children }: { children: ReactNode }) {
       timezoneInfo,
       toUtcIso: (localStr: string) => toUtcIso(localStr, timezone),
       formatUtcToLocal: (utcIso: string) => formatUtcToLocal(utcIso, timezone),
+      formatUtcShort: (utcIso: string) => formatUtcShort(utcIso, timezone),
     }),
     [timezone, dstMode, timezoneInfo, update],
   );
@@ -336,6 +363,7 @@ export function useTimezone(): TimezoneContextValue {
       timezoneInfo: defaultInfo,
       toUtcIso: (localStr: string) => toUtcIso(localStr, DEFAULT_TIMEZONE),
       formatUtcToLocal: (utcIso: string) => formatUtcToLocal(utcIso, DEFAULT_TIMEZONE),
+      formatUtcShort: (utcIso: string) => formatUtcShort(utcIso, DEFAULT_TIMEZONE),
     };
   }
   return ctx;

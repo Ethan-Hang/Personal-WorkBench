@@ -29,6 +29,13 @@
       "when": 1787559668849,
       "tag": "0003_recruit_seasons",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787564574403,
+      "tag": "0004_round_deadline",
+      "breakpoints": true
     }
   ]
 }

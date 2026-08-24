@@ -504,6 +504,88 @@ describe('campus recruit service', () => {
     expect(await h.items.getById(pending.itemId!)).toMatchObject({ completedAt: NOW });
   });
 
+  it('只有截止时刻的轮次投影成一件带 due 的任务——测评/笔试最常见的形态', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(
+      h.ctx,
+      h.repo,
+      app.id,
+      roundInput({
+        kind: 'assessment',
+        name: '测评',
+        scheduledAt: null,
+        durationMin: null,
+        deadlineAt: '2026-09-25T15:59:59.999Z',
+      }),
+      OPTS,
+    );
+    const round = withRound.rounds.find((r) => r.name === '测评')!;
+
+    expect(round.deadlineAt).toBe('2026-09-25T15:59:00.000Z'); // 秒与毫秒截零（ADR-0012）
+    expect(await h.items.getById(round.itemId!)).toMatchObject({
+      kind: 'task',
+      title: '星云科技 测评（截止）',
+      dueAt: '2026-09-25T15:59:00.000Z',
+      scheduled: { kind: 'timed', start: '2026-09-25T15:59:00.000Z' },
+      status: 'todo',
+    });
+  });
+
+  it('轮次的截止时刻落在已约时间的轮次上时只作 dueAt，日历块仍是那场面试', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(
+      h.ctx,
+      h.repo,
+      app.id,
+      roundInput({ deadlineAt: '2026-09-22T02:00:00.000Z' }),
+      OPTS,
+    );
+    const round = withRound.rounds.find((r) => r.name === '一面')!;
+
+    expect(await h.items.getById(round.itemId!)).toMatchObject({
+      kind: 'event',
+      dueAt: '2026-09-22T02:00:00.000Z',
+      scheduled: { kind: 'timed', start: '2026-09-21T02:00:00.000Z' },
+    });
+  });
+
+  it('「已完成」是出过结果的中间态：记下时刻、投影收尾，但投递没有变成已挂', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(h.ctx, h.repo, app.id, roundInput(), OPTS);
+    const round = withRound.rounds.find((r) => r.name === '一面')!;
+
+    const done = await updateRound(h.ctx, h.repo, round.id, { outcome: 'completed' }, OPTS);
+
+    expect(done.rounds.find((r) => r.name === '一面')).toMatchObject({
+      outcome: 'completed',
+      outcomeAt: NOW,
+    });
+    expect(done.status.code).toBe('in_progress');
+    expect(await h.items.getById(round.itemId!)).toMatchObject({
+      status: 'done',
+      completedAt: NOW,
+    });
+  });
+
+  it('「已完成」算出过结果，因此解除 90 天自动泡池子判定', async () => {
+    const h = makeCampusHarness();
+    const long = { zone: OPTS.zone, now: '2027-01-20T02:00:00.000Z' } as const;
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(h.ctx, h.repo, app.id, roundInput(), OPTS);
+    const round = withRound.rounds.find((r) => r.name === '一面')!;
+
+    const stillPending = await listApplications(h.repo, long);
+    expect(stillPending.applications[0]!.status.code).toBe('shelved');
+
+    await updateRound(h.ctx, h.repo, round.id, { outcome: 'completed' }, long);
+
+    const after = await listApplications(h.repo, long);
+    expect(after.applications[0]!.status.code).toBe('in_progress');
+  });
+
   it('deletes a round Item before its record and returns the parent view', async () => {
     const h = makeCampusHarness();
     const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);

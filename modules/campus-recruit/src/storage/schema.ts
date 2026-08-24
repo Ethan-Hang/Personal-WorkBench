@@ -98,6 +98,8 @@ export const campusRecruitRounds = sqliteTable(
     kind: text('kind', { enum: ROUND_KINDS }).notNull(),
     name: text('name').notNull(),
     scheduledAt: text('scheduled_at'),
+    // 截止时刻：「最晚什么时候做完」，与 scheduled_at 的「什么时候做」是两件事
+    deadlineAt: text('deadline_at'),
     format: text('format'),
     durationMin: integer('duration_min'),
     outcome: text('outcome', { enum: ROUND_OUTCOMES }).notNull().default('pending'),
@@ -119,7 +121,7 @@ export const campusRecruitRounds = sqliteTable(
     ),
     check(
       'ck_campus_recruit_rounds_outcome',
-      sql`${table.outcome} IN ('pending', 'passed', 'failed')`,
+      sql`${table.outcome} IN ('pending', 'completed', 'passed', 'failed')`,
     ),
     uniqueIndex('uq_campus_recruit_round_sequence').on(table.applicationId, table.sequence),
     index('idx_campus_recruit_rounds_application_id').on(table.applicationId),

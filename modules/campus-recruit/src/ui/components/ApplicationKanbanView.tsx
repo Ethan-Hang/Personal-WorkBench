@@ -1,4 +1,4 @@
-import { IconCalendar, IconClock, IconPlus } from '@workbench/ui';
+import { IconCalendar, IconClock, IconPlus, useTimezone } from '@workbench/ui';
 import type { ApplicationView } from '../../contract.js';
 import { PriorityBadge } from './PriorityBadge.js';
 
@@ -76,21 +76,6 @@ function classifyApplicationToColumn(app: ApplicationView): KanbanColumnId {
   return 'technical';
 }
 
-function formatShortTime(value: string | null): string {
-  if (!value) return '';
-  try {
-    const d = new Date(value);
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d);
-  } catch {
-    return value;
-  }
-}
-
 export function ApplicationKanbanView({
   applications,
   selectedId,
@@ -100,6 +85,8 @@ export function ApplicationKanbanView({
   onUnmarkApplied,
   isBusy,
 }: ApplicationKanbanViewProps) {
+  const { formatUtcShort } = useTimezone();
+
   // 分组
   const grouped = KANBAN_COLUMNS.reduce<Record<KanbanColumnId, ApplicationView[]>>(
     (acc, col) => {
@@ -197,13 +184,15 @@ export function ApplicationKanbanView({
                                 ? '✓ 通过'
                                 : latestRound.outcome === 'failed'
                                   ? '✕ 未通过'
-                                  : '⏳ 待定'}
+                                  : latestRound.outcome === 'completed'
+                                    ? '◷ 已完成'
+                                    : '⏳ 待定'}
                             </span>
                           </div>
                           {latestRound.scheduledAt && (
                             <div className="mt-0.5 flex items-center gap-1 text-accent">
                               <IconClock size={11} />
-                              <span>{formatShortTime(latestRound.scheduledAt)}</span>
+                              <span>{formatUtcShort(latestRound.scheduledAt)}</span>
                             </div>
                           )}
                         </div>

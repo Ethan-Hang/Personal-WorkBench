@@ -105,6 +105,7 @@ async function applicationView(
       kind: round.kind,
       name: round.name,
       scheduledAt: round.scheduledAt,
+      deadlineAt: round.deadlineAt,
       format: round.format,
       durationMin: round.durationMin,
       outcome: round.outcome,
@@ -343,6 +344,7 @@ export async function markApplicationApplied(
         kind: 'screening',
         name: AUTO_SCREENING_ROUND_NAME,
         scheduledAt: null,
+        deadlineAt: null,
         format: null,
         durationMin: null,
         outcome: 'pending',
@@ -370,6 +372,7 @@ function isAutoScreeningRound(round: RoundRecord): boolean {
     round.kind === 'screening' &&
     round.name === AUTO_SCREENING_ROUND_NAME &&
     round.scheduledAt === null &&
+    round.deadlineAt === null &&
     round.outcome === 'pending' &&
     round.outcomeAt === null &&
     round.notes === null
@@ -454,6 +457,7 @@ export async function createRound(
     // 排程颗粒度全局为分钟（ADR-0012），写入前就截零，
     // 而不是只在投影时截——否则库里存的与日历上显示的不是同一个时刻
     scheduledAt: input.scheduledAt === null ? null : truncateToMinute(input.scheduledAt),
+    deadlineAt: input.deadlineAt === null ? null : truncateToMinute(input.deadlineAt),
     format: input.format,
     durationMin: input.durationMin,
     outcome: input.outcome,
@@ -490,6 +494,9 @@ export async function updateRound(
   if (input.name !== undefined) changes.name = input.name;
   if (input.scheduledAt !== undefined) {
     changes.scheduledAt = input.scheduledAt === null ? null : truncateToMinute(input.scheduledAt);
+  }
+  if (input.deadlineAt !== undefined) {
+    changes.deadlineAt = input.deadlineAt === null ? null : truncateToMinute(input.deadlineAt);
   }
   if (input.format !== undefined) changes.format = input.format;
   if (input.durationMin !== undefined) changes.durationMin = input.durationMin;

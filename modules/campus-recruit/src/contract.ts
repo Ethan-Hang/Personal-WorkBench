@@ -11,7 +11,12 @@ export const ROUND_KINDS = [
   'hr',
   'other',
 ] as const;
-export const ROUND_OUTCOMES = ['pending', 'passed', 'failed'] as const;
+/**
+ * `completed` 是**中间态**：这一轮已经做完，但结果还没出来（测评/笔试最常见）。
+ * 它不是 `passed` 的同义词——状态推导里它不代表通过，只代表「出过结果」，
+ * 因此会解除 90 天自动泡池子判定，也不会让投递变成「已挂」。
+ */
+export const ROUND_OUTCOMES = ['pending', 'completed', 'passed', 'failed'] as const;
 export const SEASON_KINDS = ['campus-autumn', 'campus-spring', 'intern', 'social'] as const;
 export const APPLICATION_STATUS_CODES = [
   'offer',
@@ -162,6 +167,11 @@ const roundFieldSchemas = {
   kind: z.enum(ROUND_KINDS),
   name: z.string().trim().min(1, '轮次名称不能为空').max(100),
   scheduledAt: instantSchema.nullable(),
+  /**
+   * 截止时刻。与 `scheduledAt` 是两件事：一个是「什么时候做」，一个是「最晚什么时候做完」。
+   * 测评/笔试通常只有后者。恒为**时刻**（UTC ISO），由前端换算好再发——与 `scheduledAt` 同规。
+   */
+  deadlineAt: instantSchema.nullable(),
   format: nullableText(80),
   durationMin: z.number().int().positive().max(1440).nullable(),
   outcome: z.enum(ROUND_OUTCOMES),
@@ -171,6 +181,7 @@ const roundFieldSchemas = {
 export const createRoundInputSchema = z.object({
   ...roundFieldSchemas,
   scheduledAt: roundFieldSchemas.scheduledAt.default(null),
+  deadlineAt: roundFieldSchemas.deadlineAt.default(null),
   format: roundFieldSchemas.format.default(null),
   durationMin: roundFieldSchemas.durationMin.default(null),
   outcome: roundFieldSchemas.outcome.default('pending'),
@@ -191,6 +202,7 @@ export const roundViewSchema = z.object({
   kind: z.enum(ROUND_KINDS),
   name: z.string(),
   scheduledAt: instantSchema.nullable(),
+  deadlineAt: instantSchema.nullable(),
   format: z.string().nullable(),
   durationMin: z.number().int().positive().nullable(),
   outcome: z.enum(ROUND_OUTCOMES),

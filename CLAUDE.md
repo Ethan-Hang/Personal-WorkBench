@@ -272,6 +272,19 @@ SQLite 适配器，由 `packages/server/src/index.ts` 组合根注入共享连�
 
 **禁止在 SQL 里做时区转换。** 本地日边界一律在应用层用 `localDayRange()` 换算成 UTC 区间再查询，SQL 只做字符串比较。
 
+**界面上显示时刻必须显式给时区。** 不带 `timeZone` 的 `Intl.DateTimeFormat` 按**宿主机器**
+的时区渲染，而权威时区在设置里（`app_settings` 的 `timezone.id`）。两者不一致时症状极其
+隐蔽：**设置里换时区，界面上的时刻纹丝不动，且不报错**——显示的一直是另一个时区的钟点。
+招聘模块的四处轮次时间就这么错了一整轮，`appliedAt` 那几处更是直接切 UTC 字符串前 10 位，
+本地日的傍晚会显示成前一天。一律走 `@workbench/ui` 的 `formatUtcShort`（`9/21 10:00`）
+与 `formatUtcToLocal`，它们从 `useTimezone()` 取的正是设置里那一份。已由 `eslint.config.js`
+的 `no-restricted-syntax` 在界面层封住。
+
+**同一组 `files` 不要开第二个 flat config 块。** 加那条规则时踩过：给
+`modules/*/src/ui/**` 新开一个块写 `no-restricted-syntax`，会把已有块里禁止硬编码
+`/api/` 路径的两条**整条替换掉**，铁律 1 的守卫就此静默失效。唯一的信号是某处
+`eslint-disable` 变成「unused directive」警告。新规则要并进已有块。
+
 已知限制：不存每记录时区，跨时区旅行时旧排程会显示偏移。见 `docs/adr/0004-time-storage.md`。
 
 ### 排程：跨模块，颗粒度 1 分钟
@@ -343,7 +356,7 @@ drizzle-kit 于是拿不到基线，`generate` 出来的是**整份 CREATE TABLE
 `@workbench/http-kit` 的 `DomainError` + `toHttp` 是那座桥（2026-08-22 由四个模块各写一份收敛而来，见 ADR-0024）。
 **未知错误必须继续冒泡**，否则拿不到请求编号也进不了日志。
 
-### 招聘模块的五条语义
+### 招聘模块的七条语义
 
 **界面叫「招聘管理」，代码里仍叫 `campus-recruit`。** 2026-08-24 加入招聘季后，
 模块从「只有一次秋招」变成可并存秋招 / 春招 / 社招，但**目录、模块 id、表前缀
@@ -370,6 +383,16 @@ drizzle-kit 于是拿不到基线，`generate` 出来的是**整份 CREATE TABLE
   投影成 core `Item`，日历与今日照旧显示。归档若同时停止投影，等于「整理了一下界面」
   把日历上的面试悄悄删了。删除招聘季则在两种情况下回 **409**：季里还有投递（**不做
   级联删除**）、它是最后一个未归档的季。
+- **轮次的 `completed`（已完成）是中间态，不是 `passed` 的委婉说法。** 它表示「这一轮做完了、
+  结果还没出来」，测评/笔试最常见。三处会咬人：状态推导里它**算「出过结果」**，因此会解除
+  90 天自动泡池子判定，但**不会**让投递变成「已挂」；统计的 `failedByKind` 只数 `failed`，
+  不数它；流程图上它把那一轮显示为 current 而非 completed，因为流程确实还停在这里。
+  加它要整表重建 `campus_recruit_rounds`——SQLite 没有 ALTER TABLE DROP CONSTRAINT，
+  而 outcome 的取值由一条 CHECK 封着（迁移 0004，文件顶部记着 drizzle-kit 生成物的两处手工修正）。
+- **轮次有两个时刻，`scheduled_at`「什么时候做」与 `deadline_at`「最晚做完」，投影形态由前者决定。**
+  约到了时刻 → `event`（日历块），截止时刻只作 `dueAt`；只有截止时刻 → `task`，due 与排程都
+  落在那一刻，标题带「（截止）」；两者都没有 → 不投影（自动补的那轮简历初筛正是这种）。
+  两个时刻都恒为 UTC 时刻、都由前端换算好再发、都在写入前 `truncateToMinute`。
 - **日历与今日不跟着招聘季切换器走。** 投影是跨模块聚合、不认季——你在招聘页切到
   「社招」，日历上照样有秋招的面试。这是对的（面试时间是客观事实），但与切换器的直觉
   不一致，**不写在这里下次会被当成 bug 报**。统计页则恒传 `seasonId`，因为秋招与社招
