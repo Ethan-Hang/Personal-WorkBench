@@ -48,7 +48,7 @@ export interface ResearchFileSystem {
 function identity(value: Awaited<ReturnType<typeof stat>>, symbolicLink: boolean): FileIdentity {
   return {
     size: Number(value.size),
-    mtimeMs: Number(value.mtimeMs),
+    mtimeMs: Math.trunc(Number(value.mtimeMs)),
     deviceId: value.dev.toString(),
     fileId: value.ino.toString(),
     isFile: value.isFile(),

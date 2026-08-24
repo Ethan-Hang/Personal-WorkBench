@@ -116,6 +116,7 @@ describe('托管内容', () => {
     });
     expect(await readFile(sourcePath)).toEqual(bytes);
     expect(await readFile(result.objectPath)).toEqual(bytes);
+    expect(Number.isInteger(result.sourceIdentity.mtimeMs)).toBe(true);
     expect(progress.at(-1)).toBe(bytes.length);
     expect(await store.listStagingFiles()).toEqual([]);
   });

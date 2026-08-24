@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RESEARCH_API_V1 } from '../contract.js';
 import {
+  fetchAttachmentDeletionPreview,
   fetchWorks,
+  patchWorkMetadata,
   postCheckLocation,
+  postPermanentDeleteAttachment,
   postPrepareImport,
+  postRestoreAttachment,
   postUploadPdf,
   putWorkCollections,
 } from './api.js';
@@ -138,5 +142,53 @@ describe('research ui api', () => {
     expect(calls[0]?.url).toBe(RESEARCH_API_V1.workCollections('work-1'));
     expect(calls[0]?.init?.method).toBe('PUT');
     expect(parsedBody(calls[0]!)).toEqual({ collectionIds: ['c-1', 'c-2'] });
+  });
+
+  it('元数据编辑发送字段级修改和乐观版本号', async () => {
+    respondWith({ wrong: 'shape' });
+    const input = {
+      expectedWorkRevision: 4,
+      work: { title: 'Human corrected title' },
+      edition: {
+        id: 'edition-1',
+        expectedRevision: 2,
+        authors: ['Ada Lovelace'],
+      },
+    };
+
+    await expect(patchWorkMetadata('work-1', input)).rejects.toThrow();
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.workMetadata('work-1'));
+    expect(calls[0]?.init?.method).toBe('PATCH');
+    expect(parsedBody(calls[0]!)).toEqual(input);
+  });
+
+  it('附件恢复与永久删除分开调用，并先读取删除影响', async () => {
+    respondWith({
+      attachmentId: 'attachment-1',
+      assetId: 'asset-1',
+      displayName: 'notes.txt',
+      otherAttachmentCount: 0,
+      managedObjectCount: 0,
+      linkedLocationCount: 1,
+      confirmationToken: 'confirmation-1',
+    });
+    const preview = await fetchAttachmentDeletionPreview('attachment-1');
+    expect(preview.linkedLocationCount).toBe(1);
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.attachmentDeletionPreview('attachment-1'));
+
+    respondWith({ deleted: true, linkedSourcesDeleted: false });
+    await postPermanentDeleteAttachment('attachment-1', preview.confirmationToken);
+    expect(calls[1]?.url).toBe(RESEARCH_API_V1.attachmentPermanentDelete('attachment-1'));
+    expect(parsedBody(calls[1]!)).toEqual({ confirmationToken: 'confirmation-1' });
+
+    globalThis.fetch = ((url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }) as typeof globalThis.fetch;
+    await postRestoreAttachment('attachment-1');
+    expect(calls[2]).toMatchObject({
+      url: RESEARCH_API_V1.attachmentRestore('attachment-1'),
+      init: { method: 'POST' },
+    });
   });
 });

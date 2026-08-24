@@ -7,6 +7,7 @@ import {
   deleteTagPermanently,
   deleteWorkRelation,
   fetchCollections,
+  fetchAttachmentDeletionPreview,
   fetchCollectionDeletionPreview,
   fetchDeletionPreview,
   fetchTagCandidates,
@@ -15,6 +16,7 @@ import {
   fetchWork,
   fetchWorks,
   patchCollection,
+  patchWorkMetadata,
   patchTag,
   postAddLocalAttachment,
   postBulkWorkAction,
@@ -25,9 +27,11 @@ import {
   postMergeTags,
   postMergeWorks,
   postPermanentDelete,
+  postPermanentDeleteAttachment,
   postReconcile,
   postRelinkLocation,
   postRestoreTag,
+  postRestoreAttachment,
   postSavedQuery,
   postStructuredSearch,
   postRestoreWork,
@@ -46,6 +50,7 @@ import type {
   SystemView,
   UpdateCollectionInput,
   WorkRelationKind,
+  UpdateWorkMetadataInput,
 } from '../contract.js';
 import { CompactLibraryView } from './components/CompactLibraryView.js';
 import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
@@ -58,6 +63,7 @@ import type { ResearchLayout } from './components/LayoutSwitch.js';
 import { ManualWorkDialog } from './components/ManualWorkDialog.js';
 import { TagManagerDialog } from './components/TagManagerDialog.js';
 import { TemplateLibraryView } from './components/TemplateLibraryView.js';
+import { WorkMetadataDialog } from './components/WorkMetadataDialog.js';
 
 const LAYOUT_STORAGE_KEY = 'research_library_layout';
 
@@ -100,6 +106,8 @@ export function ResearchLibraryPage() {
   const [manualWorkBusy, setManualWorkBusy] = useState(false);
   const [attachmentEditionId, setAttachmentEditionId] = useState<string | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [metadataEditOpen, setMetadataEditOpen] = useState(false);
+  const [metadataEditBusy, setMetadataEditBusy] = useState(false);
   const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [duplicateMergeOpen, setDuplicateMergeOpen] = useState(false);
@@ -293,6 +301,25 @@ export function ResearchLibraryPage() {
     }
   };
 
+  const permanentDeleteAttachment = async (id: string) => {
+    setMessage(null);
+    try {
+      const preview = await fetchAttachmentDeletionPreview(id);
+      const shared =
+        preview.otherAttachmentCount > 0
+          ? `该文件仍被其他 ${preview.otherAttachmentCount} 条附件引用，不会清理文件对象。`
+          : preview.managedObjectCount > 0
+            ? '这是最后一条引用，托管对象会一并清理。'
+            : '这是最后一条引用，只删除资料库记录；链接原文件不会删除。';
+      if (!window.confirm(`永久删除附件“${preview.displayName}”？${shared}`)) return;
+      await postPermanentDeleteAttachment(id, preview.confirmationToken);
+      setMessage('附件已永久删除');
+      await invalidate();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : '附件永久删除失败');
+    }
+  };
+
   const toggleCollection = (id: string) => {
     setSelectedCollectionIds((values) =>
       values.includes(id) ? values.filter((value) => value !== id) : [...values, id],
@@ -401,7 +428,14 @@ export function ResearchLibraryPage() {
         void run(() => deleteAttachment(id), '附件引用已移除');
       }
     },
+    onRestoreAttachment: (id: string) => {
+      void run(() => postRestoreAttachment(id), '附件已恢复');
+    },
+    onPermanentDeleteAttachment: (id: string) => {
+      void permanentDeleteAttachment(id);
+    },
     onAddAttachment: (editionId: string) => setAttachmentEditionId(editionId),
+    onEditMetadata: () => setMetadataEditOpen(true),
     onAddRelation: (workId: string) => {
       const targetWorkId = window.prompt('输入目标 Work ID');
       if (!targetWorkId) return;
@@ -645,6 +679,25 @@ export function ResearchLibraryPage() {
             await invalidate();
           } finally {
             setAttachmentBusy(false);
+          }
+        }}
+      />
+
+      <WorkMetadataDialog
+        open={metadataEditOpen}
+        detail={detailQuery.data}
+        busy={metadataEditBusy}
+        onClose={() => setMetadataEditOpen(false)}
+        onSave={async (input: UpdateWorkMetadataInput) => {
+          if (!selectedWorkId) return;
+          setMetadataEditBusy(true);
+          try {
+            await patchWorkMetadata(selectedWorkId, input);
+            setMetadataEditOpen(false);
+            setMessage('元数据已保存，原始来源保持不变');
+            await invalidate();
+          } finally {
+            setMetadataEditBusy(false);
           }
         }}
       />

@@ -27,7 +27,10 @@ export interface WorkDetailPanelProps {
   onCheckLocation: (id: string) => void;
   onRelinkLocation: (id: string) => void;
   onRemoveAttachment: (id: string) => void;
+  onRestoreAttachment: (id: string) => void;
+  onPermanentDeleteAttachment: (id: string) => void;
   onAddAttachment: (editionId: string) => void;
+  onEditMetadata: () => void;
   onAddRelation: (workId: string) => void;
   onRemoveRelation: (id: string) => void;
   onTrashWork: (id: string) => void;
@@ -52,7 +55,10 @@ export function WorkDetailPanel({
   onCheckLocation,
   onRelinkLocation,
   onRemoveAttachment,
+  onRestoreAttachment,
+  onPermanentDeleteAttachment,
   onAddAttachment,
+  onEditMetadata,
   onAddRelation,
   onRemoveRelation,
   onTrashWork,
@@ -78,16 +84,28 @@ export function WorkDetailPanel({
     <div className="space-y-4 animate-scale-in">
       <section className={variant === 'template' ? sectionClass : ''}>
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold leading-6 text-ink">
+          <div className="min-w-0">
+            <h2 className="break-words text-lg font-bold leading-6 text-ink">
               {detail.work.title || '未命名作品'}
             </h2>
             <p className="mt-2 text-xs leading-5 text-secondary">
               {detail.work.authors.join('、') || '作者待补充'}
               {detail.work.year !== null ? ` · ${detail.work.year}` : ''}
             </p>
+            {detail.work.abstract && (
+              <p className="mt-3 line-clamp-4 whitespace-pre-wrap break-words text-xs leading-5 text-muted">
+                {detail.work.abstract}
+              </p>
+            )}
           </div>
-          <FileStatus status={detail.work.fileStatus} />
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <FileStatus status={detail.work.fileStatus} />
+            {detail.work.status === 'active' && (
+              <Button size="sm" onClick={onEditMetadata}>
+                编辑元数据
+              </Button>
+            )}
+          </div>
         </div>
       </section>
 
@@ -102,7 +120,7 @@ export function WorkDetailPanel({
             </Button>
           )}
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex max-h-36 flex-wrap gap-2 overflow-y-auto pr-1">
           {availableTags.map((tag) => {
             const checked = selectedTagIds.includes(tag.id);
             return (
@@ -138,13 +156,15 @@ export function WorkDetailPanel({
       <section className={sectionClass}>
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">作品关系</h3>
-          <Button
-            size="sm"
-            icon={<IconPlus size={12} />}
-            onClick={() => onAddRelation(detail.work.id)}
-          >
-            添加
-          </Button>
+          {detail.work.status === 'active' && (
+            <Button
+              size="sm"
+              icon={<IconPlus size={12} />}
+              onClick={() => onAddRelation(detail.work.id)}
+            >
+              添加
+            </Button>
+          )}
         </div>
         <div className="mt-3 space-y-2">
           {detail.relations.map((relation) => (
@@ -160,13 +180,15 @@ export function WorkDetailPanel({
                   </p>
                   {relation.note && <p className="mt-1 text-[11px] text-muted">{relation.note}</p>}
                 </div>
-                <button
-                  type="button"
-                  className="shrink-0 text-[11px] font-semibold text-critical"
-                  onClick={() => onRemoveRelation(relation.id)}
-                >
-                  移除
-                </button>
+                {detail.work.status === 'active' && (
+                  <button
+                    type="button"
+                    className="shrink-0 text-[11px] font-semibold text-critical"
+                    onClick={() => onRemoveRelation(relation.id)}
+                  >
+                    移除
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -181,9 +203,11 @@ export function WorkDetailPanel({
       <section className={sectionClass}>
         <div className="flex items-center justify-between">
           <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">目录归属</h3>
-          <Button size="sm" disabled={savingCollections} onClick={onSaveCollections}>
-            保存
-          </Button>
+          {detail.work.status === 'active' && (
+            <Button size="sm" disabled={savingCollections} onClick={onSaveCollections}>
+              保存
+            </Button>
+          )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {collections.map((collection) => {
@@ -195,12 +219,13 @@ export function WorkDetailPanel({
                   checked
                     ? 'border-accent/25 bg-accent-soft text-accent'
                     : 'border-line bg-surface text-secondary'
-                }`}
+                } ${detail.work.status !== 'active' ? 'pointer-events-none opacity-70' : ''}`}
               >
                 <input
                   type="checkbox"
                   className="sr-only"
                   checked={checked}
+                  disabled={detail.work.status !== 'active'}
                   onChange={() => onToggleCollection(collection.id)}
                 />
                 {collection.name}
@@ -217,9 +242,17 @@ export function WorkDetailPanel({
           {detail.editions.map((edition) => (
             <div key={edition.id} className="space-y-3">
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold text-ink">
+                <div className="min-w-0">
+                  <p className="break-words text-xs font-semibold text-ink">
                     {edition.publicationTitle || edition.title || '未命名版本'}
+                  </p>
+                  <p className="mt-1 break-words text-[11px] leading-5 text-secondary">
+                    {edition.contributors
+                      .filter((contributor) => contributor.role === 'author')
+                      .map((contributor) => contributor.displayName)
+                      .join('、') || '作者待补充'}
+                    {edition.publisher ? ` · ${edition.publisher}` : ''}
+                    {edition.publishedDate ? ` · ${edition.publishedDate}` : ''}
                   </p>
                   <p className="mt-1 text-[11px] text-muted">
                     {edition.identifiers
@@ -227,13 +260,15 @@ export function WorkDetailPanel({
                       .join(' · ') || '无外部标识符'}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  icon={<IconPlus size={12} />}
-                  onClick={() => onAddAttachment(edition.id)}
-                >
-                  附件
-                </Button>
+                {detail.work.status === 'active' && (
+                  <Button
+                    size="sm"
+                    icon={<IconPlus size={12} />}
+                    onClick={() => onAddAttachment(edition.id)}
+                  >
+                    附件
+                  </Button>
+                )}
               </div>
               {edition.attachments.map((attachment) => (
                 <div
@@ -263,10 +298,7 @@ export function WorkDetailPanel({
                               {location.mode === 'managed' ? '托管副本' : '链接原文件'} ·{' '}
                               {location.state}
                             </p>
-                            <p
-                              className="mt-1 truncate text-[10px] text-muted"
-                              title={location.originalPath}
-                            >
+                            <p className="mt-1 break-all text-[10px] text-muted">
                               {location.originalPath}
                             </p>
                           </div>
@@ -285,7 +317,7 @@ export function WorkDetailPanel({
                       </div>
                     ))}
                   </div>
-                  {attachment.status === 'active' && (
+                  {attachment.status === 'active' ? (
                     <button
                       type="button"
                       className="mt-3 text-[11px] font-semibold text-critical"
@@ -293,11 +325,108 @@ export function WorkDetailPanel({
                     >
                       移除附件
                     </button>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        className="text-[11px] font-semibold text-accent"
+                        onClick={() => onRestoreAttachment(attachment.id)}
+                      >
+                        恢复附件
+                      </button>
+                      <button
+                        type="button"
+                        className="text-[11px] font-semibold text-critical"
+                        onClick={() => onPermanentDeleteAttachment(attachment.id)}
+                      >
+                        永久删除附件
+                      </button>
+                    </div>
                   )}
                 </div>
               ))}
             </div>
           ))}
+        </div>
+      </section>
+
+      <section className={sectionClass}>
+        <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">元数据来源</h3>
+        <div className="mt-3 space-y-3">
+          {detail.assertions.length > 0 ? (
+            <details>
+              <summary className="cursor-pointer text-xs font-semibold text-secondary">
+                字段取值与来源（{detail.assertions.length}）
+              </summary>
+              <div className="mt-3 space-y-2">
+                {detail.assertions.map((assertion) => {
+                  const source = detail.sources.find(
+                    (candidate) => candidate.id === assertion.sourceRecordId,
+                  );
+                  return (
+                    <div
+                      key={assertion.id}
+                      className="border-l-2 border-line pl-3 text-[11px] leading-5"
+                    >
+                      <p className="break-words text-secondary">
+                        <span className="font-semibold text-ink">{assertion.fieldName}</span> ·{' '}
+                        {typeof assertion.value === 'string'
+                          ? assertion.value || '空值'
+                          : JSON.stringify(assertion.value)}
+                      </p>
+                      <p className="text-muted">
+                        {assertion.isSelected ? '当前采用' : '历史候选'} ·{' '}
+                        {assertion.sourceKind === 'user'
+                          ? '人工修改'
+                          : (source?.provider ?? assertion.sourceKind)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </details>
+          ) : (
+            <p className="text-[11px] text-muted">没有字段来源记录</p>
+          )}
+
+          {detail.externalMappings.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-xs font-semibold text-secondary">
+                外部服务映射（{detail.externalMappings.length}）
+              </summary>
+              <div className="mt-3 space-y-2">
+                {detail.externalMappings.map((mapping) => (
+                  <p key={mapping.id} className="break-all text-[11px] leading-5 text-muted">
+                    <span className="font-semibold text-secondary">{mapping.provider}</span> ·{' '}
+                    {mapping.externalId} · {mapping.cacheStatus}
+                  </p>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {detail.sources.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-xs font-semibold text-secondary">
+                原始响应（{detail.sources.length}）
+              </summary>
+              <div className="mt-3 space-y-3">
+                {detail.sources.map((source) => (
+                  <details key={source.id} className="border-l-2 border-line pl-3">
+                    <summary className="cursor-pointer break-all text-[11px] font-semibold text-secondary">
+                      {source.provider} · {source.sourceLocator || '无定位信息'}
+                    </summary>
+                    <p className="mt-2 break-all text-[10px] leading-5 text-muted">
+                      {source.rawFormat} · {source.parserVersion} · {source.observedAt}
+                    </p>
+                    <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-control bg-surface-2 p-3 text-[10px] leading-5 text-secondary">
+                      {source.rawPayload}
+                    </pre>
+                  </details>
+                ))}
+              </div>
+            </details>
+          )}
         </div>
       </section>
 
