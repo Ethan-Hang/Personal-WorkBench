@@ -8,6 +8,7 @@ import {
   type TodayHabit,
   type TodayResponse,
 } from '../api.js';
+import { CheckinAmountInput } from './CheckinAmountInput.js';
 
 export interface TodayHabitCardProps {
   variant?: 'panel' | 'calendar';
@@ -118,14 +119,17 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
     });
   };
 
-  const handleStep = (item: TodayHabit, delta: number) => {
+  const handleSetValue = (item: TodayHabit, value: number) => {
     if (clientToday < item.habit.startDate) return;
-    const nextValue = Math.max(0, item.todayValue + delta);
     checkinMutation.mutate({
       habitId: item.habit.id,
       date: clientToday,
-      value: nextValue,
+      value: Math.max(0, value),
     });
+  };
+
+  const handleStep = (item: TodayHabit, delta: number) => {
+    handleSetValue(item, item.todayValue + delta);
   };
 
   const isAllCompleted = totalCount > 0 && completedCount === totalCount;
@@ -238,12 +242,14 @@ export function TodayHabitCard({ variant = 'panel', className = '' }: TodayHabit
                       >
                         -
                       </button>
-                      <span className="tabular-nums text-xs font-semibold text-ink px-1 min-w-[32px] text-center">
-                        {item.todayValue}/{item.habit.targetValue}
-                        {item.habit.unit ? (
-                          <span className="text-[10px] text-muted ml-0.5">{item.habit.unit}</span>
-                        ) : null}
-                      </span>
+                      <CheckinAmountInput
+                        value={item.todayValue}
+                        target={item.habit.targetValue}
+                        unit={item.habit.unit}
+                        disabled={clientToday < item.habit.startDate}
+                        size="sm"
+                        onCommit={(value) => handleSetValue(item, value)}
+                      />
                       <button
                         type="button"
                         onClick={(e) => {
