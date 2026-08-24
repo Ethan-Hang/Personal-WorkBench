@@ -11,6 +11,7 @@ import {
   deleteApplication,
   deleteRound,
   fetchApplications,
+  fetchSeasons,
   patchApplication,
   patchRound,
   postApplication,
@@ -23,8 +24,10 @@ import { ApplicationTableView, TableHeaderBar } from './components/ApplicationTa
 import { ApplicationKanbanView } from './components/ApplicationKanbanView.js';
 import { QuickAddApplicationModal } from './components/QuickAddApplicationModal.js';
 import { filterAndSortApplications, type FilterAndSortOptions } from './utils/filterAndSort.js';
+import { pickInitialSeason, readStoredSeasonId, writeStoredSeasonId } from './useCurrentSeason.js';
 
 const APPLICATIONS_KEY = ['campus', 'applications'] as const;
+const SEASONS_KEY = ['campus', 'seasons'] as const;
 const STATS_KEY = ['campus', 'stats'] as const;
 const VIEW_MODE_STORAGE_KEY = 'campus_workbench_view_mode';
 
@@ -54,9 +57,29 @@ export function ApplicationsPage() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<Error | null>(null);
 
+  const seasonsQuery = useQuery({ queryKey: SEASONS_KEY, queryFn: fetchSeasons });
+  const seasons = useMemo(() => seasonsQuery.data?.seasons ?? [], [seasonsQuery.data]);
+
+  // 当前招聘季。选择记在 localStorage，下次打开还停在这一季
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(() =>
+    readStoredSeasonId(),
+  );
+  const currentSeason = useMemo(
+    () => pickInitialSeason(seasons, selectedSeasonId),
+    [seasons, selectedSeasonId],
+  );
+  useEffect(() => {
+    if (currentSeason !== null && currentSeason.id !== selectedSeasonId) {
+      setSelectedSeasonId(currentSeason.id);
+      writeStoredSeasonId(currentSeason.id);
+    }
+  }, [currentSeason, selectedSeasonId]);
+
   const applicationsQuery = useQuery({
-    queryKey: APPLICATIONS_KEY,
-    queryFn: fetchApplications,
+    // 季进 key：切换招聘季等于换一份数据，不该复用上一季的缓存
+    queryKey: [...APPLICATIONS_KEY, currentSeason?.id ?? null],
+    queryFn: () => fetchApplications(currentSeason?.id),
+    enabled: currentSeason !== null,
   });
 
   // 监听 URL 参数，支持从周历/今日工作台跳转时自动定位并展开目标岗位
@@ -367,6 +390,8 @@ export function ApplicationsPage() {
 
       {/* 快速创建模态窗 */}
       <QuickAddApplicationModal
+        seasonId={currentSeason?.id ?? ''}
+        seasonName={currentSeason?.name ?? ''}
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={async (input: CreateApplicationInput) => {

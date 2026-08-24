@@ -7,9 +7,11 @@ import type {
   CampusRecruitRepository,
   RoundChanges,
   RoundRecord,
+  SeasonChanges,
+  SeasonRecord,
 } from '../server/repository.js';
 import * as schema from './schema.js';
-import { campusRecruitApplications, campusRecruitRounds } from './schema.js';
+import { campusRecruitApplications, campusRecruitRounds, campusRecruitSeasons } from './schema.js';
 
 export class SqliteCampusRecruitRepository implements CampusRecruitRepository {
   private cached?: {
@@ -27,21 +29,81 @@ export class SqliteCampusRecruitRepository implements CampusRecruitRepository {
     return this.cached.db;
   }
 
-  async listApplications(): Promise<ApplicationRecord[]> {
-    return this.db
+  async listApplications(seasonId?: string): Promise<ApplicationRecord[]> {
+    const rows = this.db
       .select()
       .from(campusRecruitApplications)
+      .where(seasonId === undefined ? undefined : eq(campusRecruitApplications.seasonId, seasonId))
       .orderBy(asc(campusRecruitApplications.createdAt), asc(campusRecruitApplications.id))
       .all();
+    // drizzle 由可空列推出 string | null，而应用层契约是 string。这个断言就是
+    // schema.ts 里那处妥协的落点：非空由 contract 必填 + service 存在性校验保证，
+    // 不由 DB 保证。
+    return rows as ApplicationRecord[];
+  }
+
+  async listSeasons(): Promise<SeasonRecord[]> {
+    return this.db
+      .select()
+      .from(campusRecruitSeasons)
+      .orderBy(asc(campusRecruitSeasons.createdAt), asc(campusRecruitSeasons.id))
+      .all();
+  }
+
+  async getSeason(id: string): Promise<SeasonRecord | null> {
+    return (
+      this.db.select().from(campusRecruitSeasons).where(eq(campusRecruitSeasons.id, id)).get() ??
+      null
+    );
+  }
+
+  async getSeasonByName(name: string): Promise<SeasonRecord | null> {
+    return (
+      this.db
+        .select()
+        .from(campusRecruitSeasons)
+        .where(eq(campusRecruitSeasons.name, name))
+        .get() ?? null
+    );
+  }
+
+  async insertSeason(record: SeasonRecord): Promise<void> {
+    this.db.insert(campusRecruitSeasons).values(record).run();
+  }
+
+  async updateSeason(id: string, changes: SeasonChanges): Promise<SeasonRecord> {
+    const row = this.db
+      .update(campusRecruitSeasons)
+      .set(changes)
+      .where(eq(campusRecruitSeasons.id, id))
+      .returning()
+      .get();
+    if (row === undefined) throw new Error(`招聘季不存在：${id}`);
+    return row;
+  }
+
+  async deleteSeason(id: string): Promise<boolean> {
+    return (
+      this.db.delete(campusRecruitSeasons).where(eq(campusRecruitSeasons.id, id)).returning().all()
+        .length > 0
+    );
+  }
+
+  async countApplicationsInSeason(seasonId: string): Promise<number> {
+    return this.db
+      .select({ id: campusRecruitApplications.id })
+      .from(campusRecruitApplications)
+      .where(eq(campusRecruitApplications.seasonId, seasonId))
+      .all().length;
   }
 
   async getApplication(id: string): Promise<ApplicationRecord | null> {
     return (
-      this.db
+      (this.db
         .select()
         .from(campusRecruitApplications)
         .where(eq(campusRecruitApplications.id, id))
-        .get() ?? null
+        .get() as ApplicationRecord | undefined) ?? null
     );
   }
 
@@ -57,7 +119,7 @@ export class SqliteCampusRecruitRepository implements CampusRecruitRepository {
       .returning()
       .get();
     if (row === undefined) throw new Error(`投递不存在：${id}`);
-    return row;
+    return row as ApplicationRecord;
   }
 
   async deleteApplication(id: string): Promise<boolean> {

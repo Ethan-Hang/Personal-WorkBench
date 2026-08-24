@@ -3,6 +3,7 @@ import {
   deleteApplication,
   deleteRound,
   fetchApplications,
+  fetchSeasons,
   fetchStats,
   patchApplication,
   patchRound,
@@ -15,6 +16,8 @@ type CapturedCall = { url: string; init: RequestInit | undefined };
 
 const APPLICATION = {
   id: 'a1',
+  seasonId: 'season-legacy-autumn',
+  seasonName: '秋招',
   company: '星云科技',
   position: '固件工程师',
   companyType: '民营',
@@ -113,7 +116,12 @@ describe('campus browser API', () => {
   });
 
   it('application creation sends JSON and validates the response', async () => {
-    await postApplication({ company: '星云科技', position: '固件工程师', priority: 'S' });
+    await postApplication({
+      company: '星云科技',
+      position: '固件工程师',
+      priority: 'S',
+      seasonId: 'season-legacy-autumn',
+    });
 
     expect(calls[0]).toMatchObject({
       url: '/api/campus/applications',
@@ -121,11 +129,20 @@ describe('campus browser API', () => {
     });
     expect(headerOf(calls[0]!.init, 'Content-Type')).toBe('application/json');
     expect(calls[0]!.init?.body).toBe(
-      JSON.stringify({ company: '星云科技', position: '固件工程师', priority: 'S' }),
+      JSON.stringify({
+        company: '星云科技',
+        position: '固件工程师',
+        priority: 'S',
+        seasonId: 'season-legacy-autumn',
+      }),
     );
-    expect(await postApplication({ company: '星云科技', position: '固件工程师' })).toEqual(
-      APPLICATION,
-    );
+    expect(
+      await postApplication({
+        company: '星云科技',
+        position: '固件工程师',
+        seasonId: 'season-legacy-autumn',
+      }),
+    ).toEqual(APPLICATION);
   });
 
   it('uses the application list, update, and apply endpoints with their required methods', async () => {
@@ -190,5 +207,20 @@ describe('campus browser API', () => {
     responses.push(jsonResponse({ ...APPLICATION, rounds: [{ id: 'incomplete' }] }));
 
     await expect(postApply('a1')).rejects.toThrow();
+  });
+  it('季筛选进查询串，且 id 会被转义；省略时不带参数', async () => {
+    responses.push(
+      jsonResponse({ applications: [APPLICATION] }),
+      jsonResponse({ applications: [] }),
+      jsonResponse({ seasons: [] }),
+    );
+
+    await fetchApplications('s/1');
+    await fetchApplications();
+    await fetchSeasons();
+
+    expect(calls[0]!.url).toBe('/api/campus/applications?seasonId=s%2F1');
+    expect(calls[1]!.url).toBe('/api/campus/applications');
+    expect(calls[2]!.url).toBe('/api/campus/seasons');
   });
 });

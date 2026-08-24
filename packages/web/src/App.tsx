@@ -66,10 +66,11 @@ function AppContent() {
     queryFn: fetchUnscheduled,
   });
 
-  // 查询秋招投递与轮次详情
+  // 查询招聘投递与轮次详情。**刻意不传 seasonId：命令面板要跨季搜索**——
+  // 只搜当前季的话，换季时搜不到别的季的公司，那是退步
   const campusQuery = useQuery({
-    queryKey: ['campus', 'applications'],
-    queryFn: fetchApplications,
+    queryKey: ['campus', 'applications', null],
+    queryFn: () => fetchApplications(),
   });
 
   // 将注册的 UI 模块组织为侧边栏导航分组

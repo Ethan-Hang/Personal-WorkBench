@@ -5,9 +5,12 @@ import type {
   ApplicationView,
   CreateApplicationData,
   CreateRoundData,
+  CreateSeasonData,
+  SeasonView,
   StatsResponse,
   UpdateApplicationInput,
   UpdateRoundInput,
+  UpdateSeasonInput,
 } from '../contract.js';
 import { deriveApplicationStatus } from './domain.js';
 import { reconcileAllProjections, reconcileApplicationProjections } from './projections.js';
@@ -17,12 +20,16 @@ import type {
   CampusRecruitRepository,
   RoundChanges,
   RoundRecord,
+  SeasonChanges,
+  SeasonRecord,
 } from './repository.js';
 import { computeStats } from './stats.js';
 
 export interface CampusServiceOptions {
   zone: string;
   now?: IsoInstant;
+  /** 省略即全部季。可选而非必填：命令面板（⌘K）要跨季搜索 */
+  seasonId?: string;
 }
 
 const PRIORITY_RANK = { S: 0, A: 1, B: 2, C: 3 } as const;
@@ -49,14 +56,29 @@ async function requireRound(repo: CampusRecruitRepository, id: string): Promise<
   return round;
 }
 
+async function requireSeason(repo: CampusRecruitRepository, id: string): Promise<SeasonRecord> {
+  const season = await repo.getSeason(id);
+  if (season === null) throw notFound(`招聘季不存在：${id}`);
+  return season;
+}
+
+/** 一次查出全部季名，免得每条投递各查一次库。 */
+async function seasonNames(repo: CampusRecruitRepository): Promise<Map<string, string>> {
+  return new Map((await repo.listSeasons()).map((season) => [season.id, season.name]));
+}
+
 async function applicationView(
   repo: CampusRecruitRepository,
   application: ApplicationRecord,
   now: IsoInstant,
+  names: Map<string, string>,
 ): Promise<ApplicationView> {
   const rounds = (await repo.listRounds(application.id)).sort((a, b) => a.sequence - b.sequence);
   return {
     id: application.id,
+    seasonId: application.seasonId,
+    // 季名恒可解析：season_id 有外键，且删除还有投递的季会被拒
+    seasonName: names.get(application.seasonId) ?? '',
     company: application.company,
     position: application.position,
     companyType: application.companyType,
@@ -101,8 +123,11 @@ export async function listApplications(
   opts: CampusServiceOptions,
 ): Promise<{ applications: ApplicationView[] }> {
   const now = resolveNow(opts);
+  const names = await seasonNames(repo);
   const applications = await Promise.all(
-    (await repo.listApplications()).map((application) => applicationView(repo, application, now)),
+    (await repo.listApplications(opts.seasonId)).map((application) =>
+      applicationView(repo, application, now, names),
+    ),
   );
   applications.sort(
     (a, b) =>
@@ -113,6 +138,90 @@ export async function listApplications(
   return { applications };
 }
 
+async function seasonView(
+  repo: CampusRecruitRepository,
+  season: SeasonRecord,
+): Promise<SeasonView> {
+  return { ...season, applicationCount: await repo.countApplicationsInSeason(season.id) };
+}
+
+export async function listSeasons(
+  repo: CampusRecruitRepository,
+): Promise<{ seasons: SeasonView[] }> {
+  const seasons = await repo.listSeasons();
+  return { seasons: await Promise.all(seasons.map((season) => seasonView(repo, season))) };
+}
+
+export async function createSeason(
+  repo: CampusRecruitRepository,
+  input: CreateSeasonData,
+  opts: CampusServiceOptions,
+): Promise<SeasonView> {
+  const now = resolveNow(opts);
+  // 名称唯一：重名会让切换器无法分辨「哪个是哪个」
+  if ((await repo.getSeasonByName(input.name)) !== null) {
+    throw conflict(`已有同名招聘季：${input.name}`);
+  }
+  const record: SeasonRecord = {
+    id: randomUUID(),
+    name: input.name,
+    kind: input.kind,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    archivedAt: null,
+    notes: input.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await repo.insertSeason(record);
+  return seasonView(repo, record);
+}
+
+export async function updateSeason(
+  repo: CampusRecruitRepository,
+  id: string,
+  input: UpdateSeasonInput,
+  opts: CampusServiceOptions,
+): Promise<SeasonView> {
+  const existing = await requireSeason(repo, id);
+  const now = resolveNow(opts);
+  const changes: SeasonChanges = { updatedAt: now };
+  if (input.name !== undefined && input.name !== existing.name) {
+    if ((await repo.getSeasonByName(input.name)) !== null) {
+      throw conflict(`已有同名招聘季：${input.name}`);
+    }
+    changes.name = input.name;
+  }
+  if (input.kind !== undefined) changes.kind = input.kind;
+  if (input.startDate !== undefined) changes.startDate = input.startDate;
+  if (input.endDate !== undefined) changes.endDate = input.endDate;
+  if (input.notes !== undefined) changes.notes = input.notes;
+  if (input.archived !== undefined) {
+    // 已归档的再归档一次不刷新时刻——「从哪天起不再看它」才是有用的那个信息
+    changes.archivedAt = input.archived ? (existing.archivedAt ?? now) : null;
+  }
+  return seasonView(repo, await repo.updateSeason(id, changes));
+}
+
+/**
+ * 删除招聘季。两种情况拒绝，都给出「下一步做什么」的提示。
+ *
+ * **不做级联删除**：一个下拉里的误点不该带走几十条投递及其全部轮次。
+ * 这与「撤回投递」是同一条原则——宁可让操作失败并提示，也不悄悄丢数据。
+ */
+export async function deleteSeason(repo: CampusRecruitRepository, id: string): Promise<void> {
+  const season = await requireSeason(repo, id);
+  const count = await repo.countApplicationsInSeason(id);
+  if (count > 0) {
+    throw conflict(`这个招聘季里还有 ${count} 条投递，请先把它们移到别的季或删掉`);
+  }
+  const active = (await repo.listSeasons()).filter((s) => s.archivedAt === null);
+  if (season.archivedAt === null && active.length <= 1) {
+    throw conflict('这是最后一个未归档的招聘季，删掉就没有地方放新投递了');
+  }
+  await repo.deleteSeason(id);
+}
+
 export async function createApplication(
   ctx: ModuleContext,
   repo: CampusRecruitRepository,
@@ -120,9 +229,11 @@ export async function createApplication(
   opts: CampusServiceOptions,
 ): Promise<ApplicationView> {
   const now = resolveNow(opts);
+  await requireSeason(repo, input.seasonId);
   const appliedAt = input.outcome !== null && input.appliedAt === null ? now : input.appliedAt;
   const record: ApplicationRecord = {
     id: randomUUID(),
+    seasonId: input.seasonId,
     company: input.company,
     position: input.position,
     companyType: input.companyType,
@@ -147,7 +258,12 @@ export async function createApplication(
   };
   await repo.insertApplication(record);
   await reconcileApplicationProjections(ctx, repo, record.id, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, record.id), now);
+  return applicationView(
+    repo,
+    await requireApplication(repo, record.id),
+    now,
+    await seasonNames(repo),
+  );
 }
 
 export async function updateApplication(
@@ -160,6 +276,11 @@ export async function updateApplication(
   const existing = await requireApplication(repo, id);
   const now = resolveNow(opts);
   const changes: ApplicationChanges = { updatedAt: now };
+  if (input.seasonId !== undefined) {
+    // 移动投递到另一个招聘季。校验存在性，否则会写出一条查不到季名的孤儿
+    await requireSeason(repo, input.seasonId);
+    changes.seasonId = input.seasonId;
+  }
   if (input.company !== undefined) changes.company = input.company;
   if (input.position !== undefined) changes.position = input.position;
   if (input.companyType !== undefined) changes.companyType = input.companyType;
@@ -197,7 +318,7 @@ export async function updateApplication(
   }
   await repo.updateApplication(id, changes);
   await reconcileApplicationProjections(ctx, repo, id, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, id), now);
+  return applicationView(repo, await requireApplication(repo, id), now, await seasonNames(repo));
 }
 
 export async function markApplicationApplied(
@@ -234,7 +355,7 @@ export async function markApplicationApplied(
     }
   }
   await reconcileApplicationProjections(ctx, repo, id, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, id), now);
+  return applicationView(repo, await requireApplication(repo, id), now, await seasonNames(repo));
 }
 
 /**
@@ -277,7 +398,9 @@ export async function unmarkApplicationApplied(
   const application = await requireApplication(repo, id);
   const now = resolveNow(opts);
   // 幂等：本来就是待投递，什么都不做（重复点、或两个标签页各点一次）
-  if (application.appliedAt === null) return applicationView(repo, application, now);
+  if (application.appliedAt === null) {
+    return applicationView(repo, application, now, await seasonNames(repo));
+  }
 
   if (application.outcome !== null) {
     throw conflict('这条投递已有终局结果，撤回前请先把「终局结果」改回「流程中 / 未定」');
@@ -292,7 +415,7 @@ export async function unmarkApplicationApplied(
   }
   await repo.updateApplication(id, { appliedAt: null, shelvedAt: null, updatedAt: now });
   await reconcileApplicationProjections(ctx, repo, id, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, id), now);
+  return applicationView(repo, await requireApplication(repo, id), now, await seasonNames(repo));
 }
 
 export async function deleteApplication(
@@ -342,7 +465,12 @@ export async function createRound(
   };
   await repo.insertRound(record);
   await reconcileApplicationProjections(ctx, repo, applicationId, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, applicationId), now);
+  return applicationView(
+    repo,
+    await requireApplication(repo, applicationId),
+    now,
+    await seasonNames(repo),
+  );
 }
 
 export async function updateRound(
@@ -374,7 +502,12 @@ export async function updateRound(
   }
   await repo.updateRound(id, changes);
   await reconcileApplicationProjections(ctx, repo, existing.applicationId, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, existing.applicationId), now);
+  return applicationView(
+    repo,
+    await requireApplication(repo, existing.applicationId),
+    now,
+    await seasonNames(repo),
+  );
 }
 
 export async function deleteRound(
@@ -388,13 +521,24 @@ export async function deleteRound(
   if (round.itemId !== null) await ctx.items.delete(ctx.moduleId, round.itemId);
   await repo.deleteRound(id);
   await reconcileApplicationProjections(ctx, repo, round.applicationId, now, opts.zone);
-  return applicationView(repo, await requireApplication(repo, round.applicationId), now);
+  return applicationView(
+    repo,
+    await requireApplication(repo, round.applicationId),
+    now,
+    await seasonNames(repo),
+  );
 }
 
 export async function getStats(
   repo: CampusRecruitRepository,
   opts: CampusServiceOptions,
 ): Promise<StatsResponse> {
-  const [applications, rounds] = await Promise.all([repo.listApplications(), repo.listRounds()]);
+  const [applications, allRounds] = await Promise.all([
+    repo.listApplications(opts.seasonId),
+    repo.listRounds(),
+  ]);
+  // 轮次必须跟着投递一起过滤，否则别的季的面试会算进这一季的转化率
+  const ids = new Set(applications.map((application) => application.id));
+  const rounds = allRounds.filter((round) => ids.has(round.applicationId));
   return computeStats(applications, rounds, resolveNow(opts));
 }

@@ -11,6 +11,9 @@ interface QuickAddApplicationModalProps {
   onClose: () => void;
   onSubmit: (input: CreateApplicationInput) => Promise<void>;
   isBusy: boolean;
+  /** 新投递落进哪个招聘季 */
+  seasonId: string;
+  seasonName: string;
   error: Error | null;
 }
 
@@ -42,6 +45,8 @@ export function QuickAddApplicationModal({
   onSubmit,
   isBusy,
   error,
+  seasonId,
+  seasonName,
 }: QuickAddApplicationModalProps) {
   const [form, setForm] = useState(INITIAL_FORM);
   const [showMore, setShowMore] = useState(false);
@@ -52,6 +57,8 @@ export function QuickAddApplicationModal({
 
     try {
       await onSubmit({
+        // 新建的投递落进当前招聘季，不必让人每次选一遍
+        seasonId,
         company: form.company.trim(),
         position: form.position.trim(),
         priority: form.priority,
@@ -82,7 +89,8 @@ export function QuickAddApplicationModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="记录新投递机会"
+      // 标题带上季名：归属可见，但不必让人每次选一遍
+      title={seasonName === '' ? '记录新投递机会' : `记录新投递机会 · ${seasonName}`}
       description="填写公司与岗位基本信息；展开「更多信息」可一次录完档案，后续也能在详情抽屉中补充。"
       maxWidth="max-w-xl"
     >

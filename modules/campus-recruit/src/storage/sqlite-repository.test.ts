@@ -29,6 +29,7 @@ describe('campus recruit migrations', () => {
     expect(names.map((row) => row.name)).toEqual([
       'campus_recruit_applications',
       'campus_recruit_rounds',
+      'campus_recruit_seasons',
     ]);
 
     sqlite.close();
@@ -137,7 +138,11 @@ describe('campus recruit migrations', () => {
       'campus_recruit_applications',
       'items',
     ]);
-    expect(applicationTargets.map((row) => row.table)).toEqual(['items']);
+    // 外键方向恒为 模块 → core：投递指向 items（截止日投影）与本模块的季表
+    expect(applicationTargets.map((row) => row.table).sort()).toEqual([
+      'campus_recruit_seasons',
+      'items',
+    ]);
     sqlite.close();
   });
 });
@@ -291,6 +296,58 @@ describe('SqliteCampusRecruitRepository', () => {
     expect(await repo.getRound('round-1')).toMatchObject({ itemId: roundItem.id });
     expect(await repo.deleteRound('missing')).toBe(false);
     expect(await repo.deleteApplication('missing')).toBe(false);
+    sqlite.close();
+  });
+  it('招聘季可增删改查，且投递按季过滤', async () => {
+    const { repo, sqlite } = makeRepository();
+
+    // 迁移自带的默认季：既有投递的去处
+    expect(await repo.listSeasons()).toEqual([
+      expect.objectContaining({ id: 'season-legacy-autumn', name: '秋招', kind: 'campus-autumn' }),
+    ]);
+
+    await repo.insertSeason({
+      id: 'season-spring',
+      name: '2027 春招',
+      kind: 'campus-spring',
+      startDate: '2027-02-01',
+      endDate: null,
+      archivedAt: null,
+      notes: null,
+      createdAt: '2026-08-24T02:00:00.000Z',
+      updatedAt: '2026-08-24T02:00:00.000Z',
+    });
+
+    expect(await repo.getSeasonByName('2027 春招')).toMatchObject({ id: 'season-spring' });
+    expect(await repo.getSeasonByName('不存在的季')).toBeNull();
+    expect(await repo.getSeason('missing')).toBeNull();
+
+    const renamed = await repo.updateSeason('season-spring', {
+      name: '2027 春招（改）',
+      updatedAt: '2026-08-24T03:00:00.000Z',
+    });
+    expect(renamed.name).toBe('2027 春招（改）');
+
+    await repo.insertApplication(
+      applicationFixture({ id: 'app-spring', seasonId: 'season-spring' }),
+    );
+    await repo.insertApplication(
+      applicationFixture({ id: 'app-autumn', seasonId: 'season-legacy-autumn' }),
+    );
+
+    expect((await repo.listApplications()).map((a) => a.id).sort()).toEqual([
+      'app-autumn',
+      'app-spring',
+    ]);
+    expect((await repo.listApplications('season-spring')).map((a) => a.id)).toEqual(['app-spring']);
+    expect(await repo.countApplicationsInSeason('season-spring')).toBe(1);
+    expect(await repo.countApplicationsInSeason('missing')).toBe(0);
+
+    // 季里还有投递时外键会拦下删除——service 层会在此之前先回 409 并提示
+    expect(() => repo.deleteSeason('season-spring')).rejects.toThrow();
+    await repo.deleteApplication('app-spring');
+    expect(await repo.deleteSeason('season-spring')).toBe(true);
+    expect(await repo.deleteSeason('season-spring')).toBe(false);
     sqlite.close();
   });
 });

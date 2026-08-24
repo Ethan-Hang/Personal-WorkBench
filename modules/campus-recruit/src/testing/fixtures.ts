@@ -5,6 +5,7 @@ const CREATED = '2026-08-17T00:00:00.000Z';
 export function applicationFixture(overrides: Partial<ApplicationRecord> = {}): ApplicationRecord {
   return {
     id: 'app-1',
+    seasonId: 'season-legacy-autumn',
     company: '星云科技',
     position: '固件工程师',
     companyType: null,

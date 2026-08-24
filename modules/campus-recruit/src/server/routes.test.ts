@@ -3,7 +3,12 @@ import type { FastifyInstance } from 'fastify';
 import { endOfLocalDayUtc } from '@workbench/core';
 import { openTestDatabase, runMigrationsFrom, SqliteItemRepository } from '@workbench/data';
 import { buildApp } from '@workbench/server';
-import { applicationViewSchema, statsResponseSchema } from '../contract.js';
+import {
+  applicationViewSchema,
+  seasonViewSchema,
+  seasonsResponseSchema,
+  statsResponseSchema,
+} from '../contract.js';
 import { applicationFixture } from '../testing/fixtures.js';
 import { SqliteCampusRecruitRepository } from '../storage/sqlite-repository.js';
 import { createCampusRecruitServerModule } from './index.js';
@@ -40,7 +45,12 @@ describe('campus recruit HTTP API', () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/campus/applications',
-      payload: { company: '星云科技', position: '固件工程师', priority: 'S' },
+      payload: {
+        company: '星云科技',
+        position: '固件工程师',
+        priority: 'S',
+        seasonId: 'season-legacy-autumn',
+      },
     });
     expect(created.statusCode).toBe(201);
     const application = applicationViewSchema.parse(created.json());
@@ -113,7 +123,12 @@ describe('campus recruit HTTP API', () => {
     const created = await app.inject({
       method: 'POST',
       url: '/api/campus/applications',
-      payload: { company: '星云科技', position: '固件工程师', priority: 'S' },
+      payload: {
+        company: '星云科技',
+        position: '固件工程师',
+        priority: 'S',
+        seasonId: 'season-legacy-autumn',
+      },
     });
     const application = applicationViewSchema.parse(created.json());
 
@@ -187,5 +202,82 @@ describe('campus recruit HTTP API', () => {
       dueAt: endOfLocalDayUtc('2026-09-20', zone),
       scheduled: { kind: 'all-day', date: '2026-09-20' },
     });
+  });
+  it('招聘季端点：列表 / 新建 / 改名 / 归档 / 删除，两种 409', async () => {
+    const { app } = await makeApp();
+
+    const listed = await app.inject({ method: 'GET', url: '/api/campus/seasons' });
+    expect(listed.statusCode).toBe(200);
+    expect(seasonsResponseSchema.parse(listed.json()).seasons).toEqual([
+      expect.objectContaining({ id: 'season-legacy-autumn', name: '秋招', applicationCount: 0 }),
+    ]);
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/campus/seasons',
+      payload: { name: '2027 春招', kind: 'campus-spring' },
+    });
+    expect(created.statusCode).toBe(201);
+    const season = seasonViewSchema.parse(created.json());
+
+    const dup = await app.inject({
+      method: 'POST',
+      url: '/api/campus/seasons',
+      payload: { name: '2027 春招', kind: 'social' },
+    });
+    expect(dup.statusCode).toBe(409);
+
+    const archived = await app.inject({
+      method: 'PATCH',
+      url: `/api/campus/seasons/${season.id}`,
+      payload: { archived: true },
+    });
+    expect(archived.statusCode).toBe(200);
+    expect(seasonViewSchema.parse(archived.json()).archivedAt).toEqual(expect.any(String));
+
+    // 归档后 legacy 季是最后一个未归档的，删它要被拒
+    const refused = await app.inject({
+      method: 'DELETE',
+      url: '/api/campus/seasons/season-legacy-autumn',
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBeTruthy();
+
+    const deleted = await app.inject({ method: 'DELETE', url: `/api/campus/seasons/${season.id}` });
+    expect(deleted.statusCode).toBe(204);
+    expect(deleted.body).toBe('');
+  });
+
+  it('投递列表与统计接受 seasonId 查询参数', async () => {
+    const { app } = await makeApp();
+    await app.inject({
+      method: 'POST',
+      url: '/api/campus/applications',
+      payload: {
+        company: '星云科技',
+        position: '固件工程师',
+        priority: 'S',
+        seasonId: 'season-legacy-autumn',
+      },
+    });
+
+    const scoped = await app.inject({
+      method: 'GET',
+      url: '/api/campus/applications?seasonId=season-legacy-autumn',
+    });
+    expect(scoped.json().applications).toHaveLength(1);
+    expect(scoped.json().applications[0]).toMatchObject({ seasonName: '秋招' });
+
+    const other = await app.inject({
+      method: 'GET',
+      url: '/api/campus/applications?seasonId=nope',
+    });
+    expect(other.json().applications).toHaveLength(0);
+
+    const stats = await app.inject({
+      method: 'GET',
+      url: '/api/campus/stats?seasonId=season-legacy-autumn',
+    });
+    expect(statsResponseSchema.parse(stats.json())).toMatchObject({ total: 1 });
   });
 });

@@ -10,6 +10,8 @@ import {
 function createMockApp(partial: Partial<ApplicationView>): ApplicationView {
   return {
     id: 'app-1',
+    seasonId: 'season-legacy-autumn',
+    seasonName: '秋招',
     company: '华为',
     position: '嵌入式软件工程师',
     companyType: '民营大厂',

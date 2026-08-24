@@ -3,12 +3,17 @@ import {
   CAMPUS_RECRUIT_MODULE_ID,
   createApplicationInputSchema,
   createRoundInputSchema,
+  createSeasonInputSchema,
 } from '../contract.js';
 import type { CreateRoundData } from '../contract.js';
 import { DomainError } from '@workbench/http-kit';
 import { makeCampusHarness } from '../testing/harness.js';
 import {
   createApplication,
+  createSeason,
+  deleteSeason,
+  listSeasons,
+  updateSeason,
   createRound,
   deleteApplication,
   deleteRound,
@@ -29,6 +34,7 @@ function pendingApplicationInput() {
     company: '星云科技',
     position: '固件工程师',
     priority: 'S',
+    seasonId: 'season-legacy-autumn',
     applyDeadlineDate: '2026-09-20',
   });
 }
@@ -522,9 +528,24 @@ describe('campus recruit service', () => {
   it('lists derived views by priority, update time, and company', async () => {
     const h = makeCampusHarness();
     const later = { zone: OPTS.zone, now: '2026-09-20T03:00:00.000Z' } as const;
-    const a = createApplicationInputSchema.parse({ company: 'A', position: 'P', priority: 'B' });
-    const z = createApplicationInputSchema.parse({ company: 'Z', position: 'P', priority: 'B' });
-    const s = createApplicationInputSchema.parse({ company: 'S', position: 'P', priority: 'S' });
+    const a = createApplicationInputSchema.parse({
+      company: 'A',
+      position: 'P',
+      priority: 'B',
+      seasonId: 'season-legacy-autumn',
+    });
+    const z = createApplicationInputSchema.parse({
+      company: 'Z',
+      position: 'P',
+      priority: 'B',
+      seasonId: 'season-legacy-autumn',
+    });
+    const s = createApplicationInputSchema.parse({
+      company: 'S',
+      position: 'P',
+      priority: 'S',
+      seasonId: 'season-legacy-autumn',
+    });
     await createApplication(h.ctx, h.repo, a, OPTS);
     await createApplication(h.ctx, h.repo, z, later);
     await createApplication(h.ctx, h.repo, s, OPTS);
@@ -543,7 +564,12 @@ describe('campus recruit service', () => {
     const applied = await createApplication(
       h.ctx,
       h.repo,
-      createApplicationInputSchema.parse({ company: '远航', position: '研发', appliedAt: NOW }),
+      createApplicationInputSchema.parse({
+        company: '远航',
+        position: '研发',
+        appliedAt: NOW,
+        seasonId: 'season-legacy-autumn',
+      }),
       OPTS,
     );
     await createRound(h.ctx, h.repo, applied.id, roundInput({ kind: 'assessment' }), OPTS);
@@ -609,5 +635,164 @@ describe('面试时刻的颗粒度为分钟（ADR-0012）', () => {
         },
       }),
     );
+  });
+});
+
+describe('招聘季', () => {
+  it('新建、改名、归档，归档不影响投影', async () => {
+    const h = makeCampusHarness();
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    expect(spring).toMatchObject({ name: '2027 春招', archivedAt: null, applicationCount: 0 });
+
+    const { seasons } = await listSeasons(h.repo);
+    expect(seasons.map((s) => s.id)).toEqual(['season-legacy-autumn', spring.id]);
+
+    // 这一季里有一条带截止日的投递，归档后它的 core Item 必须还在
+    const app = await createApplication(
+      h.ctx,
+      h.repo,
+      { ...pendingApplicationInput(), seasonId: spring.id },
+      OPTS,
+    );
+    expect(await h.items.list({ sourceModules: [CAMPUS_RECRUIT_MODULE_ID] })).toHaveLength(1);
+
+    const archived = await updateSeason(h.repo, spring.id, { archived: true }, OPTS);
+    expect(archived.archivedAt).toBe(NOW);
+    expect(await h.items.list({ sourceModules: [CAMPUS_RECRUIT_MODULE_ID] })).toHaveLength(1);
+    expect(await h.repo.getApplication(app.id)).not.toBeNull();
+
+    // 再归档一次不刷新时刻：「从哪天起不再看它」才是有用的信息
+    const again = await updateSeason(
+      h.repo,
+      spring.id,
+      { archived: true },
+      { ...OPTS, now: LATER },
+    );
+    expect(again.archivedAt).toBe(NOW);
+
+    const revived = await updateSeason(h.repo, spring.id, { archived: false }, OPTS);
+    expect(revived.archivedAt).toBeNull();
+  });
+
+  it('重名回 409', async () => {
+    const h = makeCampusHarness();
+    await expect(
+      createSeason(h.repo, createSeasonInputSchema.parse({ name: '秋招', kind: 'social' }), OPTS),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    await expect(updateSeason(h.repo, spring.id, { name: '秋招' }, OPTS)).rejects.toMatchObject({
+      status: 409,
+    });
+    // 改成自己现在的名字不算重名
+    await expect(
+      updateSeason(h.repo, spring.id, { name: '2027 春招' }, OPTS),
+    ).resolves.toMatchObject({ name: '2027 春招' });
+  });
+
+  it('季里有投递、或它是最后一个未归档的季，都拒绝删除', async () => {
+    const h = makeCampusHarness();
+
+    // 最后一个未归档的季：删了就没地方放新投递
+    await expect(deleteSeason(h.repo, 'season-legacy-autumn')).rejects.toMatchObject({
+      status: 409,
+    });
+
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    await createApplication(
+      h.ctx,
+      h.repo,
+      { ...pendingApplicationInput(), seasonId: spring.id },
+      OPTS,
+    );
+    // 有投递：不级联删除，让操作失败并提示
+    await expect(deleteSeason(h.repo, spring.id)).rejects.toMatchObject({ status: 409 });
+    expect(await h.repo.getSeason(spring.id)).not.toBeNull();
+
+    const empty = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 社招', kind: 'social' }),
+      OPTS,
+    );
+    await expect(deleteSeason(h.repo, empty.id)).resolves.toBeUndefined();
+    expect(await h.repo.getSeason(empty.id)).toBeNull();
+  });
+
+  it('不存在的季回 404', async () => {
+    const h = makeCampusHarness();
+    await expect(updateSeason(h.repo, 'missing', { name: 'x' }, OPTS)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(deleteSeason(h.repo, 'missing')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('列表与统计按季过滤，轮次跟着投递一起被过滤', async () => {
+    const h = makeCampusHarness();
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+
+    const autumnApp = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    const springApp = await createApplication(
+      h.ctx,
+      h.repo,
+      { ...pendingApplicationInput(), seasonId: spring.id },
+      OPTS,
+    );
+    await createRound(h.ctx, h.repo, autumnApp.id, roundInput(), OPTS);
+
+    const autumnOnly = await listApplications(h.repo, {
+      ...OPTS,
+      seasonId: 'season-legacy-autumn',
+    });
+    expect(autumnOnly.applications.map((a) => a.id)).toEqual([autumnApp.id]);
+    expect(autumnOnly.applications[0]).toMatchObject({
+      seasonId: 'season-legacy-autumn',
+      seasonName: '秋招',
+    });
+
+    expect((await listApplications(h.repo, OPTS)).applications).toHaveLength(2);
+
+    // 统计只算这一季：春招那条没有轮次，秋招那条有一轮 technical
+    const springStats = await getStats(h.repo, { ...OPTS, seasonId: spring.id });
+    expect(springStats).toMatchObject({ total: 1, technical: 0 });
+    // 春招那条还没标记已投递，applied=0——分母为零时口径是 null，不是 0
+    expect(springStats.rates.applicationToTechnical).toBeNull();
+    expect(springApp.seasonName).toBe('2027 春招');
+  });
+
+  it('创建投递时季必须存在；改季即移动投递', async () => {
+    const h = makeCampusHarness();
+    await expect(
+      createApplication(h.ctx, h.repo, { ...pendingApplicationInput(), seasonId: 'missing' }, OPTS),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    const app = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const moved = await updateApplication(h.ctx, h.repo, app.id, { seasonId: spring.id }, OPTS);
+    expect(moved).toMatchObject({ seasonId: spring.id, seasonName: '2027 春招' });
+
+    await expect(
+      updateApplication(h.ctx, h.repo, app.id, { seasonId: 'missing' }, OPTS),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });
