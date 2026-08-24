@@ -20,7 +20,7 @@ function seedWork(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite'], id:
 }
 
 describe('research migrations', () => {
-  it('建立 21 张规范领域表和 FTS5 搜索索引且迁移可重复执行', () => {
+  it('建立 23 张规范领域表和 FTS5 搜索索引且迁移可重复执行', () => {
     const { db, sqlite } = makeResearchDatabase();
     const tables = sqlite
       .prepare(
@@ -31,10 +31,12 @@ describe('research migrations', () => {
       )
       .all() as Array<{ name: string }>;
 
-    expect(tables).toHaveLength(21);
+    expect(tables).toHaveLength(23);
     expect(tables.map((table) => table.name)).toContain('research_works');
     expect(tables.map((table) => table.name)).toContain('research_export_jobs');
     expect(tables.map((table) => table.name)).toContain('research_metadata_cache');
+    expect(tables.map((table) => table.name)).toContain('research_storage_config');
+    expect(tables.map((table) => table.name)).toContain('research_managed_root_migrations');
     expect(
       sqlite
         .prepare(

@@ -29,6 +29,7 @@ import {
   tagCandidatesQuerySchema,
   tagVersionInputSchema,
   structuredSearchInputSchema,
+  startManagedRootMigrationInputSchema,
   startPortableExportInputSchema,
   uploadPdfQuerySchema,
   updateCollectionInputSchema,
@@ -369,6 +370,32 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
   app.post(
     RESEARCH_API_V1.exportCancel(':id'),
     defineRoute({ params: idParams }, ({ params }) => service.cancelPortableExport(params.id)),
+  );
+  app.get(
+    RESEARCH_API_V1.managedStorage,
+    defineRoute({}, () => service.getManagedStorageStatus()),
+  );
+  app.post(
+    RESEARCH_API_V1.managedRootMigrations,
+    defineRoute({ body: startManagedRootMigrationInputSchema, status: 202 }, ({ body }) =>
+      service.startManagedRootMigration(body),
+    ),
+  );
+  app.get(
+    RESEARCH_API_V1.managedRootMigration(':id'),
+    defineRoute({ params: idParams }, ({ params }) => service.getManagedRootMigration(params.id)),
+  );
+  app.post(
+    RESEARCH_API_V1.managedRootMigrationCancel(':id'),
+    defineRoute({ params: idParams }, ({ params }) =>
+      service.cancelManagedRootMigration(params.id),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.managedRootMigrationRetry(':id'),
+    defineRoute({ params: idParams, status: 202 }, ({ params }) =>
+      service.retryManagedRootMigration(params.id),
+    ),
   );
   app.post(RESEARCH_API_V1.reconcile, async () => service.reconcile());
 }

@@ -61,6 +61,11 @@ export const RESEARCH_API_V1 = {
   exports: `${API_ROOT}/exports`,
   exportJob: (id: string) => `${API_ROOT}/exports/${id}`,
   exportCancel: (id: string) => `${API_ROOT}/exports/${id}/cancel`,
+  managedStorage: `${API_ROOT}/managed-storage`,
+  managedRootMigrations: `${API_ROOT}/managed-storage/migrations`,
+  managedRootMigration: (id: string) => `${API_ROOT}/managed-storage/migrations/${id}`,
+  managedRootMigrationCancel: (id: string) => `${API_ROOT}/managed-storage/migrations/${id}/cancel`,
+  managedRootMigrationRetry: (id: string) => `${API_ROOT}/managed-storage/migrations/${id}/retry`,
 } as const;
 
 export const WORK_TYPES = [
@@ -283,6 +288,43 @@ export const portableExportJobSchema = z.object({
   completedAt: instantSchema.nullable(),
 });
 export type PortableExportJob = z.infer<typeof portableExportJobSchema>;
+
+export const MANAGED_ROOT_MIGRATION_STATUSES = [
+  'draft',
+  'running',
+  'completed',
+  'cancelled',
+  'failed',
+  'interrupted',
+] as const;
+export type ManagedRootMigrationStatus = (typeof MANAGED_ROOT_MIGRATION_STATUSES)[number];
+
+export const managedRootMigrationJobSchema = z.object({
+  id: researchIdSchema,
+  status: z.enum(MANAGED_ROOT_MIGRATION_STATUSES),
+  sourceRoot: z.string().min(1),
+  targetRoot: z.string().min(1),
+  totalObjects: z.number().int().nonnegative(),
+  copiedObjects: z.number().int().nonnegative(),
+  totalBytes: z.number().int().nonnegative(),
+  copiedBytes: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type ManagedRootMigrationJob = z.infer<typeof managedRootMigrationJobSchema>;
+
+export const managedStorageStatusSchema = z.object({
+  activeRoot: z.string().min(1),
+  latestMigration: managedRootMigrationJobSchema.nullable(),
+});
+export type ManagedStorageStatus = z.infer<typeof managedStorageStatusSchema>;
+
+export const startManagedRootMigrationInputSchema = z.object({
+  targetRoot: z.string().trim().min(1).max(4_096),
+});
+export type StartManagedRootMigrationInput = z.infer<typeof startManagedRootMigrationInputSchema>;
 
 export const researchErrorSchema = z.object({
   code: z.enum(RESEARCH_ERROR_CODES),

@@ -61,6 +61,7 @@ import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
 import { ManualWorkDialog } from './components/ManualWorkDialog.js';
+import { ManagedStorageDialog } from './components/ManagedStorageDialog.js';
 import { TagManagerDialog } from './components/TagManagerDialog.js';
 import { TemplateLibraryView } from './components/TemplateLibraryView.js';
 import { WorkMetadataDialog } from './components/WorkMetadataDialog.js';
@@ -112,6 +113,7 @@ export function ResearchLibraryPage() {
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [duplicateMergeOpen, setDuplicateMergeOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [managedStorageOpen, setManagedStorageOpen] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
@@ -502,6 +504,7 @@ export function ResearchLibraryPage() {
     onManageTags: () => setTagManagerOpen(true),
     onReviewDuplicates: () => setDuplicateMergeOpen(true),
     onExport: () => setExportOpen(true),
+    onManageStorage: () => setManagedStorageOpen(true),
     onSelectCollection: selectCollection,
     onSelectWork: setSelectedWorkId,
     onToggleWorkSelection: toggleWorkSelection,
@@ -641,6 +644,12 @@ export function ResearchLibraryPage() {
       />
 
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+
+      <ManagedStorageDialog
+        open={managedStorageOpen}
+        onClose={() => setManagedStorageOpen(false)}
+        onChanged={invalidate}
+      />
 
       <ManualWorkDialog
         open={manualWorkOpen}

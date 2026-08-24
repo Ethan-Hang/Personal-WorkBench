@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { join, resolve } from 'node:path';
 import type {
   AssetLocationDraft,
   AssetLocationRecord,
@@ -38,6 +39,10 @@ import type {
   LocationAuditRecord,
   ManualWorkDraft,
   ManualWorkResult,
+  ManagedRootController,
+  ManagedRootMigrationJobChanges,
+  ManagedRootMigrationJobDraft,
+  ManagedRootMigrationJobRecord,
   MergeRecord,
   TagDraft,
   TagMergeDraft,
@@ -101,6 +106,23 @@ function toExportJob(row: Row): ExportJobRecord {
     optionsJson: text(row, 'options_json'),
     targetPath: nullableText(row, 'target_path'),
     manifestJson: nullableText(row, 'manifest_json'),
+    errorCode: nullableText(row, 'error_code'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    completedAt: nullableText(row, 'completed_at'),
+  };
+}
+
+function toManagedRootMigrationJob(row: Row): ManagedRootMigrationJobRecord {
+  return {
+    id: text(row, 'id'),
+    status: text(row, 'status') as ManagedRootMigrationJobRecord['status'],
+    sourceRoot: text(row, 'source_root'),
+    targetRoot: text(row, 'target_root'),
+    totalObjects: integer(row, 'total_objects'),
+    copiedObjects: integer(row, 'copied_objects'),
+    totalBytes: integer(row, 'total_bytes'),
+    copiedBytes: integer(row, 'copied_bytes'),
     errorCode: nullableText(row, 'error_code'),
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at'),
@@ -3453,5 +3475,117 @@ export class SqliteResearchRepository implements ResearchRepository {
         id,
       ) as Row | undefined;
     return row ? toExportJob(row) : null;
+  }
+
+  async createManagedRootMigrationJob(
+    draft: ManagedRootMigrationJobDraft,
+  ): Promise<ManagedRootMigrationJobRecord> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `INSERT INTO research_managed_root_migrations
+         (id, status, source_root, target_root, total_objects, copied_objects,
+          total_bytes, copied_bytes, created_at, updated_at)
+         VALUES (?, 'draft', ?, ?, ?, 0, ?, 0, ?, ?) RETURNING *`,
+      )
+      .get(
+        draft.id,
+        draft.sourceRoot,
+        draft.targetRoot,
+        draft.totalObjects,
+        draft.totalBytes,
+        timestamp,
+        timestamp,
+      ) as Row;
+    return toManagedRootMigrationJob(row);
+  }
+
+  async getManagedRootMigrationJob(id: string): Promise<ManagedRootMigrationJobRecord | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_managed_root_migrations WHERE id = ?')
+      .get(id) as Row | undefined;
+    return row ? toManagedRootMigrationJob(row) : null;
+  }
+
+  async getLatestManagedRootMigrationJob(): Promise<ManagedRootMigrationJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT * FROM research_managed_root_migrations
+         ORDER BY rowid DESC LIMIT 1`,
+      )
+      .get() as Row | undefined;
+    return row ? toManagedRootMigrationJob(row) : null;
+  }
+
+  async updateManagedRootMigrationJob(
+    id: string,
+    changes: ManagedRootMigrationJobChanges,
+  ): Promise<ManagedRootMigrationJobRecord | null> {
+    const current = await this.getManagedRootMigrationJob(id);
+    if (!current) return null;
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_managed_root_migrations
+         SET status = ?, total_objects = ?, copied_objects = ?, total_bytes = ?, copied_bytes = ?,
+             error_code = ?, completed_at = ?, updated_at = ?
+         WHERE id = ? RETURNING *`,
+      )
+      .get(
+        changes.status ?? current.status,
+        changes.totalObjects ?? current.totalObjects,
+        changes.copiedObjects ?? current.copiedObjects,
+        changes.totalBytes ?? current.totalBytes,
+        changes.copiedBytes ?? current.copiedBytes,
+        changes.errorCode === undefined ? current.errorCode : changes.errorCode,
+        changes.completedAt === undefined ? current.completedAt : changes.completedAt,
+        this.clock(),
+        id,
+      ) as Row | undefined;
+    return row ? toManagedRootMigrationJob(row) : null;
+  }
+}
+
+export class SqliteResearchManagedRootController implements ManagedRootController {
+  constructor(
+    private readonly getSqlite: () => Database.Database,
+    private readonly defaultRoot: () => string,
+    private readonly clock: () => string = defaultClock,
+  ) {}
+
+  current(): string {
+    const row = this.getSqlite()
+      .prepare("SELECT active_root FROM research_storage_config WHERE id = 'active'")
+      .get() as { active_root: string } | undefined;
+    return resolve(row?.active_root ?? this.defaultRoot());
+  }
+
+  async switchRoot(sourceRoot: string, targetRoot: string): Promise<boolean> {
+    const source = resolve(sourceRoot);
+    const target = resolve(targetRoot);
+    return this.getSqlite().transaction(() => {
+      if (this.current() !== source) return false;
+      const locations = this.getSqlite()
+        .prepare(
+          `SELECT id, object_key FROM research_asset_locations
+           WHERE mode = 'managed' AND object_key IS NOT NULL`,
+        )
+        .all() as Array<{ id: string; object_key: string }>;
+      const updateLocation = this.getSqlite().prepare(
+        `UPDATE research_asset_locations SET resolved_path = ?, updated_at = ? WHERE id = ?`,
+      );
+      const timestamp = this.clock();
+      for (const location of locations) {
+        updateLocation.run(join(target, ...location.object_key.split('/')), timestamp, location.id);
+      }
+      this.getSqlite()
+        .prepare(
+          `INSERT INTO research_storage_config (id, active_root, updated_at)
+           VALUES ('active', ?, ?)
+           ON CONFLICT(id) DO UPDATE SET active_root = excluded.active_root,
+             updated_at = excluded.updated_at`,
+        )
+        .run(target, timestamp);
+      return true;
+    })();
   }
 }

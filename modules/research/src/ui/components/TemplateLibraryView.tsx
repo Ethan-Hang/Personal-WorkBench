@@ -55,6 +55,7 @@ export interface TemplateLibraryViewProps {
   onManageTags: () => void;
   onReviewDuplicates: () => void;
   onExport: () => void;
+  onManageStorage: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
   onSelectWork: (id: string) => void;
@@ -124,6 +125,7 @@ export function TemplateLibraryView({
   onManageTags,
   onReviewDuplicates,
   onExport,
+  onManageStorage,
   onCreateCollection,
   onSelectCollection,
   onSelectWork,
@@ -190,6 +192,9 @@ export function TemplateLibraryView({
             </Button>
             <Button size="sm" onClick={onExport}>
               导出资料包
+            </Button>
+            <Button size="sm" onClick={onManageStorage}>
+              迁移托管库
             </Button>
             <Button
               size="sm"

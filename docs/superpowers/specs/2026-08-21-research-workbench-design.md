@@ -748,7 +748,7 @@ CSL JSON 适配属于 D。
 | 外部元数据         | Crossref、DataCite、arXiv 和 OpenAlex 的精确标识符查询均返回有效记录。标题检索出现同名后发论文，Mozilla 样本还出现会议版与期刊载体两个有效 DOI，确认标题检索只能生成候选，`Work / Edition` 不能合并。                                                             |
 | SQLite 目标规模    | 10,000 `Work`、20,000 `Edition / Asset / Location / Attachment`、20,000 目录引用、1,000 标签和 30,000 作品标签在约 0.53 s 内生成；数据库约 24.97 MiB，峰值 RSS 约 77.3 MiB，`integrity_check` 约 127 ms。普通查询 p95 为 0.02–4.62 ms，200 条事务提交约 2.11 ms。 |
 | macOS 文件语义     | 原始 Unicode 路径可保留；当前 APFS 同时接受 NFD 别名和大小写不同别名。符号链接目标移动后读取与 `realpath` 均为 `ENOENT`，硬链接共享设备与 inode。只读覆盖为 `EACCES`；打开文件仍可移动、删除并由原句柄继续读取；同路径 `rename` 会替换目标。                      |
-| Windows 路径语法   | Node `path.win32` 已覆盖盘符、UNC、长路径命名空间和跨盘相对路径，但这不等同于 Windows 文件系统实测。验证入口为 `scripts/research-windows-file-semantics.mjs`；符号链接权限、文件占用、只读、大小写、长路径和原子提交仍需在真实 runner 上完成。                    |
+| Windows 路径语法   | Node `path.win32` 已覆盖盘符、UNC、长路径命名空间和跨盘相对路径，但这不等同于 Windows 文件系统实测。验证入口为 `scripts/research-windows-file-semantics.mjs`；符号链接权限、文件占用、只读、大小写、长路径、原子提交和托管根跨卷迁移仍需在真实 runner 上完成。    |
 
 文件语义验证模块的当前实测状态：
 
@@ -776,6 +776,15 @@ node .\scripts\research-windows-file-semantics.mjs
 ```powershell
 node .\scripts\research-windows-file-semantics.mjs --root "D:\research-validation"
 node .\scripts\research-windows-file-semantics.mjs --root "\\server\share\research-validation"
+```
+
+托管附件库迁移属于同一个文件语义测试模块。以下命令把源根保留在系统临时目录，并把复制目标放到另一盘或共享目录，
+验证逐对象 hash、旧根保留和跨卷复制；随后运行实际 service、SQLite 切换与路由测试：
+
+```powershell
+node .\scripts\research-windows-file-semantics.mjs --managed-target "D:\research-validation"
+node .\scripts\research-windows-file-semantics.mjs --managed-target "\\server\share\research-validation"
+npx vitest run modules/research/src/files/managed-root-migration.test.ts modules/research/src/server/managed-root-routes.test.ts
 ```
 
 脚本输出 JSON 结果；断言全部通过时退出码为 `0`，失败时为 `1`。所有样本创建在独立临时目录中，执行结束后

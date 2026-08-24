@@ -7,6 +7,7 @@ import type {
   ImportItemStage,
   ImportSessionStatus,
   LocationState,
+  ManagedRootMigrationStatus,
   MaintenanceFilter,
   MetadataSourceKind,
   SearchSort,
@@ -595,6 +596,44 @@ export interface ExportJobRecord {
   completedAt: string | null;
 }
 
+export interface ManagedRootMigrationJobRecord {
+  id: string;
+  status: ManagedRootMigrationStatus;
+  sourceRoot: string;
+  targetRoot: string;
+  totalObjects: number;
+  copiedObjects: number;
+  totalBytes: number;
+  copiedBytes: number;
+  errorCode: string | null;
+  createdAt: string;
+  updatedAt: string;
+  completedAt: string | null;
+}
+
+export type ManagedRootMigrationJobDraft = Pick<
+  ManagedRootMigrationJobRecord,
+  'id' | 'sourceRoot' | 'targetRoot' | 'totalObjects' | 'totalBytes'
+>;
+
+export type ManagedRootMigrationJobChanges = Partial<
+  Pick<
+    ManagedRootMigrationJobRecord,
+    | 'status'
+    | 'totalObjects'
+    | 'copiedObjects'
+    | 'totalBytes'
+    | 'copiedBytes'
+    | 'errorCode'
+    | 'completedAt'
+  >
+>;
+
+export interface ManagedRootController {
+  current(): string;
+  switchRoot(sourceRoot: string, targetRoot: string): Promise<boolean>;
+}
+
 export interface ExportJobDraft {
   id: string;
   optionsJson: string;
@@ -722,4 +761,13 @@ export interface ResearchRepository {
   createExportJob(draft: ExportJobDraft): Promise<ExportJobRecord>;
   getExportJob(id: string): Promise<ExportJobRecord | null>;
   updateExportJob(id: string, changes: ExportJobChanges): Promise<ExportJobRecord | null>;
+  createManagedRootMigrationJob(
+    draft: ManagedRootMigrationJobDraft,
+  ): Promise<ManagedRootMigrationJobRecord>;
+  getManagedRootMigrationJob(id: string): Promise<ManagedRootMigrationJobRecord | null>;
+  getLatestManagedRootMigrationJob(): Promise<ManagedRootMigrationJobRecord | null>;
+  updateManagedRootMigrationJob(
+    id: string,
+    changes: ManagedRootMigrationJobChanges,
+  ): Promise<ManagedRootMigrationJobRecord | null>;
 }

@@ -12,6 +12,8 @@ import {
   importCommitResultSchema,
   importInspectionResponseSchema,
   importSessionViewSchema,
+  managedRootMigrationJobSchema,
+  managedStorageStatusSchema,
   importSessionsResponseSchema,
   mergeRecordViewSchema,
   pickPdfResponseSchema,
@@ -37,6 +39,8 @@ import {
   type InspectImportInput,
   type MergeTagsInput,
   type MergeWorksInput,
+  type ManagedRootMigrationJob,
+  type ManagedStorageStatus,
   type PrepareImportInput,
   type PortableExportJob,
   type PortableExportPreview,
@@ -125,6 +129,36 @@ export async function fetchWorks(options: FetchWorksOptions = {}): Promise<Works
 
 export async function fetchWork(id: string): Promise<WorkDetail> {
   return workDetailViewSchema.parse(await apiRequest(RESEARCH_API_V1.work(id)));
+}
+
+export async function fetchManagedStorageStatus(): Promise<ManagedStorageStatus> {
+  return managedStorageStatusSchema.parse(await apiRequest(RESEARCH_API_V1.managedStorage));
+}
+
+export async function postManagedRootMigration(
+  targetRoot: string,
+): Promise<ManagedRootMigrationJob> {
+  return managedRootMigrationJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.managedRootMigrations, jsonBody('POST', { targetRoot })),
+  );
+}
+
+export async function fetchManagedRootMigration(id: string): Promise<ManagedRootMigrationJob> {
+  return managedRootMigrationJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.managedRootMigration(id)),
+  );
+}
+
+export async function postCancelManagedRootMigration(id: string): Promise<ManagedRootMigrationJob> {
+  return managedRootMigrationJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.managedRootMigrationCancel(id), { method: 'POST' }),
+  );
+}
+
+export async function postRetryManagedRootMigration(id: string): Promise<ManagedRootMigrationJob> {
+  return managedRootMigrationJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.managedRootMigrationRetry(id), { method: 'POST' }),
+  );
 }
 
 export async function patchWorkMetadata(

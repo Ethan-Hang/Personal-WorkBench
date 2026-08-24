@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { basename } from 'node:path';
+import { basename, isAbsolute, relative, resolve, sep } from 'node:path';
 import { conflict, invalid, notFound } from '@workbench/http-kit';
 import {
   ATTACHMENT_ROLES,
@@ -15,6 +15,7 @@ import {
   type CreateWorkRelationInput,
   type ImportItemView,
   type ImportSessionView,
+  type ManagedRootMigrationJob,
   type InspectImportInput,
   type MergeTagsInput,
   type MergeWorksInput,
@@ -23,6 +24,7 @@ import {
   type PortableExportJob,
   type PortableExportPreviewInput,
   type StartPortableExportInput,
+  type StartManagedRootMigrationInput,
   type ResearchErrorCode,
   type ResearchSearchAst,
   type StructuredSearchInput,
@@ -52,6 +54,8 @@ import type {
   ExportJobRecord,
   ImportItemRecord,
   ListWorksQuery,
+  ManagedRootController,
+  ManagedRootMigrationJobRecord,
   MetadataAssertionDraft,
   MergeRecord,
   ResearchRepository,
@@ -135,12 +139,37 @@ export interface ResearchServiceDependencies {
   contentStore: ResearchContentStore;
   metadata: MetadataCoordinator;
   filePicker: PdfFilePicker;
+  managedRootController?: ManagedRootController;
   clock?: () => Date;
   createId?: () => string;
 }
 
 function normalizeTitle(value: string): string {
   return value.trim().toLocaleLowerCase();
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const offset = relative(root, candidate);
+  return (
+    offset === '' || (!offset.startsWith(`..${sep}`) && offset !== '..' && !isAbsolute(offset))
+  );
+}
+
+function toManagedRootMigrationJob(record: ManagedRootMigrationJobRecord): ManagedRootMigrationJob {
+  return {
+    id: record.id,
+    status: record.status,
+    sourceRoot: record.sourceRoot,
+    targetRoot: record.targetRoot,
+    totalObjects: record.totalObjects,
+    copiedObjects: record.copiedObjects,
+    totalBytes: record.totalBytes,
+    copiedBytes: record.copiedBytes,
+    errorCode: record.errorCode,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    completedAt: record.completedAt,
+  };
 }
 
 function normalizeTagName(value: string): string {
@@ -380,6 +409,7 @@ export class ResearchService {
   private readonly contentStore: ResearchContentStore;
   private readonly metadata: MetadataCoordinator;
   private readonly filePicker: PdfFilePicker;
+  private readonly managedRootController: ManagedRootController | null;
   private readonly clock: () => Date;
   private readonly createId: () => string;
   private readonly deletionTokens = new Map<string, DeletionToken>();
@@ -389,6 +419,12 @@ export class ResearchService {
     { controller: AbortController; promise: Promise<unknown> }
   >();
   private readonly exportJobs = new Map<string, AbortController>();
+  private readonly managedRootMigrationJobs = new Map<
+    string,
+    { controller: AbortController; promise: Promise<void> }
+  >();
+  private managedRootMigrationActive = false;
+  private activeManagedStorageOperations = 0;
   private mutationQueue: Promise<void> = Promise.resolve();
 
   constructor(dependencies: ResearchServiceDependencies) {
@@ -396,6 +432,7 @@ export class ResearchService {
     this.contentStore = dependencies.contentStore;
     this.metadata = dependencies.metadata;
     this.filePicker = dependencies.filePicker;
+    this.managedRootController = dependencies.managedRootController ?? null;
     this.clock = dependencies.clock ?? (() => new Date());
     this.createId = dependencies.createId ?? randomUUID;
   }
@@ -411,6 +448,18 @@ export class ResearchService {
       () => undefined,
     );
     return result;
+  }
+
+  private async withManagedStorageOperation<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.managedRootMigrationActive) {
+      throw conflict('托管附件库正在迁移，请等待完成或取消后重试');
+    }
+    this.activeManagedStorageOperations += 1;
+    try {
+      return await operation();
+    } finally {
+      this.activeManagedStorageOperations -= 1;
+    }
   }
 
   async pickFiles(initialDir?: string, multiple = false) {
@@ -446,27 +495,29 @@ export class ResearchService {
     fileName: string,
     requestId: string,
   ) {
-    const staged = await this.contentStore.stageManagedUpload(chunks);
-    try {
-      const sourcePath = `${MANAGED_UPLOAD_PREFIX}${staged.path}`;
-      const session = await this.createImportSession({
-        files: [
-          {
-            path: sourcePath,
-            storageMode: 'managed',
-            fileName: safeDisplayName(fileName),
-          },
-        ],
-        requestId,
-      });
-      if (!session.items.some((item) => item.sourcePath === sourcePath)) {
+    return this.withManagedStorageOperation(async () => {
+      const staged = await this.contentStore.stageManagedUpload(chunks);
+      try {
+        const sourcePath = `${MANAGED_UPLOAD_PREFIX}${staged.path}`;
+        const session = await this.createImportSession({
+          files: [
+            {
+              path: sourcePath,
+              storageMode: 'managed',
+              fileName: safeDisplayName(fileName),
+            },
+          ],
+          requestId,
+        });
+        if (!session.items.some((item) => item.sourcePath === sourcePath)) {
+          await this.contentStore.discardStagedUpload(staged.path);
+        }
+        return toImportSessionView(session);
+      } catch (error) {
         await this.contentStore.discardStagedUpload(staged.path);
+        throw error;
       }
-      return toImportSessionView(session);
-    } catch (error) {
-      await this.contentStore.discardStagedUpload(staged.path);
-      throw error;
-    }
+    });
   }
 
   async getImportSession(id: string): Promise<ImportSessionView> {
@@ -612,7 +663,7 @@ export class ResearchService {
       const sourcePath = stagedUploadPath ?? item.sourcePath;
       const asset =
         item.storageMode === 'managed'
-          ? await (async () => {
+          ? await this.withManagedStorageOperation(async () => {
               const stored = await this.contentStore
                 .ingestManaged(sourcePath, { signal })
                 .finally(() =>
@@ -641,7 +692,7 @@ export class ResearchService {
                   lastCheckedAt: this.instant(),
                 },
               );
-            })()
+            })
           : await (async () => {
               const stored = await this.contentStore.inspectLinked(sourcePath, { signal });
               return this.repository.storeAsset(
@@ -1555,49 +1606,54 @@ export class ResearchService {
     editionId: string,
     input: AddLocalAttachmentInput,
   ): Promise<WorkDetailView> {
-    const edition = await this.repository.getEdition(editionId);
-    if (!edition) throw notFound('版本不存在');
-    const stored =
-      input.storageMode === 'managed'
-        ? input.mimeType === 'application/pdf'
-          ? await this.contentStore.ingestManaged(input.path)
-          : await this.contentStore.ingestManagedFile(input.path, input.mimeType)
-        : input.mimeType === 'application/pdf'
-          ? await this.contentStore.inspectLinked(input.path)
-          : await this.contentStore.inspectLinkedFile(input.path, input.mimeType);
-    const location =
-      'objectPath' in stored
-        ? { resolvedPath: stored.objectPath, objectKey: stored.objectKey }
-        : { resolvedPath: stored.resolvedPath, objectKey: null };
-    const persisted = await this.repository.storeAsset(
-      {
+    const operation = async () => {
+      const edition = await this.repository.getEdition(editionId);
+      if (!edition) throw notFound('版本不存在');
+      const stored =
+        input.storageMode === 'managed'
+          ? input.mimeType === 'application/pdf'
+            ? await this.contentStore.ingestManaged(input.path)
+            : await this.contentStore.ingestManagedFile(input.path, input.mimeType)
+          : input.mimeType === 'application/pdf'
+            ? await this.contentStore.inspectLinked(input.path)
+            : await this.contentStore.inspectLinkedFile(input.path, input.mimeType);
+      const location =
+        'objectPath' in stored
+          ? { resolvedPath: stored.objectPath, objectKey: stored.objectKey }
+          : { resolvedPath: stored.resolvedPath, objectKey: null };
+      const persisted = await this.repository.storeAsset(
+        {
+          id: this.createId(),
+          contentHash: stored.contentHash,
+          byteSize: stored.byteSize,
+          mimeType: stored.mimeType,
+        },
+        {
+          id: this.createId(),
+          mode: input.storageMode,
+          originalPath: stored.originalPath,
+          resolvedPath: location.resolvedPath,
+          objectKey: location.objectKey,
+          state: 'available',
+          deviceId: stored.sourceIdentity.deviceId,
+          fileId: stored.sourceIdentity.fileId,
+          observedSize: stored.byteSize,
+          observedMtimeMs: stored.sourceIdentity.mtimeMs,
+          lastCheckedAt: this.instant(),
+        },
+      );
+      await this.repository.addAttachment({
         id: this.createId(),
-        contentHash: stored.contentHash,
-        byteSize: stored.byteSize,
-        mimeType: stored.mimeType,
-      },
-      {
-        id: this.createId(),
-        mode: input.storageMode,
-        originalPath: stored.originalPath,
-        resolvedPath: location.resolvedPath,
-        objectKey: location.objectKey,
-        state: 'available',
-        deviceId: stored.sourceIdentity.deviceId,
-        fileId: stored.sourceIdentity.fileId,
-        observedSize: stored.byteSize,
-        observedMtimeMs: stored.sourceIdentity.mtimeMs,
-        lastCheckedAt: this.instant(),
-      },
-    );
-    await this.repository.addAttachment({
-      id: this.createId(),
-      editionId,
-      assetId: persisted.asset.id,
-      role: input.role,
-      displayName: input.displayName ?? basename(input.path),
-    });
-    return this.getWork(edition.workId);
+        editionId,
+        assetId: persisted.asset.id,
+        role: input.role,
+        displayName: input.displayName ?? basename(input.path),
+      });
+      return this.getWork(edition.workId);
+    };
+    return input.storageMode === 'managed'
+      ? this.withManagedStorageOperation(operation)
+      : operation();
   }
 
   async listCollections() {
@@ -2408,6 +2464,239 @@ export class ResearchService {
       }
       return { deleted: true, linkedSourcesDeleted: false, cleanupPending };
     });
+  }
+
+  private requireManagedRootController(): ManagedRootController {
+    if (!this.managedRootController) throw conflict('当前服务未配置可迁移的托管附件库');
+    return this.managedRootController;
+  }
+
+  async getManagedStorageStatus() {
+    const activeRoot = this.managedRootController
+      ? this.managedRootController.current()
+      : await this.contentStore.resolvedRoot();
+    let latest = await this.repository.getLatestManagedRootMigrationJob();
+    if (latest?.status === 'running' && !this.managedRootMigrationJobs.has(latest.id)) {
+      latest = await this.repository.updateManagedRootMigrationJob(latest.id, {
+        status: 'interrupted',
+        errorCode: 'ROOT_MIGRATION_INTERRUPTED',
+      });
+    }
+    return {
+      activeRoot,
+      latestMigration: latest ? toManagedRootMigrationJob(latest) : null,
+    };
+  }
+
+  private launchManagedRootMigration(record: ManagedRootMigrationJobRecord): void {
+    const controller = new AbortController();
+    const promise = this.runManagedRootMigration(record, controller)
+      .catch(() => undefined)
+      .finally(() => {
+        this.managedRootMigrationJobs.delete(record.id);
+        this.managedRootMigrationActive = false;
+      });
+    this.managedRootMigrationJobs.set(record.id, { controller, promise });
+  }
+
+  private async runManagedRootMigration(
+    record: ManagedRootMigrationJobRecord,
+    controller: AbortController,
+  ): Promise<void> {
+    const rootController = this.requireManagedRootController();
+    try {
+      const activeRoot = resolve(rootController.current());
+      if (activeRoot === resolve(record.targetRoot)) {
+        await this.repository.updateManagedRootMigrationJob(record.id, {
+          status: 'completed',
+          copiedObjects: record.totalObjects,
+          copiedBytes: record.totalBytes,
+          errorCode: null,
+          completedAt: this.instant(),
+        });
+        return;
+      }
+      if (activeRoot !== resolve(record.sourceRoot)) {
+        throw new Error('托管根已经变化，不能从旧任务继续切换');
+      }
+
+      const sourceStore = new ResearchContentStore(() => record.sourceRoot);
+      const targetStore = new ResearchContentStore(() => record.targetRoot);
+      const objects = await sourceStore.listManagedObjects();
+      const totalBytes = objects.reduce((sum, object) => sum + object.byteSize, 0);
+      await this.repository.updateManagedRootMigrationJob(record.id, {
+        totalObjects: objects.length,
+        totalBytes,
+        copiedObjects: 0,
+        copiedBytes: 0,
+        errorCode: null,
+      });
+      let copiedObjects = 0;
+      let copiedBytes = 0;
+      for (const object of objects) {
+        controller.signal.throwIfAborted();
+        const copied = await targetStore.ingestManagedFile(
+          object.objectPath,
+          'application/octet-stream',
+          { signal: controller.signal },
+        );
+        if (copied.contentHash !== object.contentHash || copied.byteSize !== object.byteSize) {
+          if (!copied.reusedObject) {
+            await targetStore.removeManagedObject(
+              copied.objectKey,
+              copied.contentHash,
+              copied.byteSize,
+            );
+          }
+          throw new Error(`对象校验失败：${object.objectKey}`);
+        }
+        copiedObjects += 1;
+        copiedBytes += object.byteSize;
+        await this.repository.updateManagedRootMigrationJob(record.id, {
+          copiedObjects,
+          copiedBytes,
+        });
+      }
+      const finalObjects = await sourceStore.listManagedObjects();
+      const fingerprint = (values: typeof objects) =>
+        JSON.stringify(
+          values.map((object) => [object.objectKey, object.contentHash, object.byteSize]),
+        );
+      if (fingerprint(finalObjects) !== fingerprint(objects)) {
+        throw new Error('迁移期间托管对象集合发生变化，请重试');
+      }
+      controller.signal.throwIfAborted();
+      if (!(await rootController.switchRoot(record.sourceRoot, record.targetRoot))) {
+        throw new Error('切换前托管根已经变化');
+      }
+      await this.repository.updateManagedRootMigrationJob(record.id, {
+        status: 'completed',
+        copiedObjects,
+        copiedBytes,
+        errorCode: null,
+        completedAt: this.instant(),
+      });
+    } catch (cause) {
+      const cancelled = controller.signal.aborted;
+      await this.repository.updateManagedRootMigrationJob(record.id, {
+        status: cancelled ? 'cancelled' : 'failed',
+        errorCode: cancelled
+          ? 'ROOT_MIGRATION_CANCELLED'
+          : `ROOT_MIGRATION_FAILED:${cause instanceof Error ? cause.message : String(cause)}`,
+        completedAt: this.instant(),
+      });
+    }
+  }
+
+  async startManagedRootMigration(input: StartManagedRootMigrationInput) {
+    const rootController = this.requireManagedRootController();
+    if (!isAbsolute(input.targetRoot)) throw invalid('托管根必须使用绝对路径');
+    const sourceRoot = resolve(rootController.current());
+    const targetRoot = resolve(input.targetRoot);
+    if (sourceRoot === targetRoot) throw conflict('目标路径已经是当前托管根');
+    if (isPathInside(sourceRoot, targetRoot) || isPathInside(targetRoot, sourceRoot)) {
+      throw invalid('新旧托管根不能互相包含');
+    }
+    if (this.activeManagedStorageOperations > 0) {
+      throw conflict('仍有托管文件操作正在运行，请稍后重试');
+    }
+    if (this.managedRootMigrationActive) throw conflict('已有托管库迁移正在运行');
+    this.managedRootMigrationActive = true;
+    try {
+      const sourceStore = new ResearchContentStore(() => sourceRoot);
+      const targetStore = new ResearchContentStore(() => targetRoot);
+      const [sourceActual, targetActual] = await Promise.all([
+        sourceStore.resolvedRoot(),
+        targetStore.resolvedRoot(),
+      ]);
+      if (isPathInside(sourceActual, targetActual) || isPathInside(targetActual, sourceActual)) {
+        throw invalid('新旧托管根解析后不能互相包含');
+      }
+      const latest = await this.repository.getLatestManagedRootMigrationJob();
+      if (latest?.status === 'running' && this.managedRootMigrationJobs.has(latest.id)) {
+        throw conflict('已有托管库迁移正在运行');
+      }
+      if (latest?.status === 'running') {
+        await this.repository.updateManagedRootMigrationJob(latest.id, {
+          status: 'interrupted',
+          errorCode: 'ROOT_MIGRATION_INTERRUPTED',
+        });
+      }
+      const objects = await sourceStore.listManagedObjects();
+      const created = await this.repository.createManagedRootMigrationJob({
+        id: this.createId(),
+        sourceRoot,
+        targetRoot: targetActual,
+        totalObjects: objects.length,
+        totalBytes: objects.reduce((sum, object) => sum + object.byteSize, 0),
+      });
+      const running = await this.repository.updateManagedRootMigrationJob(created.id, {
+        status: 'running',
+      });
+      if (!running) throw notFound('托管库迁移任务不存在');
+      this.launchManagedRootMigration(running);
+      return toManagedRootMigrationJob(running);
+    } catch (cause) {
+      this.managedRootMigrationActive = false;
+      throw cause;
+    }
+  }
+
+  async getManagedRootMigration(id: string) {
+    let record = await this.repository.getManagedRootMigrationJob(id);
+    if (!record) throw notFound('托管库迁移任务不存在');
+    if (record.status === 'running' && !this.managedRootMigrationJobs.has(id)) {
+      record = await this.repository.updateManagedRootMigrationJob(id, {
+        status: 'interrupted',
+        errorCode: 'ROOT_MIGRATION_INTERRUPTED',
+      });
+      if (!record) throw notFound('托管库迁移任务不存在');
+    }
+    return toManagedRootMigrationJob(record);
+  }
+
+  async cancelManagedRootMigration(id: string) {
+    const record = await this.repository.getManagedRootMigrationJob(id);
+    if (!record) throw notFound('托管库迁移任务不存在');
+    if (record.status !== 'running') throw conflict('该托管库迁移当前不能取消');
+    const active = this.managedRootMigrationJobs.get(id);
+    active?.controller.abort();
+    const cancelled = await this.repository.updateManagedRootMigrationJob(id, {
+      status: 'cancelled',
+      errorCode: 'ROOT_MIGRATION_CANCELLED',
+      completedAt: this.instant(),
+    });
+    if (!cancelled) throw notFound('托管库迁移任务不存在');
+    await active?.promise;
+    return this.getManagedRootMigration(id);
+  }
+
+  async retryManagedRootMigration(id: string) {
+    const record = await this.repository.getManagedRootMigrationJob(id);
+    if (!record) throw notFound('托管库迁移任务不存在');
+    if (!['cancelled', 'failed', 'interrupted'].includes(record.status)) {
+      throw conflict('该托管库迁移当前不能重试');
+    }
+    if (this.activeManagedStorageOperations > 0) {
+      throw conflict('仍有托管文件操作正在运行，请稍后重试');
+    }
+    if (this.managedRootMigrationActive) throw conflict('已有托管库迁移正在运行');
+    this.managedRootMigrationActive = true;
+    try {
+      const running = await this.repository.updateManagedRootMigrationJob(id, {
+        status: 'running',
+        copiedObjects: 0,
+        copiedBytes: 0,
+        errorCode: null,
+        completedAt: null,
+      });
+      if (!running) throw notFound('托管库迁移任务不存在');
+      this.launchManagedRootMigration(running);
+      return toManagedRootMigrationJob(running);
+    } catch (cause) {
+      this.managedRootMigrationActive = false;
+      throw cause;
+    }
   }
 
   async previewPortableExport(input: PortableExportPreviewInput) {

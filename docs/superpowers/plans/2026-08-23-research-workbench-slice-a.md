@@ -509,12 +509,24 @@ npx vitest run modules/research/src/interop modules/research/src/server/export-r
 - [ ] 键盘、窄屏、长标题、无作者、多版本、缺失附件和大量标签保持可操作。
 - [ ] 完整用户操作验证覆盖：批量导入 → 确认元数据 → 多目录/标签 → 搜索/保存查询 → 缺失重定位 → 合并/撤销 → 回收/恢复 → 迁移导出。
 - [ ] 明确检查 A2 没有夹带 PDF 阅读器、OCR、AI、批注、证据链或具体引用格式适配器。
+- [x] 托管附件库迁移先复制并逐对象校验，完成后在同一 SQLite 事务中切换配置和托管位置；失败、取消或中断时继续使用旧根，允许重试并保留旧目录。
 
 **验证：**
 
 ```bash
 npx vitest run modules/research
 npm run check
+```
+
+**托管附件库迁移验证（2026-08-24，macOS）：** 3 个 service 生命周期用例和 1 个真实路由用例通过，覆盖成功切换、
+hash 失败、中断识别、取消、部分目标复用和重试。文件语义脚本在 macOS 15.7.7 / Darwin 24.6.0、arm64、APFS、
+Node.js 25.1.0 下 8 项通过、0 项失败，验证 2 个内容寻址对象复制后 hash 一致且旧根可读。Windows 尚未实测；
+本模块在 Windows 上使用：
+
+```powershell
+node .\scripts\research-windows-file-semantics.mjs --managed-target "D:\research-validation"
+node .\scripts\research-windows-file-semantics.mjs --managed-target "\\server\share\research-validation"
+npx vitest run modules/research/src/files/managed-root-migration.test.ts modules/research/src/server/managed-root-routes.test.ts
 ```
 
 ### Task 15：完整切片 A 审计与最终本地提交

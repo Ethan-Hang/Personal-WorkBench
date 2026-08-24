@@ -4,13 +4,14 @@ import { RESEARCH_MODULE_ID } from '../contract.js';
 import { ResearchContentStore } from '../files/content-store.js';
 import { createMetadataCoordinator } from '../metadata/index.js';
 import { systemPdfFilePicker, type PdfFilePicker } from './file-picker.js';
-import type { ResearchRepository } from './repository.js';
+import type { ManagedRootController, ResearchRepository } from './repository.js';
 import { registerResearchRoutes } from './routes.js';
 import { ResearchService } from './service.js';
 
 export interface ResearchServerModuleOptions {
   repository: ResearchRepository;
   managedRoot: () => string;
+  managedRootController?: ManagedRootController;
   contentStore?: ResearchContentStore;
   metadata?: ReturnType<typeof createMetadataCoordinator>;
   filePicker?: PdfFilePicker;
@@ -21,7 +22,10 @@ export interface ResearchServerModuleOptions {
 export function createResearchServerModule(
   options: ResearchServerModuleOptions,
 ): ServerModuleDefinition {
-  const contentStore = options.contentStore ?? new ResearchContentStore(options.managedRoot);
+  const managedRoot = options.managedRootController
+    ? () => options.managedRootController!.current()
+    : options.managedRoot;
+  const contentStore = options.contentStore ?? new ResearchContentStore(managedRoot);
   const metadata =
     options.metadata ??
     createMetadataCoordinator({
@@ -34,6 +38,9 @@ export function createResearchServerModule(
     contentStore,
     metadata,
     filePicker: options.filePicker ?? systemPdfFilePicker,
+    ...(options.managedRootController
+      ? { managedRootController: options.managedRootController }
+      : {}),
     ...(options.clock ? { clock: options.clock } : {}),
     ...(options.createId ? { createId: options.createId } : {}),
   });

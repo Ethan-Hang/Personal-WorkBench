@@ -19,7 +19,10 @@ import { SqliteHabitRepository } from '@workbench/module-habit/storage';
 import { createNotesServerModule } from '@workbench/module-notes';
 import { SqliteNoteRepository } from '@workbench/module-notes/storage';
 import { createResearchServerModule } from '@workbench/module-research';
-import { SqliteResearchRepository } from '@workbench/module-research/storage';
+import {
+  SqliteResearchManagedRootController,
+  SqliteResearchRepository,
+} from '@workbench/module-research/storage';
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
@@ -59,12 +62,18 @@ async function main() {
     );
     const habitServerModule = createHabitServerModule(new SqliteHabitRepository(getSqlite));
     const notesServerModule = createNotesServerModule(new SqliteNoteRepository(getSqlite));
+    const defaultResearchManagedRoot = () =>
+      active.mode === 'accounts'
+        ? join(DATA_DIR, 'accounts', currentAccountId(), 'research', 'managed')
+        : join(DATA_DIR, 'research', 'managed');
+    const researchManagedRoot = new SqliteResearchManagedRootController(
+      getSqlite,
+      defaultResearchManagedRoot,
+    );
     const researchServerModule = createResearchServerModule({
       repository: new SqliteResearchRepository(getSqlite),
-      managedRoot: () =>
-        active.mode === 'accounts'
-          ? join(DATA_DIR, 'accounts', currentAccountId(), 'research', 'managed')
-          : join(DATA_DIR, 'research', 'managed'),
+      managedRoot: defaultResearchManagedRoot,
+      managedRootController: researchManagedRoot,
     });
     const modules = [
       todoServerModule,

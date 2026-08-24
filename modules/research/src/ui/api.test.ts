@@ -2,12 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RESEARCH_API_V1 } from '../contract.js';
 import {
   fetchAttachmentDeletionPreview,
+  fetchManagedStorageStatus,
   fetchWorks,
   patchWorkMetadata,
   postCheckLocation,
   postPermanentDeleteAttachment,
+  postManagedRootMigration,
+  postCancelManagedRootMigration,
   postPrepareImport,
   postRestoreAttachment,
+  postRetryManagedRootMigration,
   postUploadPdf,
   putWorkCollections,
 } from './api.js';
@@ -190,5 +194,46 @@ describe('research ui api', () => {
       url: RESEARCH_API_V1.attachmentRestore('attachment-1'),
       init: { method: 'POST' },
     });
+  });
+
+  it('托管根迁移使用可轮询、可取消和可重试的持久化任务', async () => {
+    const job = {
+      id: 'root-migration-1',
+      status: 'running',
+      sourceRoot: '/old/managed',
+      targetRoot: '/new/managed',
+      totalObjects: 3,
+      copiedObjects: 1,
+      totalBytes: 300,
+      copiedBytes: 100,
+      errorCode: null,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: null,
+    } as const;
+    respondWith(job);
+    expect(await postManagedRootMigration('/new/managed')).toMatchObject({
+      id: job.id,
+      status: 'running',
+    });
+    expect(calls[0]).toMatchObject({
+      url: RESEARCH_API_V1.managedRootMigrations,
+      init: { method: 'POST' },
+    });
+    expect(parsedBody(calls[0]!)).toEqual({ targetRoot: '/new/managed' });
+
+    respondWith({ activeRoot: '/old/managed', latestMigration: job });
+    expect(await fetchManagedStorageStatus()).toMatchObject({
+      activeRoot: '/old/managed',
+      latestMigration: { id: job.id },
+    });
+
+    respondWith({ ...job, status: 'cancelled', errorCode: 'ROOT_MIGRATION_CANCELLED' });
+    await postCancelManagedRootMigration(job.id);
+    expect(calls[2]?.url).toBe(RESEARCH_API_V1.managedRootMigrationCancel(job.id));
+
+    respondWith(job);
+    await postRetryManagedRootMigration(job.id);
+    expect(calls[3]?.url).toBe(RESEARCH_API_V1.managedRootMigrationRetry(job.id));
   });
 });

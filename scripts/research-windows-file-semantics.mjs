@@ -22,6 +22,8 @@ import { join, resolve, win32 } from 'node:path';
 
 // Windows: node scripts/research-windows-file-semantics.mjs
 // Other volume/share: node scripts/research-windows-file-semantics.mjs --root "D:\\validation"
+// Managed-root target on another volume/share:
+// node scripts/research-windows-file-semantics.mjs --managed-target "D:\\validation"
 // Non-Windows syntax and portable-flow check: node scripts/research-windows-file-semantics.mjs --smoke
 
 const EXPECTED_LOCK_ERRORS = new Set(['EACCES', 'EBUSY', 'EPERM']);
@@ -29,6 +31,7 @@ const EXPECTED_PUBLISH_COLLISION_ERRORS = new Set(['EACCES', 'EEXIST', 'EPERM'])
 const argv = process.argv.slice(2);
 
 let baseRoot = tmpdir();
+let managedTargetBase = null;
 let smokeMode = false;
 
 for (let index = 0; index < argv.length; index += 1) {
@@ -49,6 +52,16 @@ for (let index = 0; index < argv.length; index += 1) {
     continue;
   }
 
+  if (argument === '--managed-target') {
+    const value = argv[index + 1];
+    if (!value) {
+      throw new Error('--managed-target requires a directory path');
+    }
+    managedTargetBase = resolve(value);
+    index += 1;
+    continue;
+  }
+
   throw new Error(`Unknown argument: ${argument}`);
 }
 
@@ -60,6 +73,7 @@ const results = {
     node: process.version,
     architecture: process.arch,
     baseRoot,
+    managedTargetBase,
     smokeMode,
   },
   assertions: [],
@@ -242,6 +256,7 @@ async function commitManagedObject(root, bytes) {
 
 await mkdir(baseRoot, { recursive: true });
 const root = await mkdtemp(join(baseRoot, 'wb-research-windows-'));
+let externalManagedTarget = null;
 results.environment.testRoot = root;
 
 try {
@@ -442,6 +457,51 @@ try {
     results.observations.managedCommit,
   );
 
+  const migrationSourceRoot = join(root, 'managed-migration-source');
+  if (managedTargetBase) {
+    await mkdir(managedTargetBase, { recursive: true });
+    externalManagedTarget = await mkdtemp(join(managedTargetBase, 'wb-research-migration-'));
+  }
+  const migrationTargetRoot = externalManagedTarget ?? join(root, 'managed-migration-target');
+  const migrationBytes = [
+    Buffer.from('managed-root-migration-first'),
+    Buffer.from('managed-root-migration-second'),
+  ];
+  const migrationSources = [];
+  const migrationTargets = [];
+  for (const bytes of migrationBytes) {
+    const source = await commitManagedObject(migrationSourceRoot, bytes);
+    const target = await commitManagedObject(migrationTargetRoot, await readFile(source.finalPath));
+    migrationSources.push(source);
+    migrationTargets.push(target);
+  }
+  const migrationVerified = await Promise.all(
+    migrationSources.map(async (source, index) => {
+      const target = migrationTargets[index];
+      return (
+        target &&
+        source.digest === target.digest &&
+        (await hashFile(source.finalPath)) === source.digest &&
+        (await hashFile(target.finalPath)) === source.digest
+      );
+    }),
+  );
+  results.observations.managedRootMigration = {
+    sourceRoot: migrationSourceRoot,
+    targetRoot: migrationTargetRoot,
+    externalTarget: externalManagedTarget !== null,
+    sourceDevice: (await stat(migrationSourceRoot, { bigint: true })).dev.toString(),
+    targetDevice: (await stat(migrationTargetRoot, { bigint: true })).dev.toString(),
+    objects: migrationVerified.length,
+    allHashesMatch: migrationVerified.every(Boolean),
+    oldObjectsRemainReadable: migrationVerified.every(Boolean),
+  };
+  recordAssertion(
+    'Managed-root copy verifies every object and retains the old root',
+    migrationVerified.length === migrationBytes.length && migrationVerified.every(Boolean),
+    results.observations.managedRootMigration,
+  );
+
   results.observations.win32Syntax = {
     drivePath: win32.normalize('c:/Users/Test/../Papers/paper.pdf'),
     uncPath: win32.normalize('\\\\server\\share\\folder\\..\\paper.pdf'),
@@ -451,8 +511,17 @@ try {
 } catch (error) {
   recordAssertion('Validation script completed', false, serializeError(error));
 } finally {
-  const cleanup = await attempt(() => rm(root, { recursive: true, force: true }));
-  recordAssertion('Temporary directory is cleaned', cleanup.ok, cleanup.ok ? root : cleanup.error);
+  const cleanup = await attempt(async () => {
+    await rm(root, { recursive: true, force: true });
+    if (externalManagedTarget) {
+      await rm(externalManagedTarget, { recursive: true, force: true });
+    }
+  });
+  recordAssertion(
+    'Temporary directories are cleaned',
+    cleanup.ok,
+    cleanup.ok ? [root, externalManagedTarget].filter(Boolean) : cleanup.error,
+  );
 }
 
 const failedAssertions = results.assertions.filter((item) => !item.passed);

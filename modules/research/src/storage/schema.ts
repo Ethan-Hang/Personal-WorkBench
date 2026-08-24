@@ -16,6 +16,7 @@ import {
   IMPORT_ITEM_STAGES,
   IMPORT_SESSION_STATUSES,
   LOCATION_STATES,
+  MANAGED_ROOT_MIGRATION_STATUSES,
   METADATA_SOURCE_KINDS,
   STORAGE_MODES,
   WORK_STATUSES,
@@ -534,5 +535,40 @@ export const researchExportJobs = sqliteTable(
       enumSql('status', ['draft', 'running', 'completed', 'cancelled', 'failed']),
     ),
     index('idx_research_export_jobs_status').on(table.status, table.updatedAt),
+  ],
+);
+
+export const researchStorageConfig = sqliteTable('research_storage_config', {
+  id: text('id').primaryKey(),
+  activeRoot: text('active_root').notNull(),
+  updatedAt: text('updated_at').notNull().default(now),
+});
+
+export const researchManagedRootMigrations = sqliteTable(
+  'research_managed_root_migrations',
+  {
+    id: text('id').primaryKey(),
+    status: text('status').notNull().default('draft'),
+    sourceRoot: text('source_root').notNull(),
+    targetRoot: text('target_root').notNull(),
+    totalObjects: integer('total_objects').notNull().default(0),
+    copiedObjects: integer('copied_objects').notNull().default(0),
+    totalBytes: integer('total_bytes').notNull().default(0),
+    copiedBytes: integer('copied_bytes').notNull().default(0),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    check(
+      'ck_research_managed_root_migrations_status',
+      enumSql('status', MANAGED_ROOT_MIGRATION_STATUSES),
+    ),
+    check(
+      'ck_research_managed_root_migrations_progress',
+      sql`${table.totalObjects} >= 0 AND ${table.copiedObjects} >= 0 AND ${table.totalBytes} >= 0 AND ${table.copiedBytes} >= 0`,
+    ),
+    index('idx_research_managed_root_migrations_status').on(table.status, table.updatedAt),
   ],
 );
