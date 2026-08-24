@@ -1,0 +1,14 @@
+{
+  "data": {
+    "id": "10.5438/example",
+    "type": "dois",
+    "attributes": {
+      "doi": "10.5438/EXAMPLE",
+      "titles": [{ "title": "A DataCite Research Object" }],
+      "creators": [{ "name": "Lovelace, Ada" }],
+      "publisher": "Research Data",
+      "publicationYear": 2025,
+      "descriptions": [{ "description": "Portable research metadata" }]
+    }
+  }
+}
