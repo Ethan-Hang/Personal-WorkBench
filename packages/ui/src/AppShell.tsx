@@ -248,7 +248,13 @@ export function AppShell({
       {/* 主工作区 */}
       <div className="flex flex-1 flex-col min-w-0 h-full min-h-0 overflow-hidden">
         {/* 顶栏 */}
-        <header className="shrink-0 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
+        {/*
+          `relative z-30` 是承重的，不是装饰：`backdrop-blur-md` 会让本元素自成一个层叠
+          上下文，主题选择器那类从顶栏往下弹的面板（z-50）因此被关在里面，比不过
+          主内容区里任何带 z-index 的定位元素——秋招页那条 `sticky z-10` 的筛选栏就正好
+          把它盖住。给顶栏本身一个高于内容、低于侧边栏（z-40）的层级，整层一起抬上来。
+        */}
+        <header className="relative z-30 shrink-0 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
           <div className="flex items-center gap-3">
             <div className="text-xs font-medium text-muted">
               <span>工作台</span>
