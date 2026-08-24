@@ -67,6 +67,29 @@ function SeasonRow({
         {season.applicationCount} 条投递
       </span>
 
+      {/*
+        起止日期建完之后同样要能改——招聘季的时间范围本来就是边走边明确的，
+        只在新建时可填等于逼人删掉重建。清空即置 null（「还没定」是合法状态）。
+        这两个值是浮动日期，原样收发，绝不转 UTC。
+      */}
+      <input
+        type="date"
+        value={season.startDate ?? ''}
+        disabled={isBusy}
+        onChange={(e) => void onUpdate(season.id, { startDate: nullableDate(e.target.value) })}
+        className={`${controlClass} shrink-0 py-0.5 text-[11px]`}
+        title="开始日期"
+      />
+      <span className="shrink-0 text-[11px] text-muted">–</span>
+      <input
+        type="date"
+        value={season.endDate ?? ''}
+        disabled={isBusy}
+        onChange={(e) => void onUpdate(season.id, { endDate: nullableDate(e.target.value) })}
+        className={`${controlClass} shrink-0 py-0.5 text-[11px]`}
+        title="结束日期"
+      />
+
       <Button
         type="button"
         disabled={isBusy}
