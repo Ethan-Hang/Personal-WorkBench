@@ -245,12 +245,15 @@ function AppContent() {
       });
     }
 
-    // 4. 秋招投递与各轮次详情 (Campus Recruit Applications & Rounds)
+    // 4. 招聘投递与各轮次详情 (Campus Recruit Applications & Rounds)
+    //    命令面板跨季搜索，所以每条结果都要标出它属于哪一季——
+    //    否则搜到一条别的季的投递时，人不知道自己在看什么
     const applications: ApplicationView[] = campusQuery.data?.applications ?? [];
     for (const app of applications) {
       // 4.1 投递主条目 (公司 + 岗位)
-      const appBadges = ['秋招', `${app.priority}级`, app.status.label];
+      const appBadges = [app.seasonName, `${app.priority}级`, app.status.label];
       const appSubtitleParts = [
+        app.seasonName,
         app.status.label,
         app.salary ? `薪资: ${app.salary}` : null,
         app.city ? `城市: ${app.city}` : null,
@@ -273,6 +276,7 @@ function AppContent() {
           app.notes ?? '',
           app.salary ?? '',
           app.companyType ?? '',
+          app.seasonName,
           'qiuzhao',
           'gangwei',
           'toudi',

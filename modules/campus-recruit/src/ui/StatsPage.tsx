@@ -181,7 +181,7 @@ export function StatsPage() {
   if (statsQuery.isPending) {
     return (
       <div className="space-y-4 animate-slide-down-in">
-        <PageHeader eyebrow="秋招管理" title="转化统计" />
+        <PageHeader eyebrow="招聘管理" title="转化统计" />
         <p role="status" className="text-[13px] text-muted">
           正在汇总你的投递进展…
         </p>
@@ -192,7 +192,7 @@ export function StatsPage() {
   if (statsQuery.isError) {
     return (
       <div className="space-y-4 animate-slide-down-in">
-        <PageHeader eyebrow="秋招管理" title="转化统计" />
+        <PageHeader eyebrow="招聘管理" title="转化统计" />
         <Panel>
           <p className="text-[13px] text-critical">统计数据加载失败：{statsQuery.error.message}</p>
           <Button type="button" className="mt-3" onClick={() => void statsQuery.refetch()}>
@@ -205,7 +205,11 @@ export function StatsPage() {
 
   return (
     <div className="space-y-6 animate-slide-down-in">
-      <PageHeader eyebrow="秋招管理" title="转化统计" />
+      {/* 标题必须带季名：不带的话没人说得清屏幕上这些数字是哪一季的 */}
+      <PageHeader
+        eyebrow="招聘管理"
+        title={currentSeason === null ? '转化统计' : `转化统计 · ${currentSeason.name}`}
+      />
       <Statistics stats={statsQuery.data} />
     </div>
   );

@@ -496,20 +496,22 @@ export function SettingsPage() {
                 </Panel>
 
                 <Panel
-                  title="秋招管理模块 (campus-recruit)"
+                  title="招聘管理模块 (campus-recruit)"
                   hint="领域扩展"
                   action={<Chip tone="good">已激活</Chip>}
                 >
                   <div className="text-xs space-y-2 text-secondary">
                     <div>
-                      <strong>职责</strong>：秋招投递进度追踪、面试轮次记录、转化漏斗分析。
+                      <strong>职责</strong>
+                      ：多招聘季（秋招 / 春招 /
+                      社招）并存的投递进度追踪、面试轮次记录、按季转化漏斗分析。
                     </div>
                     <div>
                       <strong>路由</strong>：<code>/campus</code>, <code>/campus/stats</code>
                     </div>
                     <div>
-                      <strong>数据表</strong>：<code>campus_recruit_applications</code>,{' '}
-                      <code>campus_recruit_events</code>
+                      <strong>数据表</strong>：<code>campus_recruit_seasons</code>,{' '}
+                      <code>campus_recruit_applications</code>, <code>campus_recruit_rounds</code>
                     </div>
                   </div>
                 </Panel>

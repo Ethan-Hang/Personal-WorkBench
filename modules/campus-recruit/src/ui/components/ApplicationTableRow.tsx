@@ -22,6 +22,7 @@ import {
   type CreateRoundInput,
   type RoundKind,
   type RoundView,
+  type SeasonView,
   type UpdateApplicationInput,
   type UpdateRoundInput,
 } from '../../contract.js';
@@ -43,6 +44,8 @@ interface ApplicationTableRowProps {
   onUpdateApplication: (id: string, input: UpdateApplicationInput) => void;
   onMarkApplied: (id: string) => void;
   onUnmarkApplied: (id: string) => void;
+  /** 全部招聘季，供「移动到其他招聘季」下拉用 */
+  seasons: SeasonView[];
   onRemoveApplication: (id: string) => void;
   onCreateRound: (applicationId: string, input: CreateRoundInput) => Promise<void>;
   onUpdateRound: (applicationId: string, id: string, input: UpdateRoundInput) => void;
@@ -751,6 +754,7 @@ export function ApplicationTableRow({
   onUpdateApplication,
   onMarkApplied,
   onUnmarkApplied,
+  seasons,
   onRemoveApplication,
   onCreateRound,
   onUpdateRound,
@@ -914,6 +918,24 @@ export function ApplicationTableRow({
               </div>
 
               <div className="flex flex-wrap items-center gap-2.5">
+                {/* 改季即移动投递：它会从当前季的列表里消失、在目标季出现 */}
+                <label className="text-muted font-medium">招聘季:</label>
+                <select
+                  value={application.seasonId}
+                  disabled={isBusy}
+                  onChange={(e) =>
+                    onUpdateApplication(application.id, { seasonId: e.target.value })
+                  }
+                  className={`${controlClass} py-0.5 text-[12px]`}
+                  title="把这条投递移到其他招聘季"
+                >
+                  {seasons.map((season) => (
+                    <option key={season.id} value={season.id}>
+                      {season.name}
+                    </option>
+                  ))}
+                </select>
+
                 <label className="text-muted font-medium">终局状态:</label>
                 <select
                   value={outcomeSelectValue(application)}

@@ -1,6 +1,7 @@
 import type {
   ApplicationView,
   CreateRoundInput,
+  SeasonView,
   UpdateApplicationInput,
   UpdateRoundInput,
 } from '../../contract.js';
@@ -13,6 +14,7 @@ interface ApplicationTableViewProps {
   onUpdateApplication: (id: string, input: UpdateApplicationInput) => void;
   onMarkApplied: (id: string) => void;
   onUnmarkApplied: (id: string) => void;
+  seasons: SeasonView[];
   onRemoveApplication: (id: string) => void;
   onCreateRound: (applicationId: string, input: CreateRoundInput) => Promise<void>;
   onUpdateRound: (applicationId: string, id: string, input: UpdateRoundInput) => void;
@@ -66,6 +68,7 @@ export function ApplicationTableView({
   onUpdateApplication,
   onMarkApplied,
   onUnmarkApplied,
+  seasons,
   onRemoveApplication,
   onCreateRound,
   onUpdateRound,
@@ -86,6 +89,7 @@ export function ApplicationTableView({
             onUpdateApplication={onUpdateApplication}
             onMarkApplied={onMarkApplied}
             onUnmarkApplied={onUnmarkApplied}
+            seasons={seasons}
             onRemoveApplication={onRemoveApplication}
             onCreateRound={onCreateRound}
             onUpdateRound={onUpdateRound}
