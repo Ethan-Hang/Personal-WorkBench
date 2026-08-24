@@ -96,7 +96,7 @@ export function CollectionSidebar({
     <aside className="flex h-full w-56 shrink-0 flex-col border-r border-line bg-surface-2/35">
       <div className="space-y-1 p-3">
         <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-muted">
-          资料库
+          文献库
         </p>
         <button
           type="button"

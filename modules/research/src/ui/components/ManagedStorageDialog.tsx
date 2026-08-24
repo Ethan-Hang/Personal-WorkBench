@@ -41,7 +41,7 @@ export function ManagedStorageDialog({
         setJob(value.latestMigration);
       })
       .catch((cause: unknown) =>
-        setError(cause instanceof Error ? cause.message : '读取托管库状态失败'),
+        setError(cause instanceof Error ? cause.message : '读取附件存储状态失败'),
       );
   }, [open]);
 
@@ -75,7 +75,7 @@ export function ManagedStorageDialog({
       notifiedJobId.current = null;
       setJob(started);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '启动托管库迁移失败');
+      setError(cause instanceof Error ? cause.message : '启动附件迁移失败');
     } finally {
       setBusy(false);
     }
@@ -88,7 +88,7 @@ export function ManagedStorageDialog({
     try {
       setJob(await postCancelManagedRootMigration(job.id));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '取消托管库迁移失败');
+      setError(cause instanceof Error ? cause.message : '取消附件迁移失败');
     } finally {
       setBusy(false);
     }
@@ -102,7 +102,7 @@ export function ManagedStorageDialog({
       notifiedJobId.current = null;
       setJob(await postRetryManagedRootMigration(job.id));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '重试托管库迁移失败');
+      setError(cause instanceof Error ? cause.message : '重试附件迁移失败');
     } finally {
       setBusy(false);
     }
@@ -116,16 +116,16 @@ export function ManagedStorageDialog({
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="迁移托管附件库"
-      description="系统先复制并校验全部内容，再一次性切换活动根目录。旧目录不会自动删除。"
+      title="更改附件存储位置"
+      description="复制并校验完成后切换到新位置，原目录将保留。"
       maxWidth="max-w-2xl"
     >
       <div className="space-y-4">
         <div className="rounded-control border border-line bg-surface-2/55 p-4 text-xs text-secondary">
-          <p className="font-semibold text-ink">当前托管根</p>
+          <p className="font-semibold text-ink">当前位置</p>
           <p className="mt-1 break-all leading-5">{status?.activeRoot ?? '正在读取…'}</p>
         </div>
-        <Field label="新的托管根绝对路径">
+        <Field label="新的存储位置">
           <input
             className={controlClass}
             value={targetRoot}
@@ -140,7 +140,7 @@ export function ManagedStorageDialog({
             <div className="flex items-center justify-between gap-3">
               <strong className="text-ink">状态：{job.status}</strong>
               <span>
-                {job.copiedObjects}/{job.totalObjects} 个对象
+                {job.copiedObjects}/{job.totalObjects} 个文件
               </span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
@@ -156,7 +156,7 @@ export function ManagedStorageDialog({
               {job.targetRoot}
             </p>
             {job.status === 'completed' && (
-              <p className="mt-3 text-ink">复制与 hash 校验通过，活动根已经切换。</p>
+              <p className="mt-3 text-ink">文件复制和校验完成，已切换到新位置。</p>
             )}
             {job.errorCode && <p className="mt-3 break-all text-critical">{job.errorCode}</p>}
           </div>

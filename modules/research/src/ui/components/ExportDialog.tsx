@@ -100,8 +100,8 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="导出可迁移资料包"
-      description="资料包始终包含版本化 JSON、manifest 和校验报告；附件副本按需加入。"
+      title="导出文献库"
+      description="选择是否包含附件；导出结果包含数据清单和校验报告。"
       maxWidth="max-w-2xl"
     >
       <div className="space-y-4">
@@ -136,7 +136,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
             />
             <span>
               <strong className="block text-ink">加入链接文件</strong>
-              只复制当前可访问、大小和 hash 均通过校验的链接源文件。
+              只复制当前可访问且校验通过的链接文件。
             </span>
           </label>
         </div>
@@ -145,7 +145,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
           <div className="rounded-control border border-line bg-surface-2/55 p-4 text-xs text-secondary">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <span>
-                作品
+                文献
                 <br />
                 <strong className="text-ink">{preview.workCount}</strong>
               </span>
@@ -155,7 +155,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
                 <strong className="text-ink">{preview.attachmentCount}</strong>
               </span>
               <span>
-                复制对象
+                导出文件
                 <br />
                 <strong className="text-ink">{preview.selectedAssetCount}</strong>
               </span>

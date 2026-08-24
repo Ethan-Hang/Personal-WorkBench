@@ -89,7 +89,7 @@ export function BulkActionsBar({
         icon={status === 'active' ? <IconTrash size={12} /> : undefined}
         onClick={() => void onAction(status === 'active' ? 'trash' : 'restore')}
       >
-        {status === 'active' ? '移入回收站' : '恢复作品'}
+        {status === 'active' ? '移入回收站' : '恢复文献'}
       </Button>
     </div>
   );

@@ -131,7 +131,7 @@ export function ImportDialog({
       isOpen={open}
       onClose={onClose}
       title="导入 PDF"
-      description="先确认文件保存方式，再核对作品身份和元数据来源。"
+      description="选择文件保存方式，并确认识别出的文献信息。"
       maxWidth="max-w-4xl"
     >
       {!item ? (
@@ -149,7 +149,7 @@ export function ImportDialog({
               <IconShield size={20} className="text-accent" />
               <h4 className="mt-3 text-sm font-semibold text-ink">托管副本</h4>
               <p className="mt-1 text-xs leading-5 text-secondary">
-                WorkBench 保存按内容 hash 编址的副本；原文件不会被移动或删除。
+                在 WorkBench 中保存一份副本；原文件保留在原位置。
               </p>
             </button>
             <button
@@ -167,7 +167,7 @@ export function ImportDialog({
               <IconExternalLink size={20} className="text-accent" />
               <h4 className="mt-3 text-sm font-semibold text-ink">链接原文件</h4>
               <p className="mt-1 text-xs leading-5 text-secondary">
-                只记录当前位置与 hash；源文件始终由你管理，WorkBench 不会删除它。
+                保留原文件位置的链接；移动或删除原文件后需要重新定位。
               </p>
             </button>
           </div>
@@ -182,8 +182,8 @@ export function ImportDialog({
               title={browserFile?.name ?? paths[0]}
             >
               {browserFile
-                ? '浏览器只把 PDF 发送到当前本机 server，作为托管副本。'
-                : (paths[0] ?? '也可以由本机 server 打开系统文件选择器。')}
+                ? 'PDF 将上传到当前电脑上的 WorkBench，并保存为托管副本。'
+                : (paths[0] ?? '也可以使用系统文件选择器。')}
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {storageMode === 'managed' && (
@@ -210,7 +210,7 @@ export function ImportDialog({
             </div>
           </div>
 
-          <Field label="也可以手工输入本机绝对路径">
+          <Field label="或输入本机绝对路径">
             <input
               className={controlClass}
               value={manualPath}
@@ -270,7 +270,7 @@ export function ImportDialog({
               disabled={busy || (!browserFile && paths.length === 0 && !manualPath.trim())}
               onClick={inspect}
             >
-              {busy ? '正在读取…' : '计算 hash 并识别'}
+              {busy ? '正在读取…' : '读取并识别'}
             </Button>
           </div>
         </div>
@@ -280,11 +280,11 @@ export function ImportDialog({
             <div>
               <p className="text-xs font-semibold text-ink">本地识别已经完成</p>
               <p className="mt-1 text-[11px] text-secondary">
-                外部查询只发送 DOI、arXiv ID，或缺少标识符时的标题/作者/年份；不会发送 PDF。
+                在线查询可能发送 DOI、arXiv ID 或标题、作者和年份，不会发送 PDF。
               </p>
             </div>
             <Button type="button" size="sm" onClick={lookupExternal} disabled={busy}>
-              查询 Crossref 等服务
+              查询在线元数据
             </Button>
           </div>
           {inspection?.disclosure.externalEnabled && (

@@ -12,8 +12,8 @@ type Fields = ConfirmImportInput['fields'];
 
 const SOURCE_LABELS: Record<MetadataSourceKind, string> = {
   user: '人工输入',
-  'exact-external': '外部精确记录',
-  external: '外部候选',
+  'exact-external': '在线精确匹配',
+  external: '在线检索',
   'embedded-pdf': 'PDF 内嵌',
   'first-page': 'PDF 首页',
   filename: '文件名',
@@ -148,8 +148,8 @@ export function MetadataReview({
     <div className="space-y-5">
       <section>
         <div className="mb-2 flex items-center justify-between gap-3">
-          <h4 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">文件身份</h4>
-          {item.asset && <Chip tone="good">SHA-256 已确认</Chip>}
+          <h4 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">文件信息</h4>
+          {item.asset && <Chip tone="good">文件内容已校验</Chip>}
         </div>
         {item.asset && (
           <div className="grid gap-2 rounded-control bg-surface-2/65 p-3 text-xs sm:grid-cols-[1fr_auto]">
@@ -170,13 +170,13 @@ export function MetadataReview({
           <div className="flex items-start gap-2 text-warning">
             <IconAlertCircle size={15} className="mt-0.5 shrink-0" />
             <div>
-              <h4 className="text-xs font-bold">需要决定作品归属</h4>
+              <h4 className="text-xs font-bold">检测到可能重复的文献</h4>
               <p className="mt-1 text-[11px] leading-5">
                 {item.exactAssetUsages.length > 0
                   ? '相同文件已经入库，可挂回现有版本。'
                   : item.batchDuplicateItemIds.length > 0
                     ? `当前批次还有 ${item.batchDuplicateItemIds.length} 个相同内容文件，请决定保留方式。`
-                    : '检测到相同标识符但文件内容不同，请确认它是新版本还是新作品。'}
+                    : '检测到相同标识符但文件内容不同，请确认它是新版本还是新文献。'}
               </p>
             </div>
           </div>
@@ -193,7 +193,7 @@ export function MetadataReview({
                     setTargetEditionId(usage.editionId);
                   }}
                 />
-                挂到现有版本 <code className="text-[10px] text-muted">{usage.editionId}</code>
+                使用现有版本 <code className="text-[10px] text-muted">{usage.editionId}</code>
               </label>
             ))}
             {identifierMatches.map((match) => (
@@ -211,7 +211,7 @@ export function MetadataReview({
                     setTargetEditionId(null);
                   }}
                 />
-                作为同一作品的新版本（{match.scheme.toUpperCase()} {match.value}）
+                作为同一文献的新版本（{match.scheme.toUpperCase()} {match.value}）
               </label>
             ))}
             <label className="flex items-center gap-2 text-xs text-ink">
@@ -225,7 +225,7 @@ export function MetadataReview({
                   setTargetEditionId(null);
                 }}
               />
-              仍然创建新作品
+              仍然新建文献
             </label>
           </div>
         </section>
@@ -233,7 +233,7 @@ export function MetadataReview({
 
       {item.externalCandidates.length > 0 && (
         <section>
-          <h4 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">外部候选</h4>
+          <h4 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">在线检索结果</h4>
           <div className="mt-2 divide-y divide-line rounded-control border border-line">
             {item.externalCandidates.map((candidate) => (
               <div
@@ -246,7 +246,7 @@ export function MetadataReview({
                       {candidate.provider}
                     </Chip>
                     <span className="text-[11px] text-muted">
-                      {candidate.matchKind === 'exact' ? '精确记录' : '检索候选'}
+                      {candidate.matchKind === 'exact' ? '精确匹配' : '可能匹配'}
                     </span>
                   </div>
                   <p className="mt-2 text-xs font-semibold text-ink">

@@ -79,7 +79,7 @@ export function CollectionManagerDialog({
       isOpen={open}
       onClose={onClose}
       title="管理目录"
-      description="目录可以任意嵌套、移动和排序。删除目录只改变归属，不会删除作品或附件。"
+      description="创建、移动和排序目录。删除目录不会删除其中的文献。"
       maxWidth="max-w-4xl"
     >
       <div className="grid min-h-[430px] gap-5 md:grid-cols-[280px_minmax(0,1fr)]">
@@ -223,7 +223,7 @@ export function CollectionManagerDialog({
                   <div className="mt-3 rounded-control border border-warning/25 bg-warning-soft/45 p-4">
                     <p className="text-xs leading-5 text-secondary">
                       这个目录有 {preview.childCount} 个直接子目录、{preview.directWorkCount}{' '}
-                      个直接作品归属。
+                      个直接文献归属。
                     </p>
                     {preview.parentStrategyNameConflicts.length > 0 && (
                       <p className="mt-2 text-xs text-critical">

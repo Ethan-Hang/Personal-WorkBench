@@ -119,7 +119,7 @@ export function CompactLibraryView({
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-accent">Research</p>
           <h1 className="mt-0.5 text-xl font-bold tracking-tight text-ink">文献库</h1>
-          <p className="mt-1 text-xs text-secondary">作品身份、文件位置和元数据来源统一管理</p>
+          <p className="mt-1 text-xs text-secondary">管理文献、版本、附件和目录</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <LayoutSwitch value={layout} onChange={onLayout} />
@@ -127,19 +127,19 @@ export function CompactLibraryView({
             导入箱
           </Button>
           <Button size="sm" onClick={onManualWork}>
-            手工记录
+            新建文献
           </Button>
           <Button size="sm" onClick={onManageTags}>
             标签
           </Button>
           <Button size="sm" onClick={onReviewDuplicates}>
-            重复治理
+            合并重复项
           </Button>
           <Button size="sm" onClick={onExport}>
             导出
           </Button>
           <Button size="sm" onClick={onManageStorage}>
-            托管库
+            附件存储
           </Button>
           <Button
             size="sm"

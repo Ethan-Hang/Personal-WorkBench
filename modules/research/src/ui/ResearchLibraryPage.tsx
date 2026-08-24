@@ -291,12 +291,12 @@ export function ResearchLibraryPage() {
     try {
       const preview = await fetchDeletionPreview(id);
       const accepted = window.confirm(
-        `永久删除将移除 ${preview.attachmentCount} 个附件关系和 ${preview.managedObjectCount} 个无引用托管对象；链接原文件不会删除。继续吗？`,
+        `永久删除将移除 ${preview.attachmentCount} 个附件和 ${preview.managedObjectCount} 个无引用托管文件；链接原文件不会删除。继续吗？`,
       );
       if (!accepted) return;
       await postPermanentDelete(id, preview.confirmationToken);
       setSelectedWorkId(null);
-      setMessage('作品已永久删除');
+      setMessage('文献已永久删除');
       await invalidate();
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : '永久删除失败');
@@ -309,10 +309,10 @@ export function ResearchLibraryPage() {
       const preview = await fetchAttachmentDeletionPreview(id);
       const shared =
         preview.otherAttachmentCount > 0
-          ? `该文件仍被其他 ${preview.otherAttachmentCount} 条附件引用，不会清理文件对象。`
+          ? `该文件仍被其他 ${preview.otherAttachmentCount} 个附件引用，不会删除托管文件。`
           : preview.managedObjectCount > 0
-            ? '这是最后一条引用，托管对象会一并清理。'
-            : '这是最后一条引用，只删除资料库记录；链接原文件不会删除。';
+            ? '这是最后一条引用，对应的托管文件会一并删除。'
+            : '这是最后一条引用，只删除文献库中的附件记录；链接原文件不会删除。';
       if (!window.confirm(`永久删除附件“${preview.displayName}”？${shared}`)) return;
       await postPermanentDeleteAttachment(id, preview.confirmationToken);
       setMessage('附件已永久删除');
@@ -378,7 +378,7 @@ export function ResearchLibraryPage() {
       const missing = preview.items.reduce((sum, item) => sum + item.missingLocationCount, 0);
       if (
         !window.confirm(
-          `将处理 ${preview.items.length} 个作品，共 ${preview.items.reduce((sum, item) => sum + item.attachmentCount, 0)} 个附件${missing ? `，其中 ${missing} 个位置缺失或变化` : ''}。继续吗？`,
+          `将处理 ${preview.items.length} 条文献，共 ${preview.items.reduce((sum, item) => sum + item.attachmentCount, 0)} 个附件${missing ? `，其中 ${missing} 个位置缺失或变化` : ''}。继续吗？`,
         )
       ) {
         return;
@@ -415,8 +415,8 @@ export function ResearchLibraryPage() {
             const result = await postRelinkLocation(id, path);
             setMessage(
               result.kind === 'restored'
-                ? '文件已按相同 hash 恢复到新位置'
-                : `所选文件内容不同，已登记替换候选 ${result.candidateAssetId.slice(0, 8)}；原附件未改变`,
+                ? '文件内容一致，已恢复到新位置'
+                : '所选文件内容不同，已保留为替换候选；原附件未改变',
             );
             await invalidate();
           } catch (cause) {
@@ -426,7 +426,7 @@ export function ResearchLibraryPage() {
       }
     },
     onRemoveAttachment: (id: string) => {
-      if (window.confirm('只移除这条附件引用。链接原文件不会删除。')) {
+      if (window.confirm('从文献库移除这条附件记录；链接原文件不会删除。')) {
         void run(() => deleteAttachment(id), '附件引用已移除');
       }
     },
@@ -439,9 +439,12 @@ export function ResearchLibraryPage() {
     onAddAttachment: (editionId: string) => setAttachmentEditionId(editionId),
     onEditMetadata: () => setMetadataEditOpen(true),
     onAddRelation: (workId: string) => {
-      const targetWorkId = window.prompt('输入目标 Work ID');
+      const targetWorkId = window.prompt('输入目标文献 ID');
       if (!targetWorkId) return;
-      const requested = window.prompt('关系类型：related / extends / revises / cites', 'related');
+      const requested = window.prompt(
+        '关系类型：related 相关 / extends 扩展 / revises 修订 / cites 引用',
+        'related',
+      );
       if (!requested || !['related', 'extends', 'revises', 'cites'].includes(requested)) {
         setMessage('关系类型无效');
         return;
@@ -454,17 +457,17 @@ export function ResearchLibraryPage() {
             kind: requested as WorkRelationKind,
             note: note?.trim() || null,
           }),
-        '作品关系已保存',
+        '文献关系已保存',
       );
     },
     onRemoveRelation: (id: string) => {
-      void run(() => deleteWorkRelation(id), '作品关系已移除');
+      void run(() => deleteWorkRelation(id), '文献关系已移除');
     },
     onTrashWork: (id: string) => {
-      void run(() => postTrashWork(id), '作品已移入回收站');
+      void run(() => postTrashWork(id), '文献已移入回收站');
     },
     onRestoreWork: (id: string) => {
-      void run(() => postRestoreWork(id), '作品已恢复');
+      void run(() => postRestoreWork(id), '文献已恢复');
     },
     onPermanentDelete: (id: string) => {
       void permanentDelete(id);
@@ -552,7 +555,7 @@ export function ResearchLibraryPage() {
         collections={sharedProps.collections.filter((collection) => collection.kind === 'manual')}
         onClose={() => setImportOpen(false)}
         onCommitted={() => {
-          setMessage('论文已经入库');
+          setMessage('PDF 已加入文献库');
           void invalidate();
         }}
       />
@@ -574,7 +577,7 @@ export function ResearchLibraryPage() {
         onDelete={async (id, strategy) => {
           await deleteResearchCollection(id, strategy);
           if (selectedCollectionId === id) selectCollection(null);
-          setMessage('目录已删除，作品和附件保持不变');
+          setMessage('目录已删除，文献和附件保持不变');
           await invalidate();
         }}
       />
@@ -632,13 +635,13 @@ export function ResearchLibraryPage() {
         onMerge={async (survivorId, input) => {
           const record = await postMergeWorks(survivorId, input);
           setSelectedWorkId(survivorId);
-          setMessage('重复作品已合并，可在当前窗口撤销');
+          setMessage('重复文献已合并，可在当前窗口撤销');
           await invalidate();
           return record;
         }}
         onUndo={async (id) => {
           await postUndoMerge(id);
-          setMessage('作品合并已撤销');
+          setMessage('文献合并已撤销');
           await invalidate();
         }}
       />
@@ -666,7 +669,7 @@ export function ResearchLibraryPage() {
             setSelectedCollectionId(null);
             setActiveView('library');
             setManualWorkOpen(false);
-            setMessage('手工记录已经创建');
+            setMessage('文献已创建');
             await invalidate();
           } finally {
             setManualWorkBusy(false);
@@ -703,7 +706,7 @@ export function ResearchLibraryPage() {
           try {
             await patchWorkMetadata(selectedWorkId, input);
             setMetadataEditOpen(false);
-            setMessage('元数据已保存，原始来源保持不变');
+            setMessage('文献信息已保存，原始识别结果仍可查看');
             await invalidate();
           } finally {
             setMetadataEditBusy(false);

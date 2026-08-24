@@ -43,11 +43,11 @@ export function LibraryList({
     return (
       <EmptyState
         icon={IconBookOpen}
-        title="这里还没有论文"
-        description="导入 PDF 后，作品、版本、文件位置和元数据来源会一起进入资料库。"
+        title="还没有文献"
+        description="导入 PDF 或新建文献记录。"
         action={
           <button type="button" onClick={onImport} className="text-xs font-semibold text-accent">
-            导入第一篇
+            导入 PDF
           </button>
         }
         className="m-5 min-h-72 border-0 bg-transparent"
@@ -69,7 +69,7 @@ export function LibraryList({
           >
             <input
               type="checkbox"
-              aria-label={`选择 ${work.title || '未命名作品'}`}
+              aria-label={`选择 ${work.title || '未命名文献'}`}
               className="mt-1 shrink-0"
               checked={selectedIds.includes(work.id)}
               onChange={() => onToggleSelection(work.id)}
@@ -82,7 +82,7 @@ export function LibraryList({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-ink">
-                    {work.title || '未命名作品'}
+                    {work.title || '未命名文献'}
                   </h3>
                   <p className="mt-1 truncate text-xs text-secondary">
                     {work.authors.length > 0 ? work.authors.join('、') : '作者待补充'}

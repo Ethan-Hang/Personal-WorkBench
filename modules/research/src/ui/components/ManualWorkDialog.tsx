@@ -70,8 +70,8 @@ export function ManualWorkDialog({
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="新建手工记录"
-      description="先建立 Work 与 Edition；附件可以现在不添加，之后再挂到版本下。"
+      title="新建文献"
+      description="填写文献的基本信息；附件可以稍后添加。"
       maxWidth="max-w-2xl"
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -100,7 +100,7 @@ export function ManualWorkDialog({
             onChange={(event) => setYear(event.target.value)}
           />
         </Field>
-        <Field label="作品类型">
+        <Field label="文献类型">
           <select
             className={controlClass}
             value={type}

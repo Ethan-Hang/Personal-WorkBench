@@ -51,7 +51,7 @@ export function DuplicateMergeDialog({
     try {
       await operation();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '作品合并失败');
+      setError(cause instanceof Error ? cause.message : '文献合并失败');
     } finally {
       setBusy(false);
     }
@@ -68,13 +68,13 @@ export function DuplicateMergeDialog({
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="重复作品合并"
-      description="明确选择存活 Work、各字段来源、Edition 归属和首选 Edition。合并记录可撤销。"
+      title="合并重复文献"
+      description="选择要保留的文献，并确认信息和版本；合并后可以撤销。"
       maxWidth="max-w-5xl"
     >
       <div className="space-y-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="保留的 Work">
+          <Field label="保留的文献">
             <select
               className={controlClass}
               value={survivorId}
@@ -83,7 +83,7 @@ export function DuplicateMergeDialog({
                 setPreview(null);
               }}
             >
-              <option value="">选择存活记录</option>
+              <option value="">选择要保留的文献</option>
               {works.map((work) => (
                 <option key={work.id} value={work.id}>
                   {work.title || work.id}
@@ -91,7 +91,7 @@ export function DuplicateMergeDialog({
               ))}
             </select>
           </Field>
-          <Field label="合并进入存活项的 Work">
+          <Field label="要合并的文献">
             <select
               className={controlClass}
               value={mergedId}
@@ -100,7 +100,7 @@ export function DuplicateMergeDialog({
                 setPreview(null);
               }}
             >
-              <option value="">选择被合并记录</option>
+              <option value="">选择要合并的文献</option>
               {works
                 .filter((work) => work.id !== survivorId)
                 .map((work) => (
@@ -125,9 +125,9 @@ export function DuplicateMergeDialog({
                 <thead className="bg-surface-2/55 text-muted">
                   <tr>
                     <th className="px-3 py-2.5">字段</th>
-                    <th className="px-3 py-2.5">存活项</th>
-                    <th className="px-3 py-2.5">被合并项</th>
-                    <th className="px-3 py-2.5">采用</th>
+                    <th className="px-3 py-2.5">保留文献</th>
+                    <th className="px-3 py-2.5">合并文献</th>
+                    <th className="px-3 py-2.5">最终内容</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -151,8 +151,8 @@ export function DuplicateMergeDialog({
                             }))
                           }
                         >
-                          <option value="survivor">存活项</option>
-                          <option value="merged">被合并项</option>
+                          <option value="survivor">保留文献</option>
+                          <option value="merged">合并文献</option>
                         </select>
                       </td>
                     </tr>
@@ -163,9 +163,9 @@ export function DuplicateMergeDialog({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <section className="rounded-panel border border-line bg-surface-2/30 p-4">
-                <h3 className="text-xs font-semibold text-ink">Edition 归属</h3>
+                <h3 className="text-xs font-semibold text-ink">版本归属</h3>
                 <p className="mt-2 text-xs leading-5 text-secondary">
-                  以下 {preview.merged.editionIds.length} 个 Edition 将全部从被合并项转移到存活项：
+                  以下 {preview.merged.editionIds.length} 个版本将并入保留的文献：
                 </p>
                 <div className="mt-2 space-y-1 font-mono text-[10px] text-muted">
                   {preview.merged.editionIds.map((id) => (
@@ -173,7 +173,7 @@ export function DuplicateMergeDialog({
                   ))}
                 </div>
               </section>
-              <Field label="合并后的首选 Edition">
+              <Field label="合并后的首选版本">
                 <select
                   className={controlClass}
                   value={preferredEditionId ?? ''}
@@ -208,7 +208,7 @@ export function DuplicateMergeDialog({
                   })
                 }
               >
-                合并作品
+                合并文献
               </Button>
               {lastMergeId && (
                 <Button

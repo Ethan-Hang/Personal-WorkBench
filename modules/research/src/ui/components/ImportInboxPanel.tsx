@@ -45,7 +45,7 @@ const SESSION_LABELS: Record<ImportSessionStatus, string> = {
 
 const STAGE_LABELS: Record<ImportItemStage, string> = {
   selected: '已选择',
-  hashing: '计算 hash',
+  hashing: '校验文件',
   staged: '暂存完成',
   'object-ready': '托管完成',
   'linked-verified': '链接确认',
@@ -281,7 +281,7 @@ export function ImportInboxPanel({
         >
           <div className="max-w-2xl">
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent">
-              Research inbox
+              Research
             </p>
             <h1
               className={
@@ -298,13 +298,13 @@ export function ImportInboxPanel({
               导入箱
             </h1>
             <p className="mt-1 text-xs leading-5 text-secondary">
-              文件先在这里完成 hash、候选重复与元数据确认；未提交的草稿不会出现在正式文献库。
+              检查重复项和元数据，确认后加入文献库。
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <LayoutSwitch value={layout} onChange={onLayout} />
             <Button onClick={onLibrary}>文献库</Button>
-            <Button onClick={onManualWork}>手工记录</Button>
+            <Button onClick={onManualWork}>新建文献</Button>
           </div>
         </header>
 
@@ -574,7 +574,7 @@ export function ImportInboxPanel({
               <EmptyState
                 icon={IconDatabase}
                 title="选择一个导入条目"
-                description="这里会显示文件身份、重复候选与可编辑元数据。"
+                description="查看文件信息、重复项和识别出的元数据。"
                 className="min-h-72 border-0 bg-transparent"
               />
             ) : selectedItem.item.stage === 'awaiting-confirmation' ? (
@@ -643,7 +643,7 @@ function FailedItem({
       <div className="flex items-start gap-3">
         <IconAlertCircle size={18} className="mt-0.5 shrink-0 text-critical" />
         <div>
-          <h3 className="text-sm font-semibold text-ink">这个文件没有完成识别</h3>
+          <h3 className="text-sm font-semibold text-ink">文件识别未完成</h3>
           <p className="mt-2 text-xs leading-5 text-critical">
             {item.item.error?.message ?? item.warnings[0] ?? '未知错误'}
           </p>

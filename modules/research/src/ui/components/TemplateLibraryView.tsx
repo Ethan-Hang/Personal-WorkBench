@@ -164,16 +164,16 @@ export function TemplateLibraryView({
         <header className="flex flex-wrap items-start justify-between gap-5">
           <div className="max-w-2xl">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-accent">
-              Research library
+              Research
             </p>
             <h1
               className="mt-2 text-[30px] font-semibold leading-tight tracking-[-0.025em] text-ink sm:text-[36px]"
               style={{ fontFamily: '"Songti SC", "Noto Serif SC", Georgia, serif' }}
             >
-              把论文留在可追溯的位置
+              文献库
             </h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-secondary">
-              作品、版本与文件位置彼此独立。你可以整理目录，同时清楚看到哪些文件由工作台托管、哪些仍链接原位置。
+              管理文献、版本、附件和目录
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -182,19 +182,19 @@ export function TemplateLibraryView({
               导入箱
             </Button>
             <Button size="sm" onClick={onManualWork}>
-              手工记录
+              新建文献
             </Button>
             <Button size="sm" onClick={onManageTags}>
               标签
             </Button>
             <Button size="sm" onClick={onReviewDuplicates}>
-              重复治理
+              合并重复项
             </Button>
             <Button size="sm" onClick={onExport}>
-              导出资料包
+              导出
             </Button>
             <Button size="sm" onClick={onManageStorage}>
-              迁移托管库
+              附件存储
             </Button>
             <Button
               size="sm"
@@ -312,15 +312,15 @@ export function TemplateLibraryView({
             ) : works.length === 0 ? (
               <EmptyState
                 icon={IconBookOpen}
-                title="这里还没有论文"
-                description="导入 PDF 后，文件身份、作品信息和目录归属会一起进入资料库。"
+                title="还没有文献"
+                description="导入 PDF 或新建文献记录。"
                 action={
                   <button
                     type="button"
                     onClick={onImport}
                     className="text-xs font-semibold text-accent"
                   >
-                    导入第一篇
+                    导入 PDF
                   </button>
                 }
                 className="min-h-80 border-0 bg-transparent"
@@ -338,7 +338,7 @@ export function TemplateLibraryView({
                     >
                       <input
                         type="checkbox"
-                        aria-label={`选择 ${work.title || '未命名作品'}`}
+                        aria-label={`选择 ${work.title || '未命名文献'}`}
                         className="mt-2 shrink-0"
                         checked={selectedWorkIds.includes(work.id)}
                         onChange={() => onToggleWorkSelection(work.id)}
@@ -358,7 +358,7 @@ export function TemplateLibraryView({
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <h2 className="line-clamp-2 text-[15px] font-semibold leading-6 text-ink">
-                                  {work.title || '未命名作品'}
+                                  {work.title || '未命名文献'}
                                 </h2>
                                 <p className="mt-1 truncate text-xs text-secondary">
                                   {work.authors.join('、') || '作者待补充'}

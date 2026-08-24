@@ -91,7 +91,7 @@ export function TagManagerDialog({
       isOpen={open}
       onClose={onClose}
       title="管理标签"
-      description="名称和别名用于统一检索；相似标签只提示，由你决定是否合并。"
+      description="名称和别名都可用于检索；发现相似标签时，由你决定是否合并。"
       maxWidth="max-w-5xl"
     >
       <div className="grid min-h-[500px] gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
@@ -267,7 +267,7 @@ export function TagManagerDialog({
                         const preview = await onPreviewDelete(selected.id);
                         if (
                           window.confirm(
-                            `“${preview.name}”用于 ${preview.usageCount} 个作品，包含 ${preview.aliasCount} 个别名。移入标签回收站吗？`,
+                            `“${preview.name}”用于 ${preview.usageCount} 条文献记录，包含 ${preview.aliasCount} 个别名。移入标签回收站吗？`,
                           )
                         ) {
                           await onTrash(selected.id, selected.updatedAt);
@@ -311,7 +311,7 @@ export function TagManagerDialog({
                     合并标签
                   </h3>
                   <p className="mt-2 text-xs leading-5 text-secondary">
-                    当前标签作为存活项；被合并标签的名称会保留为别名，作品引用会转移。
+                    保留当前标签；合并标签的名称将成为别名，相关文献会改用当前标签。
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <select

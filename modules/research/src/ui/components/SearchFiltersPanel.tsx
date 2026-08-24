@@ -19,6 +19,18 @@ type ArrayFilterKey =
   | 'maintenance';
 
 const labels = {
+  types: {
+    unknown: '未分类',
+    article: '期刊文章',
+    'conference-paper': '会议论文',
+    preprint: '预印本',
+    thesis: '学位论文',
+    'book-chapter': '书籍章节',
+    report: '报告',
+    standard: '标准',
+    dataset: '数据集',
+    web: '网页资料',
+  },
   roles: {
     'primary-pdf': '主 PDF',
     supplement: '补充材料',
@@ -156,7 +168,7 @@ export function SearchFiltersPanel({
             }
           />
         </Field>
-        <Field label="相关 Work ID">
+        <Field label="相关文献 ID">
           <input
             className={controlClass}
             value={filters.relatedWorkId ?? ''}
@@ -172,7 +184,7 @@ export function SearchFiltersPanel({
           <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted">类型</p>
           {chips(
             'types',
-            WORK_TYPES.map((value) => ({ value, label: value })),
+            WORK_TYPES.map((value) => ({ value, label: labels.types[value] })),
           )}
         </div>
         <div>

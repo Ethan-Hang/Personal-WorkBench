@@ -60,7 +60,7 @@ export function AddAttachmentDialog({
       isOpen={open}
       onClose={onClose}
       title="添加附件"
-      description="附件可以是 PDF、补充材料、数据集、代码或网页快照；系统只按角色和 MIME 保存，不假设内容可阅读。"
+      description="添加 PDF、补充材料、数据集、代码或网页快照。"
       maxWidth="max-w-xl"
     >
       <div className="space-y-4">
@@ -110,7 +110,7 @@ export function AddAttachmentDialog({
               placeholder="默认使用文件名"
             />
           </Field>
-          <Field label="MIME 类型">
+          <Field label="文件类型（MIME）">
             <input
               className={controlClass}
               value={mimeType}

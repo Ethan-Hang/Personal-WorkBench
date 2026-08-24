@@ -146,12 +146,12 @@ export function WorkMetadataDialog({
     <Modal
       isOpen={open}
       onClose={onClose}
-      title="编辑元数据"
-      description="只保存实际改动的字段。人工修改会成为当前采用值，原始识别结果继续保留在来源记录中。"
+      title="编辑文献信息"
+      description="修改后的内容将作为当前信息，原始识别结果仍可查看。"
       maxWidth="max-w-3xl"
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="作品标题" className="sm:col-span-2">
+        <Field label="文献标题" className="sm:col-span-2">
           <input
             autoFocus
             className={controlClass}
@@ -159,7 +159,7 @@ export function WorkMetadataDialog({
             onChange={(event) => setTitle(event.target.value)}
           />
         </Field>
-        <Field label="作品类型">
+        <Field label="文献类型">
           <select
             className={controlClass}
             value={type}

@@ -86,7 +86,7 @@ export function WorkDetailPanel({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="break-words text-lg font-bold leading-6 text-ink">
-              {detail.work.title || '未命名作品'}
+              {detail.work.title || '未命名文献'}
             </h2>
             <p className="mt-2 text-xs leading-5 text-secondary">
               {detail.work.authors.join('、') || '作者待补充'}
@@ -155,7 +155,7 @@ export function WorkDetailPanel({
 
       <section className={sectionClass}>
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">作品关系</h3>
+          <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">文献关系</h3>
           {detail.work.status === 'active' && (
             <Button
               size="sm"
@@ -193,9 +193,7 @@ export function WorkDetailPanel({
             </div>
           ))}
           {detail.relations.length === 0 && (
-            <p className="text-[11px] leading-5 text-muted">
-              尚未建立 related、extends、revises 或 cites 关系。
-            </p>
+            <p className="text-[11px] leading-5 text-muted">尚未添加文献关系。</p>
           )}
         </div>
       </section>
@@ -431,7 +429,7 @@ export function WorkDetailPanel({
       </section>
 
       <section className={sectionClass}>
-        <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">作品操作</h3>
+        <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-muted">文献操作</h3>
         <div className="mt-3 flex flex-wrap gap-2">
           {detail.work.status === 'active' ? (
             <Button icon={<IconTrash size={13} />} onClick={() => onTrashWork(detail.work.id)}>
@@ -439,7 +437,7 @@ export function WorkDetailPanel({
             </Button>
           ) : (
             <>
-              <Button onClick={() => onRestoreWork(detail.work.id)}>恢复作品</Button>
+              <Button onClick={() => onRestoreWork(detail.work.id)}>恢复文献</Button>
               <Button
                 variant="danger"
                 icon={<IconAlertCircle size={13} />}
