@@ -22,6 +22,9 @@ export interface CheckinAmountInputProps {
   className?: string;
 }
 
+/** 鼠标移出后延迟收起滑条的毫秒数 */
+const HOVER_CLOSE_DELAY_MS = 180;
+
 const SIZE_CLASS = {
   sm: { text: 'text-xs', width: 'min-w-[32px]', input: 'w-10', slider: 'w-28' },
   md: { text: 'text-xs font-bold', width: 'min-w-[36px]', input: 'w-12', slider: 'w-36' },
@@ -54,6 +57,7 @@ export function CheckinAmountInput({
   const inputRef = useRef<HTMLInputElement>(null);
   /** 用 Esc 退出时不能再走 blur 的提交路径，否则「取消」会被立刻覆盖成「提交」 */
   const cancelledRef = useRef(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const styles = SIZE_CLASS[size];
   const isEditing = draft !== null;
@@ -69,6 +73,33 @@ export function CheckinAmountInput({
       inputRef.current?.select();
     }
   }, [isEditing]);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    };
+  }, []);
+
+  const openSlider = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    setHovered(true);
+  };
+
+  /**
+   * 延迟收起。间隙已经用 padding 补上了，这里再兜一层：鼠标划过浮层边缘的一两帧
+   * 抖动不至于让滑条直接消失。
+   */
+  const scheduleClose = () => {
+    if (dragging) return;
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = setTimeout(() => {
+      closeTimerRef.current = null;
+      setHovered(false);
+    }, HOVER_CLOSE_DELAY_MS);
+  };
 
   const beginEdit = () => {
     if (disabled) return;
@@ -102,31 +133,37 @@ export function CheckinAmountInput({
     <span
       ref={wrapperRef}
       className={`relative inline-flex items-center ${className}`}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => {
-        if (!dragging) setHovered(false);
-      }}
+      onMouseEnter={openSlider}
+      onMouseLeave={scheduleClose}
     >
       {sliderOpen && (
-        <span className="absolute bottom-full left-1/2 z-20 mb-1.5 flex -translate-x-1/2 items-center gap-2 rounded-control border border-line bg-surface px-2.5 py-1.5 shadow-md animate-fade-in">
-          <input
-            type="range"
-            min={0}
-            max={sliderMax}
-            step={1}
-            value={displayValue}
-            aria-label="拖动设置打卡值"
-            onChange={(e) => setDragValue(clampSliderValue(Number(e.target.value), sliderMax))}
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={() => setDragging(true)}
-            onPointerUp={commitDrag}
-            onKeyUp={commitDrag}
-            onBlur={commitDrag}
-            className={`${styles.slider} h-1 cursor-pointer appearance-none rounded-full bg-surface-2 accent-habit`}
-          />
-          <span className="tabular-nums text-[11px] font-semibold text-ink whitespace-nowrap">
-            {displayValue}
-            {unit ? <span className="text-muted ml-0.5">{unit}</span> : null}
+        /*
+         * 浮层与数字之间那道缝必须用 padding 而不是 margin：margin 在元素盒子之外、
+         * 不接收鼠标事件，鼠标往上移的那一刻会既不在数字上也不在浮层上，
+         * mouseleave 立刻触发，滑条还没够到就消失了。
+         * 外层只负责定位与那道可悬停的缝，内层才是可见的浮层。
+         */
+        <span className="absolute bottom-full left-1/2 z-20 -translate-x-1/2 pb-1.5">
+          <span className="flex items-center gap-2 rounded-control border border-line bg-surface px-2.5 py-1.5 shadow-md animate-fade-in">
+            <input
+              type="range"
+              min={0}
+              max={sliderMax}
+              step={1}
+              value={displayValue}
+              aria-label="拖动设置打卡值"
+              onChange={(e) => setDragValue(clampSliderValue(Number(e.target.value), sliderMax))}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={() => setDragging(true)}
+              onPointerUp={commitDrag}
+              onKeyUp={commitDrag}
+              onBlur={commitDrag}
+              className={`${styles.slider} h-1 cursor-pointer appearance-none rounded-full bg-surface-2 accent-habit`}
+            />
+            <span className="tabular-nums text-[11px] font-semibold text-ink whitespace-nowrap">
+              {displayValue}
+              {unit ? <span className="text-muted ml-0.5">{unit}</span> : null}
+            </span>
           </span>
         </span>
       )}
