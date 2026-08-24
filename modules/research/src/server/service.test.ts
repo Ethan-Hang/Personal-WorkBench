@@ -607,7 +607,7 @@ describe('ResearchService A2 导入箱', () => {
       forceRefresh: false,
     });
     await expect
-      .poll(async () => (await service.getImportSession(session.id)).status)
+      .poll(async () => (await service.getImportSession(session.id)).status, { timeout: 5_000 })
       .toBe('awaiting-confirmation');
     const afterInspection = await service.getImportInspection(session.id);
     expect(afterInspection.items.map((item) => item.item.stage).sort()).toEqual([

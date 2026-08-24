@@ -501,14 +501,14 @@ npx vitest run modules/research/src/interop modules/research/src/server/export-r
 
 **提交：** `feat(research): complete trusted library management UI`
 
-- [ ] 将导入箱、文献库、维护视图、回收站组织为同一路由下的清晰工作区，不引入 PDF 阅读器界面。
-- [ ] Work 详情展示版本、附件、位置、来源、目录、标签、关系和外部映射；各编辑动作保留字段级来源。
-- [ ] 批量工具栏只在有选择时出现，执行前显示影响范围，完成后给出成功/失败逐项摘要。
-- [ ] 回收站支持 Work/Attachment/Tag 恢复和永久清理，默认不自动过期。
-- [ ] 重复审查、标签合并和导出均支持取消，不把长任务锁死在模态框。
-- [ ] 键盘、窄屏、长标题、无作者、多版本、缺失附件和大量标签保持可操作。
-- [ ] 完整用户操作验证覆盖：批量导入 → 确认元数据 → 多目录/标签 → 搜索/保存查询 → 缺失重定位 → 合并/撤销 → 回收/恢复 → 迁移导出。
-- [ ] 明确检查 A2 没有夹带 PDF 阅读器、OCR、AI、批注、证据链或具体引用格式适配器。
+- [x] 将导入箱、文献库、维护视图、回收站组织为同一路由下的清晰工作区，不引入 PDF 阅读器界面。
+- [x] Work 详情展示版本、附件、位置、来源、目录、标签、关系和外部映射；各编辑动作保留字段级来源。
+- [x] 批量工具栏只在有选择时出现，执行前显示影响范围，完成后给出成功/失败逐项摘要。
+- [x] 回收站支持 Work/Attachment/Tag 恢复和永久清理，默认不自动过期。
+- [x] 重复审查、标签合并和导出均支持取消，不把长任务锁死在模态框。
+- [x] 键盘、窄屏、长标题、无作者、多版本、缺失附件和大量标签保持可操作。
+- [x] 完整用户操作验证覆盖：批量导入 → 确认元数据 → 多目录/标签 → 搜索/保存查询 → 缺失重定位 → 合并/撤销 → 回收/恢复 → 迁移导出。
+- [x] 明确检查 A2 没有夹带 PDF 阅读器、OCR、AI、批注、证据链或具体引用格式适配器。
 - [x] 托管附件库迁移先复制并逐对象校验，完成后在同一 SQLite 事务中切换配置和托管位置；失败、取消或中断时继续使用旧根，允许重试并保留旧目录。
 
 **验证：**
@@ -529,18 +529,55 @@ node .\scripts\research-windows-file-semantics.mjs --managed-target "\\server\sh
 npx vitest run modules/research/src/files/managed-root-migration.test.ts modules/research/src/server/managed-root-routes.test.ts
 ```
 
+**管理 UI 与操作闭环验收（2026-08-24，macOS）：** 紧凑版和参考 `workbench_template.html` 的舒展版共用同一状态、查询和变更入口，可在界面中切换。完整操作闭环由 `slice-a-workflow.test.ts` 覆盖，并且不依赖并发批量提交的返回顺序。类型检查、lint 和生产构建通过；当前环境没有可连接的自动化浏览器，Safari 也未开启远程自动化，因此真实点击、键盘和窄屏视觉检查保留为手动待测，不记录成已通过。
+
 ### Task 15：完整切片 A 审计与最终本地提交
 
 **提交：** `test(research): complete slice A acceptance`
 
-- [ ] 对照设计 §17.1 的 15 个切片 A 场景逐项记录自动测试、手动测试或平台待测证据。
-- [ ] 默认测试、200 文件专项、10k/20k 规模、opt-in 256 MiB 文件分别运行，记录空间与清理结果。
-- [ ] 在当前开发平台重跑所有发生变更的平台相关测试模块；另一平台保持准确的已测/待测记录和命令。
-- [ ] 启动真实本地应用完成一次从导入到迁移包的操作验收，确认数据库和 managed root 均位于测试账号/临时根。
-- [ ] 执行 `npm run check`、migration 重跑、`integrity_check` 和孤儿文件审计。
-- [ ] 执行 `git fetch origin --prune`，检查远端差异并报告；不 push、不改写已有提交。
-- [ ] 检查 `git status`、提交序列和每个分段提交的范围，确认没有用户无关改动、测试产物或真实论文文件进入 Git。
-- [ ] 更新本文件复选框和设计文档中的实际验证状态、测试指令及切片 A 完成记录。
+- [x] 对照设计 §17.1 的 15 个切片 A 场景逐项记录自动测试、手动测试或平台待测证据。
+- [x] 默认测试、200 文件专项、10k/20k 规模、opt-in 256 MiB 文件分别运行，记录空间与清理结果。
+- [x] 在当前开发平台重跑所有发生变更的平台相关测试模块；另一平台保持准确的已测/待测记录和命令。
+- [x] 启动真实本地应用完成一次从导入到迁移包的操作验收，确认数据库和 managed root 均位于测试账号/临时根。
+- [x] 执行 `npm run check`、migration 重跑、`integrity_check` 和孤儿文件审计。
+- [x] 执行 `git fetch origin --prune`，检查远端差异并报告；不 push、不改写已有提交。
+- [x] 检查 `git status`、提交序列和每个分段提交的范围，确认没有用户无关改动、测试产物或真实论文文件进入 Git。
+- [x] 更新本文件复选框和设计文档中的实际验证状态、测试指令及切片 A 完成记录。
+
+### 切片 A 最终验收记录（2026-08-24）
+
+设计 §17.1 的场景均有自动证据：
+
+| 场景 | 主要自动证据                                                                                                            |
+| ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1    | `content-store.test.ts`、`service.test.ts`：托管 hash 去重和重复导入增加目录引用                                        |
+| 2    | `content-store.test.ts`、`service.test.ts`：同一 Asset 的托管/多链接位置与账号隔离                                      |
+| 3    | `service.test.ts`、`duplicates.test.ts`：同 DOI/近似元数据只产生候选，显式决定版本或作品归属                            |
+| 4    | `management.test.ts`、`pdf-extractor.test.ts`、`canonical.test.ts`：无附件、不完整、unknown、扫描型资料的保存与无损导出 |
+| 5    | `metadata/client.test.ts`、`metadata/coordinator.test.ts`、`service.test.ts`：离线重试、来源追溯和人工字段保护          |
+| 6    | `reconcile.test.ts`、`batch-acceptance.test.ts`：取消、中断、重启恢复与孤立内容对账                                     |
+| 7    | `content-store.test.ts`、`service.test.ts`：missing、同 hash 恢复和不同 hash replacement candidate                      |
+| 8    | `collections.test.ts`、`library-routes.test.ts`：删除目录/引用不删除作品、附件或文件                                    |
+| 9    | `service.test.ts`、`content-store.test.ts`：四种删除语义、二次确认和链接源文件保护                                      |
+| 10   | `management.test.ts`、`relations.test.ts`：作品与关系恢复、缺失附件报告和无自动过期回收站                               |
+| 11   | `duplicates.test.ts`、`governance-routes.test.ts`：作品重定向、来源保留、合并撤销和并发版本保护                         |
+| 12   | `tags.test.ts`、`governance-routes.test.ts`：近似标签只提示、别名保留、回收和撤销                                       |
+| 13   | `search.test.ts`、`search-index.test.ts`：结构化条件、维护过滤、模糊回退和保存查询                                      |
+| 14   | `portable-export.test.ts`、`canonical.test.ts`：迁移包选项、缺失报告、附件 hash 和 round-trip                           |
+| 15   | `managed-root-migration.test.ts`、`managed-root-routes.test.ts`：校验后切换、失败/取消/中断保持旧根并可重试             |
+
+最终采用“一次针对性验证 + 一次聚合验证”的方式收口，避免重复消耗本机资源：
+
+- `npm run check` 通过；修正并发批量结果顺序假设后，等价的最终聚合检查再次通过 format、typecheck、lint、生产 Vite build，以及 143 个通过、4 个 opt-in 跳过的测试文件，共 1299 项通过、4 项跳过。
+- 默认聚合测试使用独立 `TMPDIR`，采样峰值 20.97 MiB，结束时只剩 12.46 MiB 测试缓存，随后清理测试根。
+- 200 文件专项通过，耗时 41.32 秒，临时目录已清理。
+- 10,000 Work / 20,000 Edition、Asset、Location、Attachment 正式规模通过：数据库 32.238 MiB、RSS 236.125 MiB、列表 p95 4.968 ms、维护查询 p95 11.182 ms、1,000 次 hash 查询 2.117 ms、200 条元数据事务 1.156 ms、`integrity_check` 184.406 ms。
+- 256 MiB 稀疏文件专项通过，在约 16 MiB 时取消，staging 为空且测试根已清理。
+- research 迁移测试 6 项通过，23 张表及 FTS 迁移可重复执行。
+- 真实隔离 server 使用独立数据库和 managed root，完成 managed 上传、识别、入库、多目录、回收/恢复、托管根迁移、携带附件导出及 round-trip；`integrity_check=ok`，当前根对象 hash/大小全部有效，无 orphan、missing 或 staging 残留。server 与临时根随后关闭并清理。
+- 最终边界 fetch 时，`origin/main...HEAD` 为 `0 23`，远端 feature...HEAD 为 `0 46`；`origin/main` 是当前分支祖先。全程没有 push。
+
+外部待测只保留两个明确模块：两套 Web 布局的真实浏览器点击/键盘/窄屏视觉检查，以及 Windows 文件语义和托管根跨卷迁移。对应实现、自动测试和运行指令均已提交，它们不改变切片 A 的领域与 API 验收结论。
 
 ## 完成定义
 

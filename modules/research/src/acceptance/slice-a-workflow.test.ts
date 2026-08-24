@@ -77,6 +77,7 @@ describe('切片 A 用户操作验收', () => {
       });
       expect(inspection.items).toHaveLength(2);
       for (const [index, item] of inspection.items.entries()) {
+        const isAlpha = item.item.fileName === 'first.pdf';
         const title = item.localSuggestions.find((suggestion) => suggestion.fieldName === 'title')!;
         const authors = item.localSuggestions.find(
           (suggestion) => suggestion.fieldName === 'authors',
@@ -84,7 +85,7 @@ describe('切片 A 用户操作验收', () => {
         await service.saveImportDecision(session.id, item.item.id, {
           itemId: item.item.id,
           duplicateDecision: 'new-work',
-          collectionIds: index === 0 ? [reading.id, methods.id] : [reading.id],
+          collectionIds: isAlpha ? [reading.id, methods.id] : [reading.id],
           fields: {
             title: {
               value: title.value,
@@ -92,25 +93,33 @@ describe('切片 A 用户操作验收', () => {
               sourceRecordId: title.sourceRecordId,
             },
             type: { value: 'article', sourceKind: 'user', sourceRecordId: null },
-            ...(authors
+            authors: authors
               ? {
-                  authors: {
-                    value: authors.value,
-                    sourceKind: authors.sourceKind,
-                    sourceRecordId: authors.sourceRecordId,
-                  },
+                  value: authors.value,
+                  sourceKind: authors.sourceKind,
+                  sourceRecordId: authors.sourceRecordId,
                 }
-              : {}),
+              : {
+                  value: [isAlpha ? 'Ada Lovelace' : 'Grace Hopper'],
+                  sourceKind: 'user',
+                  sourceRecordId: null,
+                },
           },
           requestId: `slice-a-confirm-${index}`,
         });
       }
       const committed = await service.commitImportSession(session.id);
       expect(committed.session.status).toBe('completed');
-      const workIds = committed.results
+      const committedWorkIds = committed.results
         .filter((result) => result.status === 'committed')
         .map((result) => result.workId!);
-      expect(workIds).toHaveLength(2);
+      expect(committedWorkIds).toHaveLength(2);
+      const committedWorks = (await service.listWorks({ status: 'active', limit: 20 })).works;
+      const workIds = [
+        committedWorks.find((work) => work.title === 'Workflow Alpha')!.id,
+        committedWorks.find((work) => work.title === 'Workflow Beta')!.id,
+      ];
+      expect(new Set(workIds)).toEqual(new Set(committedWorkIds));
 
       await service.setWorkTags(workIds[0]!, [trusted.id]);
       const searchAst: ResearchSearchAst = {
