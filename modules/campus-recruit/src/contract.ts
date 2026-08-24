@@ -219,6 +219,8 @@ export const CAMPUS_API = {
   application: (id: string): string => `/api/campus/applications/${segment(id)}`,
   /** POST → ApplicationView：标记为已投递 */
   applyApplication: (id: string): string => `/api/campus/applications/${segment(id)}/apply`,
+  /** POST → ApplicationView：撤回投递，回到「待投递」（误点的解药） */
+  unapplyApplication: (id: string): string => `/api/campus/applications/${segment(id)}/unapply`,
   /** POST CreateRoundInput → ApplicationView：给该投递新增一轮 */
   applicationRounds: (id: string): string => `/api/campus/applications/${segment(id)}/rounds`,
   /** PATCH UpdateRoundInput → ApplicationView；DELETE → 204 */

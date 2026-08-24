@@ -793,6 +793,27 @@ export function IconCloud({ size = 18, className = '', ...props }: IconProps) {
   );
 }
 
+export function IconUndo({ size = 18, className = '', ...props }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M3 7v6h6" />
+      <path d="M3 13a9 9 0 1 0 3-7.7L3 8" />
+    </svg>
+  );
+}
+
 export function IconRefreshCw({ size = 18, className = '', ...props }: IconProps) {
   return (
     <svg

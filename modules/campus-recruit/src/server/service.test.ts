@@ -15,6 +15,7 @@ import {
   getStats,
   listApplications,
   markApplicationApplied,
+  unmarkApplicationApplied,
   updateApplication,
   updateRound,
 } from './service.js';
@@ -260,6 +261,67 @@ describe('campus recruit service', () => {
     );
     expect(await h.repo.getApplication(app.id)).not.toBeNull();
     h.ctx.items.delete = originalDelete;
+  });
+
+  it('撤回投递退回待投递，并把自动补的初筛与已完成的投递事项一并收回', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    const reverted = await unmarkApplicationApplied(h.ctx, h.repo, created.id, {
+      ...OPTS,
+      now: LATER,
+    });
+
+    expect(reverted.appliedAt).toBeNull();
+    expect(reverted.rounds).toEqual([]);
+    expect(reverted.status.code).toBe('pending');
+    const stored = (await h.repo.getApplication(created.id))!;
+    expect(await h.items.getById(stored.deadlineItemId!)).toMatchObject({
+      status: 'todo',
+      completedAt: null,
+    });
+  });
+
+  it('撤回投递顺手清掉泡池子——没投出去就无所谓泡不泡', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+    await updateApplication(h.ctx, h.repo, created.id, { shelved: true }, OPTS);
+
+    const reverted = await unmarkApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    expect(reverted).toMatchObject({ appliedAt: null, shelvedAt: null });
+    expect(reverted.status.code).toBe('pending');
+  });
+
+  it('重复撤回是幂等的：本来就待投递就原样返回', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const reverted = await unmarkApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    expect(reverted.appliedAt).toBeNull();
+    expect(reverted.status.code).toBe('pending');
+  });
+
+  it('有真实轮次或终局结果时拒绝撤回，并落成 409 而不是悄悄丢数据', async () => {
+    const h = makeCampusHarness();
+    const withRound = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await createRound(h.ctx, h.repo, withRound.id, roundInput(), OPTS);
+
+    await expect(unmarkApplicationApplied(h.ctx, h.repo, withRound.id, OPTS)).rejects.toMatchObject(
+      { status: 409 },
+    );
+    // 轮次一条都没少
+    expect(await h.repo.listRounds(withRound.id)).toHaveLength(1);
+
+    const settled = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    await updateApplication(h.ctx, h.repo, settled.id, { outcome: 'offer' }, OPTS);
+
+    await expect(unmarkApplicationApplied(h.ctx, h.repo, settled.id, OPTS)).rejects.toMatchObject({
+      status: 409,
+    });
   });
 
   it('缺失的投递抛 404 领域错误——而不是落成 500', async () => {

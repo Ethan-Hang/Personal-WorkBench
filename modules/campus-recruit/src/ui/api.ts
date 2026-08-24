@@ -27,6 +27,9 @@ export const patchApplication = async (
 export const postApply = async (id: string): Promise<ApplicationView> =>
   applicationViewSchema.parse(await request(CAMPUS_API.applyApplication(id), { method: 'POST' }));
 
+export const postUnapply = async (id: string): Promise<ApplicationView> =>
+  applicationViewSchema.parse(await request(CAMPUS_API.unapplyApplication(id), { method: 'POST' }));
+
 export const deleteApplication = async (id: string): Promise<void> => {
   await request(CAMPUS_API.application(id), { method: 'DELETE' });
 };

@@ -9,6 +9,7 @@ import {
   IconEdit,
   IconPlus,
   IconTrash,
+  IconUndo,
   IconX,
   controlClass,
   useTimezone,
@@ -41,6 +42,7 @@ interface ApplicationTableRowProps {
   onToggleExpand: () => void;
   onUpdateApplication: (id: string, input: UpdateApplicationInput) => void;
   onMarkApplied: (id: string) => void;
+  onUnmarkApplied: (id: string) => void;
   onRemoveApplication: (id: string) => void;
   onCreateRound: (applicationId: string, input: CreateRoundInput) => Promise<void>;
   onUpdateRound: (applicationId: string, id: string, input: UpdateRoundInput) => void;
@@ -748,6 +750,7 @@ export function ApplicationTableRow({
   onToggleExpand,
   onUpdateApplication,
   onMarkApplied,
+  onUnmarkApplied,
   onRemoveApplication,
   onCreateRound,
   onUpdateRound,
@@ -860,7 +863,7 @@ export function ApplicationTableRow({
           className="flex items-center justify-end gap-2 pt-1 sm:pt-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {application.appliedAt === null && (
+          {application.appliedAt === null ? (
             <Button
               type="button"
               variant="primary"
@@ -870,6 +873,18 @@ export function ApplicationTableRow({
             >
               标已投
             </Button>
+          ) : (
+            /* 「标已投」就在同一个位置，误点后需要一条同样近的退路 */
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => onUnmarkApplied(application.id)}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-muted hover:bg-surface-3 hover:text-ink transition-colors disabled:opacity-50"
+              title="撤回投递，退回「待投递」"
+            >
+              <IconUndo size={12} />
+              <span>撤回</span>
+            </button>
           )}
 
           <button

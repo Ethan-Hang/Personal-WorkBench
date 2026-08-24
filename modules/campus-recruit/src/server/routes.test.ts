@@ -108,6 +108,39 @@ describe('campus recruit HTTP API', () => {
     expect(deleted.body).toBe('');
   });
 
+  it('撤回投递的端点把状态退回待投递，有真实轮次时回 409', async () => {
+    const { app } = await makeApp();
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/campus/applications',
+      payload: { company: '星云科技', position: '固件工程师', priority: 'S' },
+    });
+    const application = applicationViewSchema.parse(created.json());
+
+    await app.inject({ method: 'POST', url: `/api/campus/applications/${application.id}/apply` });
+    const reverted = await app.inject({
+      method: 'POST',
+      url: `/api/campus/applications/${application.id}/unapply`,
+    });
+    expect(reverted.statusCode).toBe(200);
+    expect(applicationViewSchema.parse(reverted.json())).toMatchObject({
+      appliedAt: null,
+      rounds: [],
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/campus/applications/${application.id}/rounds`,
+      payload: { kind: 'technical', name: '一面', scheduledAt: '2026-09-21T02:00:00.000Z' },
+    });
+    const refused = await app.inject({
+      method: 'POST',
+      url: `/api/campus/applications/${application.id}/unapply`,
+    });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error).toBeTruthy();
+  });
+
   it('returns 400 with an error for invalid application input', async () => {
     const { app } = await makeApp();
     const response = await app.inject({

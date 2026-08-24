@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { nowIso, truncateToMinute, type IsoInstant, type ModuleContext } from '@workbench/core';
-import { notFound } from '@workbench/http-kit';
+import { conflict, notFound } from '@workbench/http-kit';
 import type {
   ApplicationView,
   CreateApplicationData,
@@ -26,6 +26,9 @@ export interface CampusServiceOptions {
 }
 
 const PRIORITY_RANK = { S: 0, A: 1, B: 2, C: 3 } as const;
+
+/** 标记已投递时自动补的那一轮的名字。撤回投递靠它认出「这轮不是用户建的」。 */
+const AUTO_SCREENING_ROUND_NAME = '简历初筛';
 
 function resolveNow(opts: CampusServiceOptions): IsoInstant {
   return opts.now ?? nowIso();
@@ -217,7 +220,7 @@ export async function markApplicationApplied(
         applicationId: id,
         sequence: await repo.nextRoundSequence(id),
         kind: 'screening',
-        name: '简历初筛',
+        name: AUTO_SCREENING_ROUND_NAME,
         scheduledAt: null,
         format: null,
         durationMin: null,
@@ -230,6 +233,64 @@ export async function markApplicationApplied(
       });
     }
   }
+  await reconcileApplicationProjections(ctx, repo, id, now, opts.zone);
+  return applicationView(repo, await requireApplication(repo, id), now);
+}
+
+/**
+ * 「标记已投递」自动补出来的那一轮长什么样——三处签名缺一不可：
+ * 简历初筛、没排时间、还没有结果，且没被写过备注。
+ *
+ * 撤回投递时只删掉这一种轮次。判据刻意收得很紧：手工建过的轮次哪怕只写了句备注，
+ * 也宁可让撤回失败去提示先删轮次，也不悄悄吞掉用户录进去的信息。
+ */
+function isAutoScreeningRound(round: RoundRecord): boolean {
+  return (
+    round.kind === 'screening' &&
+    round.name === AUTO_SCREENING_ROUND_NAME &&
+    round.scheduledAt === null &&
+    round.outcome === 'pending' &&
+    round.outcomeAt === null &&
+    round.notes === null
+  );
+}
+
+/**
+ * 撤回投递：把状态退回「待投递」。
+ *
+ * 存在的理由只有一个——「标记已投递」是个一键动作，很容易误点，而在此之前
+ * 唯一的退路是手改 `appliedAt`，且 `updateApplication` 的兜底会因为「有轮次」
+ * 把它立刻改回来（那条兜底是为了别让有进展的投递停在待投递，对撤回是反效果）。
+ *
+ * 只在真正干净的情况下放行，其余一律 409 并说明先做什么：
+ * - 有终局结果（offer / OC / 已挂 / 我拒了）→ 先把终局结果清成「流程中 / 未定」；
+ * - 有自动补的简历初筛之外的轮次 → 先删掉那些轮次。
+ *
+ * 「泡池子」会被一并清掉：没投出去就无所谓泡不泡，留着只会让状态自相矛盾。
+ */
+export async function unmarkApplicationApplied(
+  ctx: ModuleContext,
+  repo: CampusRecruitRepository,
+  id: string,
+  opts: CampusServiceOptions,
+): Promise<ApplicationView> {
+  const application = await requireApplication(repo, id);
+  const now = resolveNow(opts);
+  // 幂等：本来就是待投递，什么都不做（重复点、或两个标签页各点一次）
+  if (application.appliedAt === null) return applicationView(repo, application, now);
+
+  if (application.outcome !== null) {
+    throw conflict('这条投递已有终局结果，撤回前请先把「终局结果」改回「流程中 / 未定」');
+  }
+  const rounds = await repo.listRounds(id);
+  if (rounds.some((round) => !isAutoScreeningRound(round))) {
+    throw conflict('这条投递已经记了面试轮次，撤回前请先删除这些轮次');
+  }
+  for (const round of rounds) {
+    if (round.itemId !== null) await ctx.items.delete(ctx.moduleId, round.itemId);
+    await repo.deleteRound(round.id);
+  }
+  await repo.updateApplication(id, { appliedAt: null, shelvedAt: null, updatedAt: now });
   await reconcileApplicationProjections(ctx, repo, id, now, opts.zone);
   return applicationView(repo, await requireApplication(repo, id), now);
 }

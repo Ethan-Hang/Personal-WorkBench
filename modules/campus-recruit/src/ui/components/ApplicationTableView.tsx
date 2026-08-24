@@ -12,6 +12,7 @@ interface ApplicationTableViewProps {
   onToggleExpand: (id: string) => void;
   onUpdateApplication: (id: string, input: UpdateApplicationInput) => void;
   onMarkApplied: (id: string) => void;
+  onUnmarkApplied: (id: string) => void;
   onRemoveApplication: (id: string) => void;
   onCreateRound: (applicationId: string, input: CreateRoundInput) => Promise<void>;
   onUpdateRound: (applicationId: string, id: string, input: UpdateRoundInput) => void;
@@ -64,6 +65,7 @@ export function ApplicationTableView({
   onToggleExpand,
   onUpdateApplication,
   onMarkApplied,
+  onUnmarkApplied,
   onRemoveApplication,
   onCreateRound,
   onUpdateRound,
@@ -83,6 +85,7 @@ export function ApplicationTableView({
             onToggleExpand={() => onToggleExpand(app.id)}
             onUpdateApplication={onUpdateApplication}
             onMarkApplied={onMarkApplied}
+            onUnmarkApplied={onUnmarkApplied}
             onRemoveApplication={onRemoveApplication}
             onCreateRound={onCreateRound}
             onUpdateRound={onUpdateRound}

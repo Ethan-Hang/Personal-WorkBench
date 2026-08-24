@@ -19,6 +19,7 @@ import {
   getStats,
   listApplications,
   markApplicationApplied,
+  unmarkApplicationApplied,
   updateApplication,
   updateRound,
 } from './service.js';
@@ -64,6 +65,13 @@ export function registerCampusRecruitRoutes(
     CAMPUS_API.applyApplication(ID_PARAM),
     defineRoute({ params: idParams }, ({ params }) =>
       markApplicationApplied(ctx, repo, params.id, { zone: resolveZone() }),
+    ),
+  );
+
+  app.post(
+    CAMPUS_API.unapplyApplication(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) =>
+      unmarkApplicationApplied(ctx, repo, params.id, { zone: resolveZone() }),
     ),
   );
 

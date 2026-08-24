@@ -15,6 +15,7 @@ import {
   patchRound,
   postApplication,
   postApply,
+  postUnapply,
   postRound,
 } from './api.js';
 import { ApplicationsToolbar, type ViewMode } from './components/ApplicationsToolbar.js';
@@ -144,6 +145,13 @@ export function ApplicationsPage() {
     onSuccess: mutationSucceeded,
   });
 
+  const unapplyMutation = useMutation({
+    mutationFn: postUnapply,
+    onMutate: mutationStarted,
+    onError: mutationFailed,
+    onSuccess: mutationSucceeded,
+  });
+
   const deleteApplicationMutation = useMutation({
     mutationFn: deleteApplication,
     onMutate: mutationStarted,
@@ -185,6 +193,7 @@ export function ApplicationsPage() {
     createApplicationMutation.isPending ||
     updateApplicationMutation.isPending ||
     applyMutation.isPending ||
+    unapplyMutation.isPending ||
     deleteApplicationMutation.isPending ||
     createRoundMutation.isPending ||
     updateRoundMutation.isPending ||
@@ -329,6 +338,7 @@ export function ApplicationsPage() {
             onToggleExpand={handleToggleExpand}
             onUpdateApplication={(id, input) => updateApplicationMutation.mutate({ id, input })}
             onMarkApplied={(id) => applyMutation.mutate(id)}
+            onUnmarkApplied={(id) => unapplyMutation.mutate(id)}
             onRemoveApplication={(id) => deleteApplicationMutation.mutate(id)}
             onCreateRound={async (applicationId, input) => {
               await createRoundMutation.mutateAsync({ applicationId, input });
@@ -349,6 +359,7 @@ export function ApplicationsPage() {
             }}
             onOpenCreateModal={() => setIsCreateModalOpen(true)}
             onMarkApplied={(id) => applyMutation.mutate(id)}
+            onUnmarkApplied={(id) => unapplyMutation.mutate(id)}
             isBusy={isBusy}
           />
         )}
