@@ -12,6 +12,8 @@ import {
   Modal,
   Panel,
   MetricRing,
+  MetricTile,
+  useSlotEntries,
   QuickAddBar,
   TodayClockCard,
   usePreferences,
@@ -37,7 +39,7 @@ import {
   IconPlus,
 } from '@workbench/ui';
 import { type WorkbenchItem, type TodayResponse, type ScheduleInput } from '../contract.js';
-import { TodayHabitCard } from '../../../habit/src/ui/components/TodayHabitCard.js';
+import { WORKBENCH_SLOTS } from './slots.js';
 import {
   fetchToday,
   fetchUnscheduled,
@@ -314,6 +316,7 @@ const TodayExecutionCard = memo(function TodayExecutionCard({
   totalCount: number;
 }) {
   const { preferences } = usePreferences();
+  const metricEntries = useSlotEntries(WORKBENCH_SLOTS.todayMetrics);
   const targetRate = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const animatedRate = useAnimatedValue(targetRate, 850, preferences.enableAnimations);
 
@@ -348,21 +351,18 @@ const TodayExecutionCard = memo(function TodayExecutionCard({
         />
       </div>
 
-      <div className="grid grid-cols-3 gap-2 border-t border-slate-700/60 pt-3 text-center">
-        <div className="rounded-control bg-white/5 p-2 backdrop-blur-xs border border-white/5">
-          <div className="text-[10px] text-slate-400">事项达成</div>
-          <div className="mt-0.5 text-xs font-bold text-white tabular-nums">
-            {doneCount}/{totalCount}
-          </div>
-        </div>
-        <div className="rounded-control bg-white/5 p-2 backdrop-blur-xs border border-white/5">
-          <div className="text-[10px] text-slate-400">习惯打卡</div>
-          <div className="mt-0.5 text-xs font-bold text-white tabular-nums">2/3</div>
-        </div>
-        <div className="rounded-control bg-white/5 p-2 backdrop-blur-xs border border-white/5">
-          <div className="text-[10px] text-slate-400">预估耗时</div>
-          <div className="mt-0.5 text-xs font-bold text-white tabular-nums">2.5h</div>
-        </div>
+      <div
+        className={`grid gap-2 border-t border-slate-700/60 pt-3 text-center ${
+          2 + metricEntries.length >= 3 ? 'grid-cols-3' : 'grid-cols-2'
+        }`}
+      >
+        <MetricTile label="事项达成" value={`${doneCount}/${totalCount}`} />
+        {/* 别的模块贡献的指标格（如习惯打卡）。工作台不知道它们从哪来，也不该知道 */}
+        {metricEntries.map((entry) => (
+          <div key={entry.id}>{entry.node}</div>
+        ))}
+        {/* TODO: 预估耗时仍是占位值，等 estimateMinutes 在今日聚合里透出后接真实数据 */}
+        <MetricTile label="预估耗时" value="2.5h" />
       </div>
     </section>
   );
@@ -746,6 +746,7 @@ function TaskItemRow({
 export function TodayPage() {
   const queryClient = useQueryClient();
   const { preferences } = usePreferences();
+  const asideEntries = useSlotEntries(WORKBENCH_SLOTS.todayAside);
   const [isOverdueExpanded, setIsOverdueExpanded] = useState(() => preferences.autoExpandOverdue);
   const [isCompletedExpanded, setIsCompletedExpanded] = useState(false);
 
@@ -1637,8 +1638,10 @@ export function TodayPage() {
         {/* 今日执行度仪表盘卡片 */}
         <TodayExecutionCard doneCount={doneTasks.length} totalCount={totalTasksCount} />
 
-        {/* 习惯打卡上下文 */}
-        <TodayHabitCard />
+        {/* 别的模块贡献进来的今日卡片（如习惯打卡），由组合根装配 */}
+        {asideEntries.map((entry) => (
+          <div key={entry.id}>{entry.node}</div>
+        ))}
 
         {/* 复盘引导卡片 */}
         <div className="rounded-panel border border-warning/20 bg-warning-soft/50 p-4 hover-lift">

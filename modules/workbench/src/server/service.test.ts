@@ -110,6 +110,48 @@ describe('listToday 跨模块聚合', () => {
     expect(today.overdue).toHaveLength(0);
   });
 
+  it('往日做完的旧事项不进今日 completed——今日执行度只数今天做完的', async () => {
+    const old = await items.create('todo', {
+      kind: 'task',
+      title: '前天就做完了',
+      scheduled: { kind: 'all-day', date: '2026-09-18' },
+    });
+    await items.update(old.id, { status: 'done', completedAt: '2026-09-18T05:00:00.000Z' });
+
+    const today = await listToday(ctx, OPTS);
+    expect(today.completed).toHaveLength(0);
+  });
+
+  it('拖了几天、今天才做完的仍进 completed', async () => {
+    const carried = await items.create('todo', {
+      kind: 'task',
+      title: '拖到今天才做完',
+      scheduled: { kind: 'all-day', date: '2026-09-18' },
+    });
+    await items.update(carried.id, { status: 'done', completedAt: NOW });
+
+    const today = await listToday(ctx, OPTS);
+    expect(today.completed.map((i) => i.title)).toEqual(['拖到今天才做完']);
+  });
+
+  it('没有 completedAt 的历史数据退回按排程日归属', async () => {
+    const todayItem = await items.create('todo', {
+      kind: 'task',
+      title: '排今天',
+      scheduled: { kind: 'all-day', date: '2026-09-20' },
+    });
+    await items.update(todayItem.id, { status: 'done', completedAt: null });
+    const oldItem = await items.create('todo', {
+      kind: 'task',
+      title: '排前天',
+      scheduled: { kind: 'all-day', date: '2026-09-18' },
+    });
+    await items.update(oldItem.id, { status: 'done', completedAt: null });
+
+    const today = await listToday(ctx, OPTS);
+    expect(today.completed.map((i) => i.title)).toEqual(['排今天']);
+  });
+
   it('回收站里的事项（cancelled）不出现在任何一段里', async () => {
     const trashed = await items.create('todo', {
       kind: 'task',

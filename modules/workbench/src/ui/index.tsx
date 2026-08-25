@@ -18,3 +18,4 @@ export const workbenchUiModule: UiModuleDefinition = {
 
 export { TodayPage, CalendarPage };
 export { fetchToday, fetchUnscheduled } from './api.js';
+export { WORKBENCH_SLOTS } from './slots.js';

@@ -11,4 +11,5 @@ export const habitUiModule: UiModuleDefinition = {
 
 export { HabitsPage };
 export { TodayHabitCard, type TodayHabitCardProps } from './components/TodayHabitCard.js';
+export { TodayCheckinMetric } from './components/TodayCheckinMetric.js';
 export * from './api.js';

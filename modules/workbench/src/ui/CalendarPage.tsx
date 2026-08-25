@@ -9,6 +9,7 @@ import {
   ProgressBar,
   useTimezone,
   useModuleLabel,
+  useSlotEntries,
   IconCalendar,
   IconCheck,
   IconX,
@@ -22,7 +23,7 @@ import {
   IconAlertCircle,
 } from '@workbench/ui';
 import { type WorkbenchItem, type ScheduleInput } from '../contract.js';
-import { TodayHabitCard } from '../../../habit/src/ui/components/TodayHabitCard.js';
+import { WORKBENCH_SLOTS } from './slots.js';
 import {
   fetchCalendar,
   fetchUnscheduled,
@@ -54,6 +55,7 @@ const DEFAULT_SCROLL_HOUR = 8; // 默认滚动聚焦 08:00
 export function CalendarPage() {
   const queryClient = useQueryClient();
   const { timezone } = useTimezone();
+  const asideEntries = useSlotEntries(WORKBENCH_SLOTS.calendarAside);
 
   // 当前选中的基准日期（本地 YYYY-MM-DD）
   const [selectedDate, setSelectedDate] = useState<string>(() =>
@@ -1192,8 +1194,10 @@ export function CalendarPage() {
               </div>
             </div>
 
-            {/* 3. 今日习惯打卡预览 (对齐方案 A 设计) */}
-            <TodayHabitCard variant="calendar" />
+            {/* 3. 别的模块贡献进来的边栏卡片（如今日习惯打卡预览），由组合根装配 */}
+            {asideEntries.map((entry) => (
+              <div key={entry.id}>{entry.node}</div>
+            ))}
           </aside>
         )}
       </div>

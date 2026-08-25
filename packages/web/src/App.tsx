@@ -7,6 +7,8 @@ import {
   ThemeProvider,
   TimezoneProvider,
   PreferencesProvider,
+  SlotProvider,
+  type SlotMap,
   AppShell,
   useTheme,
   PALETTES,
@@ -33,13 +35,31 @@ import { AboutPage } from './pages/AboutPage.js';
 import { createHttpSettingsStore } from './settingsStore.js';
 import { RestoreOverlay } from './sync/RestoreOverlay.js';
 import { SidebarBackupStatus } from './sync/SidebarBackupStatus.js';
-import { fetchToday, fetchUnscheduled } from '@workbench/module-workbench/ui';
+import { fetchToday, fetchUnscheduled, WORKBENCH_SLOTS } from '@workbench/module-workbench/ui';
+import { TodayHabitCard, TodayCheckinMetric } from '@workbench/module-habit/ui';
 import { fetchApplications } from '@workbench/module-campus-recruit/ui';
 import type { WorkbenchItem } from '@workbench/module-workbench/contract';
 import type { ApplicationView } from '@workbench/module-campus-recruit/contract';
 
 // 模块作用域建一次即可：store 无状态，重建会白白丢掉内部引用。
 const settingsStore = createHttpSettingsStore();
+
+/**
+ * 跨模块界面装配表：谁的界面出现在谁的页面上，只在这里决定。
+ *
+ * 组合根是**唯一**能同时 import 两个模块的地方（spec §4.2 铁律 1），
+ * 所以工作台想在今日页上摆习惯打卡，走的不是 `import`，而是工作台声明插槽、
+ * 习惯导出组件、这里把两者接上。模块之间因此仍然互不认识。
+ *
+ * 模块作用域建一次即可：元素是不可变的，重建只会让消费方每帧收到新引用。
+ */
+const UI_SLOTS: SlotMap = {
+  [WORKBENCH_SLOTS.todayMetrics]: [{ id: 'habit-checkin', node: <TodayCheckinMetric /> }],
+  [WORKBENCH_SLOTS.todayAside]: [{ id: 'habit-today', node: <TodayHabitCard /> }],
+  [WORKBENCH_SLOTS.calendarAside]: [
+    { id: 'habit-today', node: <TodayHabitCard variant="calendar" /> },
+  ],
+};
 
 /**
  * 模块 id → 展示名，由注册表直接得出。
@@ -370,7 +390,9 @@ export function App() {
         <TimezoneProvider>
           <PreferencesProvider>
             <ModuleLabelProvider labels={MODULE_LABELS}>
-              <AppContent />
+              <SlotProvider slots={UI_SLOTS}>
+                <AppContent />
+              </SlotProvider>
             </ModuleLabelProvider>
           </PreferencesProvider>
         </TimezoneProvider>

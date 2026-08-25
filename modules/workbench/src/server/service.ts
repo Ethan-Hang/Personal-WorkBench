@@ -96,6 +96,29 @@ function bySchedule(a: WorkbenchItem, b: WorkbenchItem): number {
 const OPEN_STATUSES = ['inbox', 'todo', 'doing'] as const;
 
 /**
+ * 「这条已完成事项算不算今天做完的」。
+ *
+ * 取数用的 `scheduledOnOrBeforeDate` 是为**未完成**那半边服务的——把拖了几天的旧事项
+ * 带到今天，不让它悄悄消失。但同一个条件套在已完成那半边上，会让往日做完的旧事项
+ * 永久堆进今日的 completed，今日执行度的分子分母因此一起虚高，且只增不减。
+ *
+ * 归属一律以 `completedAt` 落在今天的本地日区间为准。历史数据可能没有 `completedAt`
+ * （done 却没记完成时刻），那时退回按排程日归属——定时排程已被 `scheduledWithin`
+ * 限在今天，只需再判全天排程那一支。
+ */
+function isCompletedOn(
+  item: Item,
+  date: string,
+  range: { startUtc: IsoInstant; endUtc: IsoInstant },
+): boolean {
+  if (item.completedAt !== null) {
+    return item.completedAt >= range.startUtc && item.completedAt < range.endUtc;
+  }
+  if (item.scheduled === null) return false;
+  return item.scheduled.kind === 'all-day' ? item.scheduled.date === date : true;
+}
+
+/**
  * 今日执行舱。**不按 sourceModule 过滤**——把所有模块的事项摆在同一条时间轴上，
  * 正是工作台存在的理由（spec §5.5：日历完全不知道秋招存在）。
  */
@@ -117,11 +140,13 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
     statuses: [...OPEN_STATUSES],
   });
 
-  const completedItems = await ctx.items.list({
-    scheduledWithin: range,
-    scheduledOnOrBeforeDate: date,
-    statuses: ['done'],
-  });
+  const completedItems = (
+    await ctx.items.list({
+      scheduledWithin: range,
+      scheduledOnOrBeforeDate: date,
+      statuses: ['done'],
+    })
+  ).filter((i) => isCompletedOn(i, date, range));
 
   const overdueIds = new Set(overdueItems.map((i) => i.id));
 
