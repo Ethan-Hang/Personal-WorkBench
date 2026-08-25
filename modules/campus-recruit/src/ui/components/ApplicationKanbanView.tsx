@@ -1,4 +1,4 @@
-import { IconCalendar, IconClock, IconPlus } from '@workbench/ui';
+import { IconCalendar, IconClock, IconPlus, useTimezone } from '@workbench/ui';
 import type { ApplicationView } from '../../contract.js';
 import { PriorityBadge } from './PriorityBadge.js';
 
@@ -8,6 +8,7 @@ interface ApplicationKanbanViewProps {
   onSelectApplication: (id: string) => void;
   onOpenCreateModal: () => void;
   onMarkApplied: (id: string) => void;
+  onUnmarkApplied: (id: string) => void;
   isBusy: boolean;
 }
 
@@ -75,29 +76,17 @@ function classifyApplicationToColumn(app: ApplicationView): KanbanColumnId {
   return 'technical';
 }
 
-function formatShortTime(value: string | null): string {
-  if (!value) return '';
-  try {
-    const d = new Date(value);
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d);
-  } catch {
-    return value;
-  }
-}
-
 export function ApplicationKanbanView({
   applications,
   selectedId,
   onSelectApplication,
   onOpenCreateModal,
   onMarkApplied,
+  onUnmarkApplied,
   isBusy,
 }: ApplicationKanbanViewProps) {
+  const { formatUtcShort } = useTimezone();
+
   // 分组
   const grouped = KANBAN_COLUMNS.reduce<Record<KanbanColumnId, ApplicationView[]>>(
     (acc, col) => {
@@ -195,13 +184,15 @@ export function ApplicationKanbanView({
                                 ? '✓ 通过'
                                 : latestRound.outcome === 'failed'
                                   ? '✕ 未通过'
-                                  : '⏳ 待定'}
+                                  : latestRound.outcome === 'completed'
+                                    ? '◷ 已完成'
+                                    : '⏳ 待定'}
                             </span>
                           </div>
                           {latestRound.scheduledAt && (
                             <div className="mt-0.5 flex items-center gap-1 text-accent">
                               <IconClock size={11} />
-                              <span>{formatShortTime(latestRound.scheduledAt)}</span>
+                              <span>{formatUtcShort(latestRound.scheduledAt)}</span>
                             </div>
                           )}
                         </div>
@@ -220,7 +211,7 @@ export function ApplicationKanbanView({
                           )}
                         </div>
 
-                        {app.appliedAt === null && (
+                        {app.appliedAt === null ? (
                           <button
                             type="button"
                             disabled={isBusy}
@@ -231,6 +222,19 @@ export function ApplicationKanbanView({
                             className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-accent/90"
                           >
                             标已投
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onUnmarkApplied(app.id);
+                            }}
+                            title="撤回投递，退回「待投递」"
+                            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-muted hover:bg-surface-3 hover:text-ink disabled:opacity-50"
+                          >
+                            撤回
                           </button>
                         )}
                       </div>

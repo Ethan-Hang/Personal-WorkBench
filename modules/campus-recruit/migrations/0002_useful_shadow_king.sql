@@ -1,0 +1,1 @@
+ALTER TABLE `campus_recruit_applications` ADD `shelved_at` text;

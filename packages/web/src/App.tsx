@@ -23,6 +23,7 @@ import {
   IconCheckSquare,
   IconFlame,
   IconFileText,
+  IconBookOpen,
   type ShellNavGroup,
   type CommandItemDescriptor,
 } from '@workbench/ui';
@@ -66,10 +67,11 @@ function AppContent() {
     queryFn: fetchUnscheduled,
   });
 
-  // 查询秋招投递与轮次详情
+  // 查询招聘投递与轮次详情。**刻意不传 seasonId：命令面板要跨季搜索**——
+  // 只搜当前季的话，换季时搜不到别的季的公司，那是退步
   const campusQuery = useQuery({
-    queryKey: ['campus', 'applications'],
-    queryFn: fetchApplications,
+    queryKey: ['campus', 'applications', null],
+    queryFn: () => fetchApplications(),
   });
 
   // 将注册的 UI 模块组织为侧边栏导航分组
@@ -160,6 +162,7 @@ function AppContent() {
         else if (nav.path === '/campus/stats') icon = <IconBarChart size={15} />;
         else if (nav.path === '/habits') icon = <IconFlame size={15} />;
         else if (nav.path === '/notes') icon = <IconFileText size={15} />;
+        else if (nav.path === '/research') icon = <IconBookOpen size={15} />;
 
         items.push({
           id: `nav-mod-${mod.id}-${nav.path}`,
@@ -244,12 +247,15 @@ function AppContent() {
       });
     }
 
-    // 4. 秋招投递与各轮次详情 (Campus Recruit Applications & Rounds)
+    // 4. 招聘投递与各轮次详情 (Campus Recruit Applications & Rounds)
+    //    命令面板跨季搜索，所以每条结果都要标出它属于哪一季——
+    //    否则搜到一条别的季的投递时，人不知道自己在看什么
     const applications: ApplicationView[] = campusQuery.data?.applications ?? [];
     for (const app of applications) {
       // 4.1 投递主条目 (公司 + 岗位)
-      const appBadges = ['秋招', `${app.priority}级`, app.status.label];
+      const appBadges = [app.seasonName, `${app.priority}级`, app.status.label];
       const appSubtitleParts = [
+        app.seasonName,
         app.status.label,
         app.salary ? `薪资: ${app.salary}` : null,
         app.city ? `城市: ${app.city}` : null,
@@ -272,6 +278,7 @@ function AppContent() {
           app.notes ?? '',
           app.salary ?? '',
           app.companyType ?? '',
+          app.seasonName,
           'qiuzhao',
           'gangwei',
           'toudi',

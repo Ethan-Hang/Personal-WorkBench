@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   CAMPUS_API,
   ID_PARAM,
+  applicationsQuery,
   createApplicationInputSchema,
+  createSeasonInputSchema,
+  statsQuery,
   updateApplicationInputSchema,
   updateRoundInputSchema,
+  updateSeasonInputSchema,
 } from './contract.js';
 
 describe('campus recruit contract', () => {
@@ -12,6 +16,7 @@ describe('campus recruit contract', () => {
     const parsed = createApplicationInputSchema.parse({
       company: '  星云科技  ',
       position: '固件工程师',
+      seasonId: 'season-legacy-autumn',
     });
     expect(parsed.company).toBe('星云科技');
     expect(parsed.priority).toBe('B');
@@ -24,6 +29,7 @@ describe('campus recruit contract', () => {
       createApplicationInputSchema.parse({
         company: 'A',
         position: 'B',
+        seasonId: 's1',
         applyDeadlineDate: '2026/09/20',
       }),
     ).toThrow();
@@ -32,7 +38,12 @@ describe('campus recruit contract', () => {
   it('rejects calendar-invalid deadline dates while accepting a leap day', () => {
     for (const applyDeadlineDate of ['2026-13-01', '2026-02-31', '2025-02-29']) {
       expect(() =>
-        createApplicationInputSchema.parse({ company: 'A', position: 'B', applyDeadlineDate }),
+        createApplicationInputSchema.parse({
+          company: 'A',
+          position: 'B',
+          seasonId: 's1',
+          applyDeadlineDate,
+        }),
       ).toThrow();
     }
 
@@ -40,6 +51,7 @@ describe('campus recruit contract', () => {
       createApplicationInputSchema.parse({
         company: 'A',
         position: 'B',
+        seasonId: 's1',
         applyDeadlineDate: '2024-02-29',
       }).applyDeadlineDate,
     ).toBe('2024-02-29');
@@ -50,6 +62,7 @@ describe('campus recruit contract', () => {
       createApplicationInputSchema.parse({
         company: 'A',
         position: 'B',
+        seasonId: 's1',
         appliedAt: '2026-09-20T11:00:00.000Z',
       }).appliedAt,
     ).toBe('2026-09-20T11:00:00.000Z');
@@ -60,7 +73,12 @@ describe('campus recruit contract', () => {
       '2026-09-20T11:00:00.12Z',
     ]) {
       expect(() =>
-        createApplicationInputSchema.parse({ company: 'A', position: 'B', appliedAt }),
+        createApplicationInputSchema.parse({
+          company: 'A',
+          position: 'B',
+          seasonId: 's1',
+          appliedAt,
+        }),
       ).toThrow();
     }
   });
@@ -123,5 +141,45 @@ describe('CAMPUS_API 端点定义', () => {
    */
   it('占位符不得被转义', () => {
     expect(CAMPUS_API.application(ID_PARAM)).not.toContain('%3A');
+  });
+  it('招聘季的形状与端点', () => {
+    expect(CAMPUS_API.seasons).toBe('/api/campus/seasons');
+    expect(CAMPUS_API.season('s1')).toBe('/api/campus/seasons/s1');
+    expect(CAMPUS_API.season('s/1')).toBe('/api/campus/seasons/s%2F1');
+    expect(CAMPUS_API.season(ID_PARAM)).toBe('/api/campus/seasons/:id');
+
+    // 季筛选是查询参数，省略即全部季（命令面板要跨季搜索）
+    expect(applicationsQuery()).toBe('/api/campus/applications');
+    expect(applicationsQuery('s1')).toBe('/api/campus/applications?seasonId=s1');
+    expect(statsQuery('s/1')).toBe('/api/campus/stats?seasonId=s%2F1');
+
+    expect(createSeasonInputSchema.parse({ name: ' 2027 春招 ', kind: 'campus-spring' })).toEqual({
+      name: '2027 春招',
+      kind: 'campus-spring',
+      startDate: null,
+      endDate: null,
+      notes: null,
+    });
+
+    expect(() => createSeasonInputSchema.parse({ name: '  ', kind: 'social' })).toThrow();
+    expect(() => createSeasonInputSchema.parse({ name: 'x', kind: '实习' })).toThrow();
+    // 起止是浮动日期，不接受时刻
+    expect(() =>
+      createSeasonInputSchema.parse({
+        name: 'x',
+        kind: 'social',
+        startDate: '2027-02-01T00:00:00Z',
+      }),
+    ).toThrow();
+
+    expect(updateSeasonInputSchema.parse({ archived: true })).toEqual({ archived: true });
+  });
+
+  it('创建投递必须指定招聘季，改季即移动投递', () => {
+    expect(() => createApplicationInputSchema.parse({ company: 'A', position: 'B' })).toThrow();
+    expect(
+      createApplicationInputSchema.parse({ company: 'A', position: 'B', seasonId: 's1' }).seasonId,
+    ).toBe('s1');
+    expect(updateApplicationInputSchema.parse({ seasonId: 's2' })).toEqual({ seasonId: 's2' });
   });
 });

@@ -72,11 +72,13 @@ id                 text pk
 company            text not null       position   text not null
 company_type       text                industry   text        city  text
 channel            text                referral   text
+apply_email        text                apply_phone text       投这家用的账号，自由文本
 priority           text                S | A | B | C
 apply_deadline_date text               网申截止（浮动日期 YYYY-MM-DD）
 applied_at         text                投递日期（instant，null = 未投递）
 outcome            text                null | offer | oc | rejected | declined
 outcome_at         text
+shelved_at         text                手标泡池子的时刻（instant，null = 没泡）
 salary             text                offer 后填，自由文本（"14k·15薪"）
 link               text                notes  text
 deadline_item_id   text                → items.id，投影出去的截止任务
@@ -91,7 +93,7 @@ created_at, updated_at
 id                 text pk
 application_id     text not null       → campus_recruit_applications.id
 sequence           integer not null    同一投递内从 1 递增，唯一
-kind               text not null       assessment | written | technical | hr | other
+kind               text not null       screening | assessment | written | technical | hr | other
 name               text not null       自由文本："一面" / "交叉面" / "主管面"
 scheduled_at       text                instant，null = 知道有这轮但未约时间
 format             text                视频/电话/现场/线上
@@ -118,23 +120,35 @@ created_at, updated_at
 
 不存储 `status`，按下列顺序计算：
 
-| 顺序 | 条件                                                   | 状态                           |
-| ---- | ------------------------------------------------------ | ------------------------------ |
-| 1    | `outcome = offer`                                      | Offer                          |
-| 2    | `outcome = oc`                                         | OC（口头 offer）               |
-| 3    | `outcome = declined`                                   | 我拒了                         |
-| 4    | `outcome = rejected` **或任一轮次 `outcome = failed`** | 已挂（有轮次时附带"挂在一面"） |
-| 5    | `applied_at` 为空                                      | 待投递                         |
-| 6    | 无任何轮次，且 `now - applied_at > SHELVED_DAYS`       | 泡池子                         |
-| 7    | 无任何轮次                                             | 已投递                         |
-| 8    | 其余                                                   | 流程中 · 最新一轮名            |
+| 顺序 | 条件                                                       | 状态                           |
+| ---- | ---------------------------------------------------------- | ------------------------------ |
+| 1    | `outcome = offer`                                          | Offer                          |
+| 2    | `outcome = oc`                                             | OC（口头 offer）               |
+| 3    | `outcome = declined`                                       | 我拒了                         |
+| 4    | `outcome = rejected` **或任一轮次 `outcome = failed`**     | 已挂（有轮次时附带"挂在一面"） |
+| 5    | `shelved_at` 非空                                          | 泡池子（手动标记）             |
+| 6    | `applied_at` 为空                                          | 待投递                         |
+| 7    | 全部轮次仍 `pending`，且 `now - applied_at > SHELVED_DAYS` | 泡池子（自动）                 |
+| 8    | 无任何轮次                                                 | 已投递                         |
+| 9    | 其余                                                       | 流程中 · 最新一轮名            |
 
 **「已挂」的两个来源不会冲突**：标记某轮 `failed` 与将投递标为 `rejected` 都推出"已挂"，二者指向同一状态，因此不存在 Excel 那种"状态说 Offer、统计说仍在一面"的矛盾。前者额外提供**挂在哪一轮**的信息，而那正是统计所需。
 
 **「最新一轮」**取 `sequence` 最大的轮次。故“一面已过、二面未约时间”仍显示“二面”；
 补录较早轮次时也不会扰乱当前进度。
 
-**`SHELVED_DAYS = 90`**，定义为模块内的具名常量。泡池子采用派生而非手动标记，理由与 ADR-0003 的 urgency 一致：手动状态无人回头更新。
+**`SHELVED_DAYS = 90`**，定义为模块内的具名常量。
+
+**泡池子在 2026-08-23 由「纯派生」改为「手标为主、派生兜底」**（ADR-0026）。原设计照搬
+ADR-0003 对 urgency 的理由——手动状态无人回头更新——但那条理由在这里不成立：收到「进入
+人才库」通知是一个**有确切时刻的事件**，用户当场就想记下来，而不是等 90 天让系统猜。
+
+手标落在 `shelved_at` 列而**不是 `outcome` 的一个取值**：泡池子不是终局（下周可能突然
+来面试），撤销它也不该被表达成「清空终局结果」；而且 SQLite 改 CHECK 约束必须整表重建，
+`campus_recruit_rounds` 有外键指向本表，重建父表得不偿失。
+
+自动判定的条件同时从「无任何轮次」改为「**全部轮次仍 `pending`**」——因为标记已投递
+会自动补一轮待定的简历初筛（见 §6.2），按轮次数判定会让这条规则永久失效。
 
 ## 6. 投影与联动
 
@@ -158,6 +172,7 @@ created_at, updated_at
 | 动作                           | Item 变化                                                                      |
 | ------------------------------ | ------------------------------------------------------------------------------ |
 | 填写投递日期                   | 截止任务标记 `done`                                                            |
+| 点击「标记已投递」             | 截止任务标记 `done`；若此前零轮次，补一轮待定的「简历初筛」（无 Item）         |
 | 新增首轮或设置结果，且尚未投递 | 自动写入 `applied_at = now`，截止任务标记 `done`                               |
 | 某轮标记 `failed`              | 该轮 Item 标记 `done`；`sequence` 更大的所有未来、未完成 Item 标记 `cancelled` |
 | 投递标记 `rejected`            | 该投递所有未来、未完成的 Item 标记 `cancelled`                                 |
@@ -172,7 +187,14 @@ created_at, updated_at
 
 轮次或终局结果存在即证明已经投递。若用户直接新增首轮或设置结果而忘记点击“标记已投递”，
 service 自动补写 `applied_at = now`；否则会出现“状态仍是待投递、统计却已进入技术面/Offer”
-的不可能组合。
+的不可能组合。手标泡池子同理——泡池子隐含「已经投出去了」。
+
+**点击「标记已投递」时自动补一轮「简历初筛」**（`kind=screening`，`outcome=pending`）：
+投递流程的第一步恒为简历初筛，此前每条投递都要手工建一遍。两个条件都是幂等护栏——只在
+「这次真的从待投递变已投递」且**该投递零轮次**时补，重复点或已手工建过轮次的都不会凭空
+多出一轮。它的 `scheduled_at` 为 `null`，因此**不产生 core Item**，日历与今日不受影响。
+副作用是状态随即从「已投递」进到「流程中 · 简历初筛」，且任何依赖「轮次数为 0」的判断
+都必须改看「有没有一轮出过结果」——§5 的自动泡池子判定就是为此改的。
 
 ### 6.3 投影一致性与恢复
 

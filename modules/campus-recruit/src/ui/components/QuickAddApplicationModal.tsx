@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Button, DatePicker, Field, Modal, controlClass } from '@workbench/ui';
+import { Button, DatePicker, Field, IconChevronDown, Modal, controlClass } from '@workbench/ui';
 import {
   APPLICATION_PRIORITIES,
   type ApplicationPriority,
@@ -11,6 +11,9 @@ interface QuickAddApplicationModalProps {
   onClose: () => void;
   onSubmit: (input: CreateApplicationInput) => Promise<void>;
   isBusy: boolean;
+  /** 新投递落进哪个招聘季 */
+  seasonId: string;
+  seasonName: string;
   error: Error | null;
 }
 
@@ -22,7 +25,19 @@ const INITIAL_FORM = {
   city: '',
   channel: '',
   notes: '',
+  companyType: '',
+  industry: '',
+  referral: '',
+  applyEmail: '',
+  applyPhone: '',
+  salary: '',
+  link: '',
 };
+
+function nullableText(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}
 
 export function QuickAddApplicationModal({
   isOpen,
@@ -30,8 +45,11 @@ export function QuickAddApplicationModal({
   onSubmit,
   isBusy,
   error,
+  seasonId,
+  seasonName,
 }: QuickAddApplicationModalProps) {
   const [form, setForm] = useState(INITIAL_FORM);
+  const [showMore, setShowMore] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -39,15 +57,25 @@ export function QuickAddApplicationModal({
 
     try {
       await onSubmit({
+        // 新建的投递落进当前招聘季，不必让人每次选一遍
+        seasonId,
         company: form.company.trim(),
         position: form.position.trim(),
         priority: form.priority,
         applyDeadlineDate: form.applyDeadlineDate === '' ? null : form.applyDeadlineDate,
-        city: form.city.trim() === '' ? null : form.city.trim(),
-        channel: form.channel.trim() === '' ? null : form.channel.trim(),
-        notes: form.notes.trim() === '' ? null : form.notes.trim(),
+        city: nullableText(form.city),
+        channel: nullableText(form.channel),
+        notes: nullableText(form.notes),
+        companyType: nullableText(form.companyType),
+        industry: nullableText(form.industry),
+        referral: nullableText(form.referral),
+        applyEmail: nullableText(form.applyEmail),
+        applyPhone: nullableText(form.applyPhone),
+        salary: nullableText(form.salary),
+        link: nullableText(form.link),
       });
       setForm(INITIAL_FORM);
+      setShowMore(false);
       onClose();
     } catch {
       // handled by parent query error
@@ -61,8 +89,9 @@ export function QuickAddApplicationModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="记录新投递机会"
-      description="先填写公司与岗位基本信息，后续可在详情抽屉中补充面试轮次与复盘笔记。"
+      // 标题带上季名：归属可见，但不必让人每次选一遍
+      title={seasonName === '' ? '记录新投递机会' : `记录新投递机会 · ${seasonName}`}
+      description="填写公司与岗位基本信息；展开「更多信息」可一次录完档案，后续也能在详情抽屉中补充。"
       maxWidth="max-w-xl"
     >
       <form onSubmit={handleSubmit} className="space-y-3.5">
@@ -139,14 +168,101 @@ export function QuickAddApplicationModal({
           />
         </Field>
 
-        <Field label="备注 / 内推码 (可选)">
+        <Field label="备注 / 关键信息 (可选)">
           <input
             value={form.notes}
             onChange={(e) => set('notes', e.target.value)}
-            placeholder="例如：内推码 NTA1234，关注嵌入式底层方向"
+            placeholder="例如：投递账号、进度交流群、意向度说明"
             className={controlClass}
           />
         </Field>
+
+        {/* 更多信息：默认收起。收起不清值——填过再折叠依然随表单提交 */}
+        <div className="rounded-lg border border-line">
+          <button
+            type="button"
+            onClick={() => setShowMore((prev) => !prev)}
+            aria-expanded={showMore}
+            className="flex w-full items-center justify-between px-3 py-2 text-[13px] font-medium text-secondary hover:text-ink"
+          >
+            <span>更多信息（选填）</span>
+            <IconChevronDown
+              size={15}
+              className={`transition-transform ${showMore ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {showMore && (
+            <div className="space-y-3.5 border-t border-line px-3 py-3.5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="公司类型">
+                  <input
+                    value={form.companyType}
+                    onChange={(e) => set('companyType', e.target.value)}
+                    placeholder="例如：外企 / 国企 / 独角兽"
+                    className={controlClass}
+                  />
+                </Field>
+                <Field label="行业">
+                  <input
+                    value={form.industry}
+                    onChange={(e) => set('industry', e.target.value)}
+                    placeholder="例如：消费电子 / 新能源 / 互联网"
+                    className={controlClass}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="内推码 / 内推人">
+                  <input
+                    value={form.referral}
+                    onChange={(e) => set('referral', e.target.value)}
+                    placeholder="例如：NTAXXXXX"
+                    className={controlClass}
+                  />
+                </Field>
+                <Field label="薪资 / 预期待遇">
+                  <input
+                    value={form.salary}
+                    onChange={(e) => set('salary', e.target.value)}
+                    placeholder="例如：25k·16薪 + 签字费"
+                    className={controlClass}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="投递邮箱">
+                  <input
+                    value={form.applyEmail}
+                    onChange={(e) => set('applyEmail', e.target.value)}
+                    placeholder="投这家用的邮箱"
+                    className={controlClass}
+                  />
+                </Field>
+                <Field label="投递手机号">
+                  <input
+                    value={form.applyPhone}
+                    onChange={(e) => set('applyPhone', e.target.value)}
+                    placeholder="投这家用的手机号"
+                    className={controlClass}
+                  />
+                </Field>
+              </div>
+
+              <Field label="岗位链接 / JD">
+                <input
+                  type="url"
+                  value={form.link}
+                  onChange={(e) => set('link', e.target.value)}
+                  placeholder="https://..."
+                  className={controlClass}
+                />
+              </Field>
+            </div>
+          )}
+        </div>
 
         <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-line">
           <Button type="button" onClick={onClose} className="text-[13px]">

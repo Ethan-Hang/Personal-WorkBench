@@ -5,8 +5,30 @@ import type {
   RoundOutcome,
 } from '../contract.js';
 
+export type SeasonKind = 'campus-autumn' | 'campus-spring' | 'intern' | 'social';
+
+export interface SeasonRecord {
+  id: string;
+  name: string;
+  kind: SeasonKind;
+  /** 浮动日期 YYYY-MM-DD，绝不转 UTC */
+  startDate: string | null;
+  endDate: string | null;
+  archivedAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApplicationRecord {
   id: string;
+  /**
+   * 这条投递属于哪个招聘季。
+   *
+   * 类型是 `string` 而非 `string | null`，尽管 DB 列可空——非空由 contract 的必填、
+   * service 的存在性校验与本类型三处共同保证。理由见迁移 0003 顶部。
+   */
+  seasonId: string;
   company: string;
   position: string;
   companyType: string | null;
@@ -14,11 +36,14 @@ export interface ApplicationRecord {
   city: string | null;
   channel: string | null;
   referral: string | null;
+  applyEmail: string | null;
+  applyPhone: string | null;
   priority: ApplicationPriority;
   applyDeadlineDate: string | null;
   appliedAt: string | null;
   outcome: ApplicationOutcome | null;
   outcomeAt: string | null;
+  shelvedAt: string | null;
   salary: string | null;
   link: string | null;
   notes: string | null;
@@ -34,6 +59,8 @@ export interface RoundRecord {
   kind: RoundKind;
   name: string;
   scheduledAt: string | null;
+  /** 截止时刻（UTC ISO）。与 scheduledAt 是两件事：一个「什么时候做」，一个「最晚做完」 */
+  deadlineAt: string | null;
   format: string | null;
   durationMin: number | null;
   outcome: RoundOutcome;
@@ -45,10 +72,19 @@ export interface RoundRecord {
 }
 
 export type ApplicationChanges = Partial<Omit<ApplicationRecord, 'id' | 'createdAt'>>;
+export type SeasonChanges = Partial<Omit<SeasonRecord, 'id' | 'createdAt'>>;
 export type RoundChanges = Partial<Omit<RoundRecord, 'id' | 'applicationId' | 'createdAt'>>;
 
 export interface CampusRecruitRepository {
-  listApplications(): Promise<ApplicationRecord[]>;
+  /** 省略 seasonId 即全部季 */
+  listApplications(seasonId?: string): Promise<ApplicationRecord[]>;
+  listSeasons(): Promise<SeasonRecord[]>;
+  getSeason(id: string): Promise<SeasonRecord | null>;
+  getSeasonByName(name: string): Promise<SeasonRecord | null>;
+  insertSeason(record: SeasonRecord): Promise<void>;
+  updateSeason(id: string, changes: SeasonChanges): Promise<SeasonRecord>;
+  deleteSeason(id: string): Promise<boolean>;
+  countApplicationsInSeason(seasonId: string): Promise<number>;
   getApplication(id: string): Promise<ApplicationRecord | null>;
   insertApplication(record: ApplicationRecord): Promise<void>;
   updateApplication(id: string, changes: ApplicationChanges): Promise<ApplicationRecord>;

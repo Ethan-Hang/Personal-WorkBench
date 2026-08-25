@@ -3,18 +3,24 @@ import {
   CAMPUS_RECRUIT_MODULE_ID,
   createApplicationInputSchema,
   createRoundInputSchema,
+  createSeasonInputSchema,
 } from '../contract.js';
 import type { CreateRoundData } from '../contract.js';
 import { DomainError } from '@workbench/http-kit';
 import { makeCampusHarness } from '../testing/harness.js';
 import {
   createApplication,
+  createSeason,
+  deleteSeason,
+  listSeasons,
+  updateSeason,
   createRound,
   deleteApplication,
   deleteRound,
   getStats,
   listApplications,
   markApplicationApplied,
+  unmarkApplicationApplied,
   updateApplication,
   updateRound,
 } from './service.js';
@@ -28,6 +34,7 @@ function pendingApplicationInput() {
     company: '星云科技',
     position: '固件工程师',
     priority: 'S',
+    seasonId: 'season-legacy-autumn',
     applyDeadlineDate: '2026-09-20',
   });
 }
@@ -64,15 +71,107 @@ describe('campus recruit service', () => {
     ]);
   });
 
+  it('往返存取投递用的邮箱与手机号——回头找验证码时要查的是这一套账号', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(
+      h.ctx,
+      h.repo,
+      createApplicationInputSchema.parse({
+        ...pendingApplicationInput(),
+        applyEmail: '校园招聘邮箱 zhaopin@example.com',
+        applyPhone: '13800138000',
+      }),
+      OPTS,
+    );
+
+    expect(created).toMatchObject({
+      applyEmail: '校园招聘邮箱 zhaopin@example.com',
+      applyPhone: '13800138000',
+    });
+
+    const updated = await updateApplication(
+      h.ctx,
+      h.repo,
+      created.id,
+      { applyEmail: null, applyPhone: '13900139000' },
+      OPTS,
+    );
+
+    expect(updated).toMatchObject({ applyEmail: null, applyPhone: '13900139000' });
+  });
+
+  it('手标泡池子记下时刻并顺带补齐投递时间，撤销时清掉', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const shelved = await updateApplication(h.ctx, h.repo, created.id, { shelved: true }, OPTS);
+    expect(shelved).toMatchObject({ shelvedAt: NOW, appliedAt: NOW });
+    expect(shelved.status.code).toBe('shelved');
+
+    const kept = await updateApplication(
+      h.ctx,
+      h.repo,
+      created.id,
+      { shelved: true },
+      {
+        ...OPTS,
+        now: LATER,
+      },
+    );
+    expect(kept.shelvedAt).toBe(NOW);
+
+    const revived = await updateApplication(h.ctx, h.repo, created.id, { shelved: false }, OPTS);
+    expect(revived.shelvedAt).toBeNull();
+    expect(revived.status.code).toBe('applied');
+  });
+
   it('marking applied completes the deadline projection', async () => {
     const h = makeCampusHarness();
     const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
     const applied = await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
 
     expect(applied.appliedAt).toBe(NOW);
-    expect(applied.status.code).toBe('applied');
+    // 自动补的「简历初筛」让状态从「已投递」进到「流程中」——这是投递流程的第一步
+    expect(applied.status.code).toBe('in_progress');
     const stored = (await h.repo.getApplication(created.id))!;
     expect(await h.items.getById(stored.deadlineItemId!)).toMatchObject({ status: 'done' });
+  });
+
+  it('标记已投递会自动补一轮「简历初筛」，且不落成日历上的一件事', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const applied = await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    expect(applied.rounds).toEqual([
+      expect.objectContaining({
+        sequence: 1,
+        kind: 'screening',
+        name: '简历初筛',
+        outcome: 'pending',
+        scheduledAt: null,
+        itemId: null,
+      }),
+    ]);
+  });
+
+  it('重复标记已投递不会重复补初筛，已有轮次的投递也不补', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    const again = await markApplicationApplied(h.ctx, h.repo, created.id, {
+      ...OPTS,
+      now: LATER,
+    });
+    expect(again.rounds).toHaveLength(1);
+
+    const other = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await createRound(h.ctx, h.repo, other.id, roundInput(), OPTS);
+    const otherApplied = await markApplicationApplied(h.ctx, h.repo, other.id, OPTS);
+
+    expect(otherApplied.rounds).toHaveLength(1);
+    expect(otherApplied.rounds[0]).toMatchObject({ kind: 'technical', name: '一面' });
   });
 
   it('setting a terminal outcome marks an un-applied record as applied', async () => {
@@ -168,6 +267,67 @@ describe('campus recruit service', () => {
     );
     expect(await h.repo.getApplication(app.id)).not.toBeNull();
     h.ctx.items.delete = originalDelete;
+  });
+
+  it('撤回投递退回待投递，并把自动补的初筛与已完成的投递事项一并收回', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    const reverted = await unmarkApplicationApplied(h.ctx, h.repo, created.id, {
+      ...OPTS,
+      now: LATER,
+    });
+
+    expect(reverted.appliedAt).toBeNull();
+    expect(reverted.rounds).toEqual([]);
+    expect(reverted.status.code).toBe('pending');
+    const stored = (await h.repo.getApplication(created.id))!;
+    expect(await h.items.getById(stored.deadlineItemId!)).toMatchObject({
+      status: 'todo',
+      completedAt: null,
+    });
+  });
+
+  it('撤回投递顺手清掉泡池子——没投出去就无所谓泡不泡', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await markApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+    await updateApplication(h.ctx, h.repo, created.id, { shelved: true }, OPTS);
+
+    const reverted = await unmarkApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    expect(reverted).toMatchObject({ appliedAt: null, shelvedAt: null });
+    expect(reverted.status.code).toBe('pending');
+  });
+
+  it('重复撤回是幂等的：本来就待投递就原样返回', async () => {
+    const h = makeCampusHarness();
+    const created = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const reverted = await unmarkApplicationApplied(h.ctx, h.repo, created.id, OPTS);
+
+    expect(reverted.appliedAt).toBeNull();
+    expect(reverted.status.code).toBe('pending');
+  });
+
+  it('有真实轮次或终局结果时拒绝撤回，并落成 409 而不是悄悄丢数据', async () => {
+    const h = makeCampusHarness();
+    const withRound = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    await createRound(h.ctx, h.repo, withRound.id, roundInput(), OPTS);
+
+    await expect(unmarkApplicationApplied(h.ctx, h.repo, withRound.id, OPTS)).rejects.toMatchObject(
+      { status: 409 },
+    );
+    // 轮次一条都没少
+    expect(await h.repo.listRounds(withRound.id)).toHaveLength(1);
+
+    const settled = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    await updateApplication(h.ctx, h.repo, settled.id, { outcome: 'offer' }, OPTS);
+
+    await expect(unmarkApplicationApplied(h.ctx, h.repo, settled.id, OPTS)).rejects.toMatchObject({
+      status: 409,
+    });
   });
 
   it('缺失的投递抛 404 领域错误——而不是落成 500', async () => {
@@ -344,6 +504,88 @@ describe('campus recruit service', () => {
     expect(await h.items.getById(pending.itemId!)).toMatchObject({ completedAt: NOW });
   });
 
+  it('只有截止时刻的轮次投影成一件带 due 的任务——测评/笔试最常见的形态', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(
+      h.ctx,
+      h.repo,
+      app.id,
+      roundInput({
+        kind: 'assessment',
+        name: '测评',
+        scheduledAt: null,
+        durationMin: null,
+        deadlineAt: '2026-09-25T15:59:59.999Z',
+      }),
+      OPTS,
+    );
+    const round = withRound.rounds.find((r) => r.name === '测评')!;
+
+    expect(round.deadlineAt).toBe('2026-09-25T15:59:00.000Z'); // 秒与毫秒截零（ADR-0012）
+    expect(await h.items.getById(round.itemId!)).toMatchObject({
+      kind: 'task',
+      title: '星云科技 测评（截止）',
+      dueAt: '2026-09-25T15:59:00.000Z',
+      scheduled: { kind: 'timed', start: '2026-09-25T15:59:00.000Z' },
+      status: 'todo',
+    });
+  });
+
+  it('轮次的截止时刻落在已约时间的轮次上时只作 dueAt，日历块仍是那场面试', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(
+      h.ctx,
+      h.repo,
+      app.id,
+      roundInput({ deadlineAt: '2026-09-22T02:00:00.000Z' }),
+      OPTS,
+    );
+    const round = withRound.rounds.find((r) => r.name === '一面')!;
+
+    expect(await h.items.getById(round.itemId!)).toMatchObject({
+      kind: 'event',
+      dueAt: '2026-09-22T02:00:00.000Z',
+      scheduled: { kind: 'timed', start: '2026-09-21T02:00:00.000Z' },
+    });
+  });
+
+  it('「已完成」是出过结果的中间态：记下时刻、投影收尾，但投递没有变成已挂', async () => {
+    const h = makeCampusHarness();
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(h.ctx, h.repo, app.id, roundInput(), OPTS);
+    const round = withRound.rounds.find((r) => r.name === '一面')!;
+
+    const done = await updateRound(h.ctx, h.repo, round.id, { outcome: 'completed' }, OPTS);
+
+    expect(done.rounds.find((r) => r.name === '一面')).toMatchObject({
+      outcome: 'completed',
+      outcomeAt: NOW,
+    });
+    expect(done.status.code).toBe('in_progress');
+    expect(await h.items.getById(round.itemId!)).toMatchObject({
+      status: 'done',
+      completedAt: NOW,
+    });
+  });
+
+  it('「已完成」算出过结果，因此解除 90 天自动泡池子判定', async () => {
+    const h = makeCampusHarness();
+    const long = { zone: OPTS.zone, now: '2027-01-20T02:00:00.000Z' } as const;
+    const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
+    const withRound = await createRound(h.ctx, h.repo, app.id, roundInput(), OPTS);
+    const round = withRound.rounds.find((r) => r.name === '一面')!;
+
+    const stillPending = await listApplications(h.repo, long);
+    expect(stillPending.applications[0]!.status.code).toBe('shelved');
+
+    await updateRound(h.ctx, h.repo, round.id, { outcome: 'completed' }, long);
+
+    const after = await listApplications(h.repo, long);
+    expect(after.applications[0]!.status.code).toBe('in_progress');
+  });
+
   it('deletes a round Item before its record and returns the parent view', async () => {
     const h = makeCampusHarness();
     const app = await createApplication(h.ctx, h.repo, appliedApplicationInput(), OPTS);
@@ -368,9 +610,24 @@ describe('campus recruit service', () => {
   it('lists derived views by priority, update time, and company', async () => {
     const h = makeCampusHarness();
     const later = { zone: OPTS.zone, now: '2026-09-20T03:00:00.000Z' } as const;
-    const a = createApplicationInputSchema.parse({ company: 'A', position: 'P', priority: 'B' });
-    const z = createApplicationInputSchema.parse({ company: 'Z', position: 'P', priority: 'B' });
-    const s = createApplicationInputSchema.parse({ company: 'S', position: 'P', priority: 'S' });
+    const a = createApplicationInputSchema.parse({
+      company: 'A',
+      position: 'P',
+      priority: 'B',
+      seasonId: 'season-legacy-autumn',
+    });
+    const z = createApplicationInputSchema.parse({
+      company: 'Z',
+      position: 'P',
+      priority: 'B',
+      seasonId: 'season-legacy-autumn',
+    });
+    const s = createApplicationInputSchema.parse({
+      company: 'S',
+      position: 'P',
+      priority: 'S',
+      seasonId: 'season-legacy-autumn',
+    });
     await createApplication(h.ctx, h.repo, a, OPTS);
     await createApplication(h.ctx, h.repo, z, later);
     await createApplication(h.ctx, h.repo, s, OPTS);
@@ -389,7 +646,12 @@ describe('campus recruit service', () => {
     const applied = await createApplication(
       h.ctx,
       h.repo,
-      createApplicationInputSchema.parse({ company: '远航', position: '研发', appliedAt: NOW }),
+      createApplicationInputSchema.parse({
+        company: '远航',
+        position: '研发',
+        appliedAt: NOW,
+        seasonId: 'season-legacy-autumn',
+      }),
       OPTS,
     );
     await createRound(h.ctx, h.repo, applied.id, roundInput({ kind: 'assessment' }), OPTS);
@@ -455,5 +717,164 @@ describe('面试时刻的颗粒度为分钟（ADR-0012）', () => {
         },
       }),
     );
+  });
+});
+
+describe('招聘季', () => {
+  it('新建、改名、归档，归档不影响投影', async () => {
+    const h = makeCampusHarness();
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    expect(spring).toMatchObject({ name: '2027 春招', archivedAt: null, applicationCount: 0 });
+
+    const { seasons } = await listSeasons(h.repo);
+    expect(seasons.map((s) => s.id)).toEqual(['season-legacy-autumn', spring.id]);
+
+    // 这一季里有一条带截止日的投递，归档后它的 core Item 必须还在
+    const app = await createApplication(
+      h.ctx,
+      h.repo,
+      { ...pendingApplicationInput(), seasonId: spring.id },
+      OPTS,
+    );
+    expect(await h.items.list({ sourceModules: [CAMPUS_RECRUIT_MODULE_ID] })).toHaveLength(1);
+
+    const archived = await updateSeason(h.repo, spring.id, { archived: true }, OPTS);
+    expect(archived.archivedAt).toBe(NOW);
+    expect(await h.items.list({ sourceModules: [CAMPUS_RECRUIT_MODULE_ID] })).toHaveLength(1);
+    expect(await h.repo.getApplication(app.id)).not.toBeNull();
+
+    // 再归档一次不刷新时刻：「从哪天起不再看它」才是有用的信息
+    const again = await updateSeason(
+      h.repo,
+      spring.id,
+      { archived: true },
+      { ...OPTS, now: LATER },
+    );
+    expect(again.archivedAt).toBe(NOW);
+
+    const revived = await updateSeason(h.repo, spring.id, { archived: false }, OPTS);
+    expect(revived.archivedAt).toBeNull();
+  });
+
+  it('重名回 409', async () => {
+    const h = makeCampusHarness();
+    await expect(
+      createSeason(h.repo, createSeasonInputSchema.parse({ name: '秋招', kind: 'social' }), OPTS),
+    ).rejects.toMatchObject({ status: 409 });
+
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    await expect(updateSeason(h.repo, spring.id, { name: '秋招' }, OPTS)).rejects.toMatchObject({
+      status: 409,
+    });
+    // 改成自己现在的名字不算重名
+    await expect(
+      updateSeason(h.repo, spring.id, { name: '2027 春招' }, OPTS),
+    ).resolves.toMatchObject({ name: '2027 春招' });
+  });
+
+  it('季里有投递、或它是最后一个未归档的季，都拒绝删除', async () => {
+    const h = makeCampusHarness();
+
+    // 最后一个未归档的季：删了就没地方放新投递
+    await expect(deleteSeason(h.repo, 'season-legacy-autumn')).rejects.toMatchObject({
+      status: 409,
+    });
+
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    await createApplication(
+      h.ctx,
+      h.repo,
+      { ...pendingApplicationInput(), seasonId: spring.id },
+      OPTS,
+    );
+    // 有投递：不级联删除，让操作失败并提示
+    await expect(deleteSeason(h.repo, spring.id)).rejects.toMatchObject({ status: 409 });
+    expect(await h.repo.getSeason(spring.id)).not.toBeNull();
+
+    const empty = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 社招', kind: 'social' }),
+      OPTS,
+    );
+    await expect(deleteSeason(h.repo, empty.id)).resolves.toBeUndefined();
+    expect(await h.repo.getSeason(empty.id)).toBeNull();
+  });
+
+  it('不存在的季回 404', async () => {
+    const h = makeCampusHarness();
+    await expect(updateSeason(h.repo, 'missing', { name: 'x' }, OPTS)).rejects.toMatchObject({
+      status: 404,
+    });
+    await expect(deleteSeason(h.repo, 'missing')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('列表与统计按季过滤，轮次跟着投递一起被过滤', async () => {
+    const h = makeCampusHarness();
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+
+    const autumnApp = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+    const springApp = await createApplication(
+      h.ctx,
+      h.repo,
+      { ...pendingApplicationInput(), seasonId: spring.id },
+      OPTS,
+    );
+    await createRound(h.ctx, h.repo, autumnApp.id, roundInput(), OPTS);
+
+    const autumnOnly = await listApplications(h.repo, {
+      ...OPTS,
+      seasonId: 'season-legacy-autumn',
+    });
+    expect(autumnOnly.applications.map((a) => a.id)).toEqual([autumnApp.id]);
+    expect(autumnOnly.applications[0]).toMatchObject({
+      seasonId: 'season-legacy-autumn',
+      seasonName: '秋招',
+    });
+
+    expect((await listApplications(h.repo, OPTS)).applications).toHaveLength(2);
+
+    // 统计只算这一季：春招那条没有轮次，秋招那条有一轮 technical
+    const springStats = await getStats(h.repo, { ...OPTS, seasonId: spring.id });
+    expect(springStats).toMatchObject({ total: 1, technical: 0 });
+    // 春招那条还没标记已投递，applied=0——分母为零时口径是 null，不是 0
+    expect(springStats.rates.applicationToTechnical).toBeNull();
+    expect(springApp.seasonName).toBe('2027 春招');
+  });
+
+  it('创建投递时季必须存在；改季即移动投递', async () => {
+    const h = makeCampusHarness();
+    await expect(
+      createApplication(h.ctx, h.repo, { ...pendingApplicationInput(), seasonId: 'missing' }, OPTS),
+    ).rejects.toMatchObject({ status: 404 });
+
+    const spring = await createSeason(
+      h.repo,
+      createSeasonInputSchema.parse({ name: '2027 春招', kind: 'campus-spring' }),
+      OPTS,
+    );
+    const app = await createApplication(h.ctx, h.repo, pendingApplicationInput(), OPTS);
+
+    const moved = await updateApplication(h.ctx, h.repo, app.id, { seasonId: spring.id }, OPTS);
+    expect(moved).toMatchObject({ seasonId: spring.id, seasonName: '2027 春招' });
+
+    await expect(
+      updateApplication(h.ctx, h.repo, app.id, { seasonId: 'missing' }, OPTS),
+    ).rejects.toMatchObject({ status: 404 });
   });
 });

@@ -1,0 +1,13 @@
+{
+  "id": "https://openalex.org/W123",
+  "doi": "https://doi.org/10.1000/example",
+  "title": "A Trustworthy Research Library",
+  "publication_year": 2026,
+  "type": "article",
+  "authorships": [
+    { "author": { "id": "https://openalex.org/A1", "display_name": "Ada Lovelace" } }
+  ],
+  "primary_location": {
+    "source": { "display_name": "Workbench Journal" }
+  }
+}

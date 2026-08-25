@@ -7,23 +7,32 @@ import {
   ID_PARAM,
   createApplicationInputSchema,
   createRoundInputSchema,
+  createSeasonInputSchema,
   updateApplicationInputSchema,
   updateRoundInputSchema,
+  updateSeasonInputSchema,
 } from '../contract.js';
 import type { CampusRecruitRepository } from './repository.js';
 import {
   createApplication,
   createRound,
+  createSeason,
   deleteApplication,
   deleteRound,
+  deleteSeason,
   getStats,
   listApplications,
+  listSeasons,
   markApplicationApplied,
+  unmarkApplicationApplied,
   updateApplication,
   updateRound,
+  updateSeason,
 } from './service.js';
 
 const idParams = z.object({ id: z.string().min(1) });
+/** 招聘季筛选：省略即全部季（命令面板要跨季搜索） */
+const seasonQuery = z.object({ seasonId: z.string().min(1).optional() });
 
 function resolveZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -44,7 +53,33 @@ export function registerCampusRecruitRoutes(
   ctx: ModuleContext,
   repo: CampusRecruitRepository,
 ): void {
-  app.get(CAMPUS_API.applications, async () => listApplications(repo, { zone: resolveZone() }));
+  app.get(
+    CAMPUS_API.applications,
+    defineRoute({ query: seasonQuery }, ({ query }) =>
+      listApplications(repo, { zone: resolveZone(), seasonId: query.seasonId }),
+    ),
+  );
+
+  app.get(CAMPUS_API.seasons, async () => listSeasons(repo));
+
+  app.post(
+    CAMPUS_API.seasons,
+    defineRoute({ body: createSeasonInputSchema, status: 201 }, ({ body }) =>
+      createSeason(repo, body, { zone: resolveZone() }),
+    ),
+  );
+
+  app.patch(
+    CAMPUS_API.season(ID_PARAM),
+    defineRoute({ params: idParams, body: updateSeasonInputSchema }, ({ params, body }) =>
+      updateSeason(repo, params.id, body, { zone: resolveZone() }),
+    ),
+  );
+
+  app.delete(
+    CAMPUS_API.season(ID_PARAM),
+    defineRoute({ params: idParams, status: 204 }, ({ params }) => deleteSeason(repo, params.id)),
+  );
 
   app.post(
     CAMPUS_API.applications,
@@ -64,6 +99,13 @@ export function registerCampusRecruitRoutes(
     CAMPUS_API.applyApplication(ID_PARAM),
     defineRoute({ params: idParams }, ({ params }) =>
       markApplicationApplied(ctx, repo, params.id, { zone: resolveZone() }),
+    ),
+  );
+
+  app.post(
+    CAMPUS_API.unapplyApplication(ID_PARAM),
+    defineRoute({ params: idParams }, ({ params }) =>
+      unmarkApplicationApplied(ctx, repo, params.id, { zone: resolveZone() }),
     ),
   );
 
@@ -96,5 +138,10 @@ export function registerCampusRecruitRoutes(
     ),
   );
 
-  app.get(CAMPUS_API.stats, async () => getStats(repo, { zone: resolveZone() }));
+  app.get(
+    CAMPUS_API.stats,
+    defineRoute({ query: seasonQuery }, ({ query }) =>
+      getStats(repo, { zone: resolveZone(), seasonId: query.seasonId }),
+    ),
+  );
 }

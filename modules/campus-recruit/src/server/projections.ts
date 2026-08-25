@@ -123,14 +123,20 @@ function deadlineProjection(
   };
 }
 
+/** 已出过结果——`completed`（做完了、结果未知）也算，投影上与通过/未通过同样是「不必再做」 */
+function isSettled(round: RoundRecord): boolean {
+  return round.outcome !== 'pending';
+}
+
 function roundStatus(
   application: ApplicationRecord,
   rounds: RoundRecord[],
-  round: RoundRecord & { scheduledAt: string },
+  round: RoundRecord,
+  at: string,
   now: string,
 ): ItemStatus {
-  if (round.outcome === 'passed' || round.outcome === 'failed') return 'done';
-  const isFuture = Date.parse(round.scheduledAt) > Date.parse(now);
+  if (isSettled(round)) return 'done';
+  const isFuture = Date.parse(at) > Date.parse(now);
   const failedBefore = rounds.some(
     (candidate) => candidate.outcome === 'failed' && candidate.sequence < round.sequence,
   );
@@ -143,32 +149,57 @@ function roundStatus(
   return 'todo';
 }
 
+/**
+ * 一轮最多投影出一件 core Item，形态由「有没有约到时刻」决定：
+ *
+ * - 约到了时刻 → `event`，落在日历上的那个时间块；截止时刻（若有）只作 `dueAt`。
+ * - 只有截止时刻 → `task`，due 与排程都落在截止那一刻。测评/笔试最常见的形态：
+ *   没人约你什么时候做，只有一个「最晚做完」。
+ * - 两者都没有 → 不投影（自动补的那轮简历初筛就是这种）。
+ */
 function roundProjection(
   application: ApplicationRecord,
   rounds: RoundRecord[],
   round: RoundRecord,
   now: string,
 ): DesiredProjection | null {
-  if (round.scheduledAt === null) return null;
-  const scheduledRound = { ...round, scheduledAt: round.scheduledAt };
-  const end =
-    round.durationMin === null
-      ? undefined
-      : new Date(Date.parse(round.scheduledAt) + round.durationMin * 60_000).toISOString();
-  const scheduled =
-    end === undefined
-      ? { kind: 'timed' as const, start: round.scheduledAt }
-      : { kind: 'timed' as const, start: round.scheduledAt, end };
-  const isComplete = round.outcome === 'passed' || round.outcome === 'failed';
-  return {
-    kind: 'event',
-    title: `${application.company} ${round.name}`,
-    importance: priorityToImportance(application.priority),
-    dueAt: null,
-    scheduled,
-    status: roundStatus(application, rounds, scheduledRound, now),
-    completedAt: isComplete ? (round.outcomeAt ?? now) : null,
-  };
+  const settled = isSettled(round);
+  const completedAt = settled ? (round.outcomeAt ?? now) : null;
+  const importance = priorityToImportance(application.priority);
+
+  if (round.scheduledAt !== null) {
+    const end =
+      round.durationMin === null
+        ? undefined
+        : new Date(Date.parse(round.scheduledAt) + round.durationMin * 60_000).toISOString();
+    const scheduled =
+      end === undefined
+        ? { kind: 'timed' as const, start: round.scheduledAt }
+        : { kind: 'timed' as const, start: round.scheduledAt, end };
+    return {
+      kind: 'event',
+      title: `${application.company} ${round.name}`,
+      importance,
+      dueAt: round.deadlineAt,
+      scheduled,
+      status: roundStatus(application, rounds, round, round.scheduledAt, now),
+      completedAt,
+    };
+  }
+
+  if (round.deadlineAt !== null) {
+    return {
+      kind: 'task',
+      title: `${application.company} ${round.name}（截止）`,
+      importance,
+      dueAt: round.deadlineAt,
+      scheduled: { kind: 'timed', start: round.deadlineAt },
+      status: roundStatus(application, rounds, round, round.deadlineAt, now),
+      completedAt,
+    };
+  }
+
+  return null;
 }
 
 export async function reconcileApplicationProjections(

@@ -32,6 +32,19 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
 
+  // 仓库脚本是 Node ESM，不经过 TypeScript 的 Node 类型环境。
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        Buffer: 'readonly',
+        console: 'readonly',
+        process: 'readonly',
+        setTimeout: 'readonly',
+      },
+    },
+  },
+
   // 铁律 1：core 不得依赖外层（spec §4.2 铁律 2 + §9 DIP）
   {
     files: ['packages/core/**/*.ts'],
@@ -190,6 +203,49 @@ export default tseslint.config(
           message:
             '模块 UI 不得硬编码 API 路径。路径必须来自本模块 contract.ts 导出的常量——' +
             '服务端注册与前端调用共用同一份，才不会各改一半。跨模块调用请见 ADR-0005。',
+        },
+        {
+          selector:
+            'NewExpression[callee.object.name="Intl"][callee.property.name="DateTimeFormat"] > ObjectExpression:not(:has(Property[key.name="timeZone"]))',
+          message:
+            '界面上格式化时刻必须显式给出时区，否则用的是宿主机器的时区，' +
+            '设置里换时区界面不会变、而且不报错。请用 @workbench/ui 的 ' +
+            'formatUtcShort / formatUtcToLocal，或自己传 timeZone。',
+        },
+      ],
+    },
+  },
+
+  // 界面上显示时刻，必须显式指定时区。
+  //
+  // 不带 `timeZone` 的 `Intl.DateTimeFormat` 按**宿主机器**的时区渲染，而本应用的
+  // 权威时区在设置里（`app_settings` 的 `timezone.id`）。两者不一致时症状极其隐蔽：
+  // 设置里换时区，界面上的时刻纹丝不动，**且不报错**——显示的一直是另一个时区的钟点。
+  // 招聘模块的四处轮次时间就这么错了一整轮。
+  //
+  // 正确做法是走 `@workbench/ui` 的 `formatUtcShort` / `formatUtcToLocal`（或自己传
+  // `timeZone: timezone`），它们从 `useTimezone()` 取的正是设置里那一份。
+  //
+  // 作用域限定在界面层：服务端拿不到设置里的时区，它的时区一律由 opts 显式传入。
+  // 模块 UI 的同一条规则并在上面那个块里——**同一组 files 不能开两个块**，后者会整条
+  // 替换 no-restricted-syntax，把硬编码 API 路径那两条静默关掉（踩过一次）。
+  {
+    files: [
+      'packages/web/src/**/*.ts',
+      'packages/web/src/**/*.tsx',
+      'packages/ui/src/**/*.ts',
+      'packages/ui/src/**/*.tsx',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'NewExpression[callee.object.name="Intl"][callee.property.name="DateTimeFormat"] > ObjectExpression:not(:has(Property[key.name="timeZone"]))',
+          message:
+            '界面上格式化时刻必须显式给出时区，否则用的是宿主机器的时区，' +
+            '设置里换时区界面不会变、而且不报错。请用 @workbench/ui 的 ' +
+            'formatUtcShort / formatUtcToLocal，或自己传 timeZone。',
         },
       ],
     },

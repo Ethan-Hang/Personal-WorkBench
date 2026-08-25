@@ -1,0 +1,112 @@
+import { EmptyState, IconBookOpen } from '@workbench/ui';
+import type { WorksPage } from '../api.js';
+import { FileStatus, StorageModes } from './FileStatus.js';
+
+const matchedFieldLabels = {
+  title: '标题',
+  abstract: '摘要',
+  authors: '作者',
+  publication: '出版信息',
+  identifiers: '标识符',
+} as const;
+
+export function LibraryList({
+  works,
+  selectedId,
+  selectedIds,
+  loading,
+  onSelect,
+  onToggleSelection,
+  onImport,
+}: {
+  works: WorksPage['works'];
+  selectedId: string | null;
+  selectedIds: string[];
+  loading: boolean;
+  onSelect: (id: string) => void;
+  onToggleSelection: (id: string) => void;
+  onImport: () => void;
+}) {
+  if (loading) {
+    return (
+      <div className="divide-y divide-line/70" aria-label="正在加载文献">
+        {[0, 1, 2].map((value) => (
+          <div key={value} className="px-5 py-5 animate-pulse">
+            <div className="h-4 w-2/3 rounded bg-surface-2" />
+            <div className="mt-3 h-3 w-1/3 rounded bg-surface-2" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (works.length === 0) {
+    return (
+      <EmptyState
+        icon={IconBookOpen}
+        title="还没有文献"
+        description="导入 PDF 或新建文献记录。"
+        action={
+          <button type="button" onClick={onImport} className="text-xs font-semibold text-accent">
+            导入 PDF
+          </button>
+        }
+        className="m-5 min-h-72 border-0 bg-transparent"
+      />
+    );
+  }
+  return (
+    <div className="divide-y divide-line/70">
+      {works.map((work) => {
+        const selected = selectedId === work.id;
+        return (
+          <div
+            key={work.id}
+            className={`group flex w-full items-start gap-3 px-4 py-4 text-left transition-all duration-200 ${
+              selected
+                ? 'bg-accent-soft/80 shadow-[inset_3px_0_0_var(--color-accent)]'
+                : 'hover:bg-surface-2/55'
+            }`}
+          >
+            <input
+              type="checkbox"
+              aria-label={`选择 ${work.title || '未命名文献'}`}
+              className="mt-1 shrink-0"
+              checked={selectedIds.includes(work.id)}
+              onChange={() => onToggleSelection(work.id)}
+            />
+            <button
+              type="button"
+              onClick={() => onSelect(work.id)}
+              className="min-w-0 flex-1 text-left"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <h3 className="line-clamp-2 text-sm font-semibold leading-5 text-ink">
+                    {work.title || '未命名文献'}
+                  </h3>
+                  <p className="mt-1 truncate text-xs text-secondary">
+                    {work.authors.length > 0 ? work.authors.join('、') : '作者待补充'}
+                    {work.year !== null ? ` · ${work.year}` : ''}
+                  </p>
+                </div>
+                <FileStatus status={work.fileStatus} compact />
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <StorageModes modes={work.storageModes} />
+                <span className="text-[11px] tabular-nums text-muted">
+                  {work.attachmentCount} 个附件
+                </span>
+              </div>
+              {work.searchScore !== null && (
+                <p className="mt-2 text-[10px] text-muted">
+                  匹配 {Math.round(work.searchScore * 100)}% ·{' '}
+                  {work.matchedFields.map((field) => matchedFieldLabels[field]).join('、')}
+                </p>
+              )}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

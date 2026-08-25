@@ -6,24 +6,34 @@ import type {
   CreateRoundInput,
   UpdateApplicationInput,
   UpdateRoundInput,
+  UpdateSeasonInput,
 } from '../contract.js';
 import {
   deleteApplication,
   deleteRound,
+  deleteSeason,
   fetchApplications,
+  fetchSeasons,
+  patchSeason,
+  postSeason,
   patchApplication,
   patchRound,
   postApplication,
   postApply,
+  postUnapply,
   postRound,
 } from './api.js';
 import { ApplicationsToolbar, type ViewMode } from './components/ApplicationsToolbar.js';
 import { ApplicationTableView, TableHeaderBar } from './components/ApplicationTableView.js';
 import { ApplicationKanbanView } from './components/ApplicationKanbanView.js';
 import { QuickAddApplicationModal } from './components/QuickAddApplicationModal.js';
+import { SeasonSwitcher } from './components/SeasonSwitcher.js';
+import { SeasonManagerModal } from './components/SeasonManagerModal.js';
 import { filterAndSortApplications, type FilterAndSortOptions } from './utils/filterAndSort.js';
+import { pickInitialSeason, readStoredSeasonId, writeStoredSeasonId } from './useCurrentSeason.js';
 
 const APPLICATIONS_KEY = ['campus', 'applications'] as const;
+const SEASONS_KEY = ['campus', 'seasons'] as const;
 const STATS_KEY = ['campus', 'stats'] as const;
 const VIEW_MODE_STORAGE_KEY = 'campus_workbench_view_mode';
 
@@ -50,12 +60,33 @@ export function ApplicationsPage() {
 
   const [filterOptions, setFilterOptions] = useState<FilterAndSortOptions>(INITIAL_FILTER_OPTIONS);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isSeasonManagerOpen, setIsSeasonManagerOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [actionError, setActionError] = useState<Error | null>(null);
 
+  const seasonsQuery = useQuery({ queryKey: SEASONS_KEY, queryFn: fetchSeasons });
+  const seasons = useMemo(() => seasonsQuery.data?.seasons ?? [], [seasonsQuery.data]);
+
+  // 当前招聘季。选择记在 localStorage，下次打开还停在这一季
+  const [selectedSeasonId, setSelectedSeasonId] = useState<string | null>(() =>
+    readStoredSeasonId(),
+  );
+  const currentSeason = useMemo(
+    () => pickInitialSeason(seasons, selectedSeasonId),
+    [seasons, selectedSeasonId],
+  );
+  useEffect(() => {
+    if (currentSeason !== null && currentSeason.id !== selectedSeasonId) {
+      setSelectedSeasonId(currentSeason.id);
+      writeStoredSeasonId(currentSeason.id);
+    }
+  }, [currentSeason, selectedSeasonId]);
+
   const applicationsQuery = useQuery({
-    queryKey: APPLICATIONS_KEY,
-    queryFn: fetchApplications,
+    // 季进 key：切换招聘季等于换一份数据，不该复用上一季的缓存
+    queryKey: [...APPLICATIONS_KEY, currentSeason?.id ?? null],
+    queryFn: () => fetchApplications(currentSeason?.id),
+    enabled: currentSeason !== null,
   });
 
   // 监听 URL 参数，支持从周历/今日工作台跳转时自动定位并展开目标岗位
@@ -144,6 +175,43 @@ export function ApplicationsPage() {
     onSuccess: mutationSucceeded,
   });
 
+  const unapplyMutation = useMutation({
+    mutationFn: postUnapply,
+    onMutate: mutationStarted,
+    onError: mutationFailed,
+    onSuccess: mutationSucceeded,
+  });
+
+  const invalidateSeasons = async () => {
+    setActionError(null);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: SEASONS_KEY }),
+      queryClient.invalidateQueries({ queryKey: APPLICATIONS_KEY }),
+      queryClient.invalidateQueries({ queryKey: STATS_KEY }),
+    ]);
+  };
+
+  const createSeasonMutation = useMutation({
+    mutationFn: postSeason,
+    onMutate: mutationStarted,
+    onError: mutationFailed,
+    onSuccess: invalidateSeasons,
+  });
+
+  const updateSeasonMutation = useMutation({
+    mutationFn: ({ id, input }: { id: string; input: UpdateSeasonInput }) => patchSeason(id, input),
+    onMutate: mutationStarted,
+    onError: mutationFailed,
+    onSuccess: invalidateSeasons,
+  });
+
+  const deleteSeasonMutation = useMutation({
+    mutationFn: deleteSeason,
+    onMutate: mutationStarted,
+    onError: mutationFailed,
+    onSuccess: invalidateSeasons,
+  });
+
   const deleteApplicationMutation = useMutation({
     mutationFn: deleteApplication,
     onMutate: mutationStarted,
@@ -185,7 +253,11 @@ export function ApplicationsPage() {
     createApplicationMutation.isPending ||
     updateApplicationMutation.isPending ||
     applyMutation.isPending ||
+    unapplyMutation.isPending ||
     deleteApplicationMutation.isPending ||
+    createSeasonMutation.isPending ||
+    updateSeasonMutation.isPending ||
+    deleteSeasonMutation.isPending ||
     createRoundMutation.isPending ||
     updateRoundMutation.isPending ||
     deleteRoundMutation.isPending;
@@ -225,7 +297,7 @@ export function ApplicationsPage() {
   if (applicationsQuery.isPending) {
     return (
       <div className="space-y-4 animate-slide-down-in">
-        <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
+        <PageHeader eyebrow="招聘求职工作台" title="投递全景与流转跟踪" />
         <p role="status" className="text-[13px] text-muted">
           正在加载你的投递记录...
         </p>
@@ -236,7 +308,7 @@ export function ApplicationsPage() {
   if (applicationsQuery.isError) {
     return (
       <div className="space-y-4 animate-slide-down-in">
-        <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
+        <PageHeader eyebrow="招聘求职工作台" title="投递全景与流转跟踪" />
         <Panel>
           <p className="text-[13px] text-critical">
             投递记录加载失败：{applicationsQuery.error.message}
@@ -259,7 +331,19 @@ export function ApplicationsPage() {
       {/* 顶部固定吸顶区：标题、工具栏、以及表格表头（向下滚动时吸顶可见，加载时平滑滑入） */}
       <div className="sticky top-0 z-10 bg-page/95 pt-0.5 pb-2.5 backdrop-blur-md space-y-3 transition-colors border-b border-line/40 shadow-xs animate-slide-down-in">
         <div className="w-full space-y-2.5">
-          <PageHeader eyebrow="秋招求职工作台" title="投递全景与流转跟踪" />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <PageHeader eyebrow="招聘求职工作台" title="投递全景与流转跟踪" />
+            <SeasonSwitcher
+              seasons={seasons}
+              currentId={currentSeason?.id ?? null}
+              disabled={isBusy}
+              onChange={(id) => {
+                setSelectedSeasonId(id);
+                writeStoredSeasonId(id);
+              }}
+              onManage={() => setIsSeasonManagerOpen(true)}
+            />
+          </div>
           <ApplicationsToolbar
             options={filterOptions}
             onOptionsChange={setFilterOptions}
@@ -329,6 +413,8 @@ export function ApplicationsPage() {
             onToggleExpand={handleToggleExpand}
             onUpdateApplication={(id, input) => updateApplicationMutation.mutate({ id, input })}
             onMarkApplied={(id) => applyMutation.mutate(id)}
+            onUnmarkApplied={(id) => unapplyMutation.mutate(id)}
+            seasons={seasons}
             onRemoveApplication={(id) => deleteApplicationMutation.mutate(id)}
             onCreateRound={async (applicationId, input) => {
               await createRoundMutation.mutateAsync({ applicationId, input });
@@ -349,13 +435,36 @@ export function ApplicationsPage() {
             }}
             onOpenCreateModal={() => setIsCreateModalOpen(true)}
             onMarkApplied={(id) => applyMutation.mutate(id)}
+            onUnmarkApplied={(id) => unapplyMutation.mutate(id)}
             isBusy={isBusy}
           />
         )}
       </div>
 
       {/* 快速创建模态窗 */}
+      <SeasonManagerModal
+        isOpen={isSeasonManagerOpen}
+        onClose={() => {
+          setIsSeasonManagerOpen(false);
+          setActionError(null);
+        }}
+        seasons={seasons}
+        onCreate={async (input) => {
+          await createSeasonMutation.mutateAsync(input);
+        }}
+        onUpdate={async (id, input) => {
+          await updateSeasonMutation.mutateAsync({ id, input });
+        }}
+        onDelete={async (id) => {
+          await deleteSeasonMutation.mutateAsync(id);
+        }}
+        isBusy={isBusy}
+        error={actionError}
+      />
+
       <QuickAddApplicationModal
+        seasonId={currentSeason?.id ?? ''}
+        seasonName={currentSeason?.name ?? ''}
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
         onSubmit={async (input: CreateApplicationInput) => {

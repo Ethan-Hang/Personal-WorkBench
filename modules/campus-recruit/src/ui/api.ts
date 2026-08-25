@@ -1,19 +1,42 @@
 import {
   CAMPUS_API,
   applicationViewSchema,
+  applicationsQuery,
   applicationsResponseSchema,
+  seasonViewSchema,
+  seasonsResponseSchema,
+  statsQuery,
   statsResponseSchema,
   type ApplicationView,
   type CreateApplicationInput,
   type CreateRoundInput,
+  type CreateSeasonInput,
+  type SeasonView,
+  type SeasonsResponse,
   type StatsResponse,
   type UpdateApplicationInput,
   type UpdateRoundInput,
+  type UpdateSeasonInput,
 } from '../contract.js';
 import { apiRequest as request, jsonBody as json } from '@workbench/ui';
 
-export const fetchApplications = async (): Promise<{ applications: ApplicationView[] }> =>
-  applicationsResponseSchema.parse(await request(CAMPUS_API.applications));
+export const fetchApplications = async (
+  seasonId?: string,
+): Promise<{ applications: ApplicationView[] }> =>
+  applicationsResponseSchema.parse(await request(applicationsQuery(seasonId)));
+
+export const fetchSeasons = async (): Promise<SeasonsResponse> =>
+  seasonsResponseSchema.parse(await request(CAMPUS_API.seasons));
+
+export const postSeason = async (input: CreateSeasonInput): Promise<SeasonView> =>
+  seasonViewSchema.parse(await request(CAMPUS_API.seasons, json('POST', input)));
+
+export const patchSeason = async (id: string, input: UpdateSeasonInput): Promise<SeasonView> =>
+  seasonViewSchema.parse(await request(CAMPUS_API.season(id), json('PATCH', input)));
+
+export const deleteSeason = async (id: string): Promise<void> => {
+  await request(CAMPUS_API.season(id), { method: 'DELETE' });
+};
 
 export const postApplication = async (input: CreateApplicationInput): Promise<ApplicationView> =>
   applicationViewSchema.parse(await request(CAMPUS_API.applications, json('POST', input)));
@@ -26,6 +49,9 @@ export const patchApplication = async (
 
 export const postApply = async (id: string): Promise<ApplicationView> =>
   applicationViewSchema.parse(await request(CAMPUS_API.applyApplication(id), { method: 'POST' }));
+
+export const postUnapply = async (id: string): Promise<ApplicationView> =>
+  applicationViewSchema.parse(await request(CAMPUS_API.unapplyApplication(id), { method: 'POST' }));
 
 export const deleteApplication = async (id: string): Promise<void> => {
   await request(CAMPUS_API.application(id), { method: 'DELETE' });
@@ -45,5 +71,5 @@ export const patchRound = async (id: string, input: UpdateRoundInput): Promise<A
 export const deleteRound = async (id: string): Promise<ApplicationView> =>
   applicationViewSchema.parse(await request(CAMPUS_API.round(id), { method: 'DELETE' }));
 
-export const fetchStats = async (): Promise<StatsResponse> =>
-  statsResponseSchema.parse(await request(CAMPUS_API.stats));
+export const fetchStats = async (seasonId?: string): Promise<StatsResponse> =>
+  statsResponseSchema.parse(await request(statsQuery(seasonId)));

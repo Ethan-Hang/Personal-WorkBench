@@ -8,6 +8,34 @@
       "when": 1786960000000,
       "tag": "0000_campus_recruit",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1787466528020,
+      "tag": "0001_third_bromley",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787467019031,
+      "tag": "0002_useful_shadow_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1787559668849,
+      "tag": "0003_recruit_seasons",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787564574403,
+      "tag": "0004_round_deadline",
+      "breakpoints": true
     }
   ]
 }

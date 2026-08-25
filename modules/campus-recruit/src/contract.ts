@@ -11,7 +11,13 @@ export const ROUND_KINDS = [
   'hr',
   'other',
 ] as const;
-export const ROUND_OUTCOMES = ['pending', 'passed', 'failed'] as const;
+/**
+ * `completed` 是**中间态**：这一轮已经做完，但结果还没出来（测评/笔试最常见）。
+ * 它不是 `passed` 的同义词——状态推导里它不代表通过，只代表「出过结果」，
+ * 因此会解除 90 天自动泡池子判定，也不会让投递变成「已挂」。
+ */
+export const ROUND_OUTCOMES = ['pending', 'completed', 'passed', 'failed'] as const;
+export const SEASON_KINDS = ['campus-autumn', 'campus-spring', 'intern', 'social'] as const;
 export const APPLICATION_STATUS_CODES = [
   'offer',
   'oc',
@@ -28,6 +34,7 @@ export type ApplicationOutcome = (typeof APPLICATION_OUTCOMES)[number];
 export type RoundKind = (typeof ROUND_KINDS)[number];
 export type RoundOutcome = (typeof ROUND_OUTCOMES)[number];
 export type ApplicationStatusCode = (typeof APPLICATION_STATUS_CODES)[number];
+export type SeasonKind = (typeof SEASON_KINDS)[number];
 
 const dateSchema = z
   .string()
@@ -49,7 +56,67 @@ const dateSchema = z
 const instantSchema = z.string().datetime({ precision: 3 });
 const nullableText = (max: number) => z.string().trim().max(max).nullable();
 
+/**
+ * 招聘季的起止是**浮动日期**，只到天。绝不转 UTC（ADR-0004）——
+ * 「秋招 8 月 1 日开始」在任何时区都是 8 月 1 日。
+ */
+const floatingDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式须为 YYYY-MM-DD')
+  .refine((value) => {
+    const [y, m, d] = value.split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const dateObj = new Date(Date.UTC(y, m - 1, d));
+    return (
+      dateObj.getUTCFullYear() === y &&
+      dateObj.getUTCMonth() === m - 1 &&
+      dateObj.getUTCDate() === d
+    );
+  }, '日期必须是有效日历日期');
+
+const seasonFieldSchemas = {
+  name: z.string().trim().min(1, '招聘季名称不能为空').max(60),
+  kind: z.enum(SEASON_KINDS),
+  startDate: floatingDateSchema.nullable(),
+  endDate: floatingDateSchema.nullable(),
+  notes: nullableText(2000),
+};
+
+export const createSeasonInputSchema = z.object({
+  ...seasonFieldSchemas,
+  startDate: seasonFieldSchemas.startDate.default(null),
+  endDate: seasonFieldSchemas.endDate.default(null),
+  notes: seasonFieldSchemas.notes.default(null),
+});
+export type CreateSeasonInput = z.input<typeof createSeasonInputSchema>;
+export type CreateSeasonData = z.output<typeof createSeasonInputSchema>;
+
+// archived 是布尔意图，落成哪个时刻由服务端决定——与 shelved 同形（ADR-0026）
+export const updateSeasonInputSchema = z
+  .object(seasonFieldSchemas)
+  .partial()
+  .extend({ archived: z.boolean().optional() });
+export type UpdateSeasonInput = z.infer<typeof updateSeasonInputSchema>;
+
+export const seasonViewSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(SEASON_KINDS),
+  startDate: z.string().nullable(),
+  endDate: z.string().nullable(),
+  archivedAt: instantSchema.nullable(),
+  notes: z.string().nullable(),
+  applicationCount: z.number().int().nonnegative(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+});
+export type SeasonView = z.infer<typeof seasonViewSchema>;
+
+export const seasonsResponseSchema = z.object({ seasons: z.array(seasonViewSchema) });
+export type SeasonsResponse = z.infer<typeof seasonsResponseSchema>;
+
 const applicationFieldSchemas = {
+  seasonId: z.string().min(1, '必须指定招聘季'),
   company: z.string().trim().min(1, '公司不能为空').max(100),
   position: z.string().trim().min(1, '岗位不能为空').max(120),
   companyType: nullableText(80),
@@ -57,6 +124,8 @@ const applicationFieldSchemas = {
   city: nullableText(80),
   channel: nullableText(80),
   referral: nullableText(200),
+  applyEmail: nullableText(200),
+  applyPhone: nullableText(40),
   priority: z.enum(APPLICATION_PRIORITIES),
   applyDeadlineDate: dateSchema.nullable(),
   appliedAt: instantSchema.nullable(),
@@ -73,6 +142,8 @@ export const createApplicationInputSchema = z.object({
   city: applicationFieldSchemas.city.default(null),
   channel: applicationFieldSchemas.channel.default(null),
   referral: applicationFieldSchemas.referral.default(null),
+  applyEmail: applicationFieldSchemas.applyEmail.default(null),
+  applyPhone: applicationFieldSchemas.applyPhone.default(null),
   priority: applicationFieldSchemas.priority.default('B'),
   applyDeadlineDate: applicationFieldSchemas.applyDeadlineDate.default(null),
   appliedAt: applicationFieldSchemas.appliedAt.default(null),
@@ -84,13 +155,23 @@ export const createApplicationInputSchema = z.object({
 export type CreateApplicationInput = z.input<typeof createApplicationInputSchema>;
 export type CreateApplicationData = z.output<typeof createApplicationInputSchema>;
 
-export const updateApplicationInputSchema = z.object(applicationFieldSchemas).partial();
+export const updateApplicationInputSchema = z
+  .object(applicationFieldSchemas)
+  .partial()
+  // 泡池子刻意不是 outcome：它不是终局，撤销它也不该是「清空终局结果」。
+  // 前端只表达意图，落成哪个时刻由服务端决定。
+  .extend({ shelved: z.boolean().optional() });
 export type UpdateApplicationInput = z.infer<typeof updateApplicationInputSchema>;
 
 const roundFieldSchemas = {
   kind: z.enum(ROUND_KINDS),
   name: z.string().trim().min(1, '轮次名称不能为空').max(100),
   scheduledAt: instantSchema.nullable(),
+  /**
+   * 截止时刻。与 `scheduledAt` 是两件事：一个是「什么时候做」，一个是「最晚什么时候做完」。
+   * 测评/笔试通常只有后者。恒为**时刻**（UTC ISO），由前端换算好再发——与 `scheduledAt` 同规。
+   */
+  deadlineAt: instantSchema.nullable(),
   format: nullableText(80),
   durationMin: z.number().int().positive().max(1440).nullable(),
   outcome: z.enum(ROUND_OUTCOMES),
@@ -100,6 +181,7 @@ const roundFieldSchemas = {
 export const createRoundInputSchema = z.object({
   ...roundFieldSchemas,
   scheduledAt: roundFieldSchemas.scheduledAt.default(null),
+  deadlineAt: roundFieldSchemas.deadlineAt.default(null),
   format: roundFieldSchemas.format.default(null),
   durationMin: roundFieldSchemas.durationMin.default(null),
   outcome: roundFieldSchemas.outcome.default('pending'),
@@ -120,6 +202,7 @@ export const roundViewSchema = z.object({
   kind: z.enum(ROUND_KINDS),
   name: z.string(),
   scheduledAt: instantSchema.nullable(),
+  deadlineAt: instantSchema.nullable(),
   format: z.string().nullable(),
   durationMin: z.number().int().positive().nullable(),
   outcome: z.enum(ROUND_OUTCOMES),
@@ -131,6 +214,10 @@ export type RoundView = z.infer<typeof roundViewSchema>;
 
 export const applicationViewSchema = z.object({
   id: z.string(),
+  seasonId: z.string(),
+  // 冗余季名而不是让前端自己关联：跨季模式（命令面板、全部季列表）下每条结果
+  // 都要显示它属于哪一季，只给 id 等于把 join 推给每个消费者
+  seasonName: z.string(),
   company: z.string(),
   position: z.string(),
   companyType: z.string().nullable(),
@@ -138,11 +225,14 @@ export const applicationViewSchema = z.object({
   city: z.string().nullable(),
   channel: z.string().nullable(),
   referral: z.string().nullable(),
+  applyEmail: z.string().nullable(),
+  applyPhone: z.string().nullable(),
   priority: z.enum(APPLICATION_PRIORITIES),
   applyDeadlineDate: dateSchema.nullable(),
   appliedAt: instantSchema.nullable(),
   outcome: z.enum(APPLICATION_OUTCOMES).nullable(),
   outcomeAt: instantSchema.nullable(),
+  shelvedAt: instantSchema.nullable(),
   salary: z.string().nullable(),
   link: z.string().nullable(),
   notes: z.string().nullable(),
@@ -207,10 +297,27 @@ export const CAMPUS_API = {
   application: (id: string): string => `/api/campus/applications/${segment(id)}`,
   /** POST → ApplicationView：标记为已投递 */
   applyApplication: (id: string): string => `/api/campus/applications/${segment(id)}/apply`,
+  /** POST → ApplicationView：撤回投递，回到「待投递」（误点的解药） */
+  unapplyApplication: (id: string): string => `/api/campus/applications/${segment(id)}/unapply`,
   /** POST CreateRoundInput → ApplicationView：给该投递新增一轮 */
   applicationRounds: (id: string): string => `/api/campus/applications/${segment(id)}/rounds`,
   /** PATCH UpdateRoundInput → ApplicationView；DELETE → 204 */
   round: (id: string): string => `/api/campus/rounds/${segment(id)}`,
+  /** GET → { seasons: SeasonView[] }；POST CreateSeasonInput → SeasonView（201） */
+  seasons: '/api/campus/seasons',
+  /** PATCH UpdateSeasonInput → SeasonView；DELETE → 204 */
+  season: (id: string): string => `/api/campus/seasons/${segment(id)}`,
   /** GET → StatsResponse */
   stats: '/api/campus/stats',
 } as const;
+
+/**
+ * 招聘季筛选是**可选**查询参数，省略即全部季。
+ * 不做成必填是因为命令面板（⌘K）要跨季搜索；作为交换，统计页恒传。
+ */
+function withSeason(path: string, seasonId?: string): string {
+  return seasonId === undefined ? path : `${path}?seasonId=${encodeURIComponent(seasonId)}`;
+}
+export const applicationsQuery = (seasonId?: string): string =>
+  withSeason(CAMPUS_API.applications, seasonId);
+export const statsQuery = (seasonId?: string): string => withSeason(CAMPUS_API.stats, seasonId);

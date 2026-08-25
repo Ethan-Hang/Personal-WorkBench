@@ -22,6 +22,7 @@ export {
   useTimezone,
   toUtcIso,
   formatUtcToLocal,
+  formatUtcShort,
   getTimezoneInfo,
   WORLD_TIMEZONES,
   DEFAULT_TIMEZONE,

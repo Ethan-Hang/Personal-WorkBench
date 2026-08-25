@@ -3,6 +3,7 @@ import {
   deleteApplication,
   deleteRound,
   fetchApplications,
+  fetchSeasons,
   fetchStats,
   patchApplication,
   patchRound,
@@ -15,6 +16,8 @@ type CapturedCall = { url: string; init: RequestInit | undefined };
 
 const APPLICATION = {
   id: 'a1',
+  seasonId: 'season-legacy-autumn',
+  seasonName: '秋招',
   company: '星云科技',
   position: '固件工程师',
   companyType: '民营',
@@ -22,11 +25,14 @@ const APPLICATION = {
   city: '深圳',
   channel: '官网',
   referral: null,
+  applyEmail: 'campus@example.com',
+  applyPhone: '13800138000',
   priority: 'S',
   applyDeadlineDate: '2026-09-01',
   appliedAt: null,
   outcome: null,
   outcomeAt: null,
+  shelvedAt: null,
   salary: '20k-30k',
   link: 'https://example.com/jobs/firmware',
   notes: '准备 RTOS 项目说明',
@@ -39,6 +45,7 @@ const APPLICATION = {
       kind: 'written',
       name: '笔试',
       scheduledAt: '2026-09-03T02:00:00.000Z',
+      deadlineAt: null,
       format: '线上',
       durationMin: 90,
       outcome: 'pending',
@@ -110,7 +117,12 @@ describe('campus browser API', () => {
   });
 
   it('application creation sends JSON and validates the response', async () => {
-    await postApplication({ company: '星云科技', position: '固件工程师', priority: 'S' });
+    await postApplication({
+      company: '星云科技',
+      position: '固件工程师',
+      priority: 'S',
+      seasonId: 'season-legacy-autumn',
+    });
 
     expect(calls[0]).toMatchObject({
       url: '/api/campus/applications',
@@ -118,11 +130,20 @@ describe('campus browser API', () => {
     });
     expect(headerOf(calls[0]!.init, 'Content-Type')).toBe('application/json');
     expect(calls[0]!.init?.body).toBe(
-      JSON.stringify({ company: '星云科技', position: '固件工程师', priority: 'S' }),
+      JSON.stringify({
+        company: '星云科技',
+        position: '固件工程师',
+        priority: 'S',
+        seasonId: 'season-legacy-autumn',
+      }),
     );
-    expect(await postApplication({ company: '星云科技', position: '固件工程师' })).toEqual(
-      APPLICATION,
-    );
+    expect(
+      await postApplication({
+        company: '星云科技',
+        position: '固件工程师',
+        seasonId: 'season-legacy-autumn',
+      }),
+    ).toEqual(APPLICATION);
   });
 
   it('uses the application list, update, and apply endpoints with their required methods', async () => {
@@ -187,5 +208,20 @@ describe('campus browser API', () => {
     responses.push(jsonResponse({ ...APPLICATION, rounds: [{ id: 'incomplete' }] }));
 
     await expect(postApply('a1')).rejects.toThrow();
+  });
+  it('季筛选进查询串，且 id 会被转义；省略时不带参数', async () => {
+    responses.push(
+      jsonResponse({ applications: [APPLICATION] }),
+      jsonResponse({ applications: [] }),
+      jsonResponse({ seasons: [] }),
+    );
+
+    await fetchApplications('s/1');
+    await fetchApplications();
+    await fetchSeasons();
+
+    expect(calls[0]!.url).toBe('/api/campus/applications?seasonId=s%2F1');
+    expect(calls[1]!.url).toBe('/api/campus/applications');
+    expect(calls[2]!.url).toBe('/api/campus/seasons');
   });
 });

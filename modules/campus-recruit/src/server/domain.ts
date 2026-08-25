@@ -43,13 +43,18 @@ export function deriveApplicationStatus(
     };
   }
 
+  // 手标的泡池子排在「已挂」之后：泡着泡着挂了，显示「已挂」更准
+  if (application.shelvedAt !== null) {
+    return { code: 'shelved', label: '泡池子', failedRoundName: null };
+  }
+
   if (application.appliedAt === null) {
     return { code: 'pending', label: '待投递', failedRoundName: null };
   }
-  if (
-    rounds.length === 0 &&
-    Date.parse(now) - Date.parse(application.appliedAt) > SHELVED_DAYS * DAY_MS
-  ) {
+  // 自动判定看的是「有没有一轮出过结果」而不是「有没有轮次」——
+  // 标记已投递会自动补一轮待定的简历初筛，按轮次数判定会让这条永久失效
+  const settled = rounds.some((round) => round.outcome !== 'pending');
+  if (!settled && Date.parse(now) - Date.parse(application.appliedAt) > SHELVED_DAYS * DAY_MS) {
     return { code: 'shelved', label: '泡池子', failedRoundName: null };
   }
   if (rounds.length === 0) {

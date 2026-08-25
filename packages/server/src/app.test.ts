@@ -143,6 +143,7 @@ describe('buildApp', () => {
         company: '星云科技',
         position: '固件工程师',
         priority: 'S',
+        seasonId: 'season-legacy-autumn',
         applyDeadlineDate: todayDate,
       },
     });
@@ -285,6 +286,7 @@ describe('buildApp', () => {
             company: '星云科技',
             position: '固件工程师',
             priority: 'S',
+            seasonId: 'season-legacy-autumn',
             applyDeadlineDate: localDayOf(nowIso(), zone),
           }),
           signal: signalBefore(deadline),

@@ -18,6 +18,11 @@ import { createHabitServerModule } from '@workbench/module-habit';
 import { SqliteHabitRepository } from '@workbench/module-habit/storage';
 import { createNotesServerModule } from '@workbench/module-notes';
 import { SqliteNoteRepository } from '@workbench/module-notes/storage';
+import { createResearchServerModule } from '@workbench/module-research';
+import {
+  SqliteResearchManagedRootController,
+  SqliteResearchRepository,
+} from '@workbench/module-research/storage';
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
@@ -47,6 +52,9 @@ async function main() {
     const holder = new ConnectionHolder();
     const sqlite = holder.open(active.dbPath);
     const getSqlite = () => holder.current();
+    const accountsStore = active.mode === 'accounts' ? new AccountsStore(DATA_DIR) : null;
+    const currentAccountId = () =>
+      active.mode === 'accounts' ? accountsStore!.read().activeId : 'single';
 
     const todoServerModule = createTodoServerModule(new SqliteTodoRepository(getSqlite));
     const campusRecruitServerModule = createCampusRecruitServerModule(
@@ -54,12 +62,26 @@ async function main() {
     );
     const habitServerModule = createHabitServerModule(new SqliteHabitRepository(getSqlite));
     const notesServerModule = createNotesServerModule(new SqliteNoteRepository(getSqlite));
+    const defaultResearchManagedRoot = () =>
+      active.mode === 'accounts'
+        ? join(DATA_DIR, 'accounts', currentAccountId(), 'research', 'managed')
+        : join(DATA_DIR, 'research', 'managed');
+    const researchManagedRoot = new SqliteResearchManagedRootController(
+      getSqlite,
+      defaultResearchManagedRoot,
+    );
+    const researchServerModule = createResearchServerModule({
+      repository: new SqliteResearchRepository(getSqlite),
+      managedRoot: defaultResearchManagedRoot,
+      managedRootController: researchManagedRoot,
+    });
     const modules = [
       todoServerModule,
       workbenchServerModule,
       campusRecruitServerModule,
       habitServerModule,
       notesServerModule,
+      researchServerModule,
     ];
 
     // 切换账号要在新库上跑同一套迁移。「哪些模块有迁移」只有组合根知道，
@@ -77,7 +99,6 @@ async function main() {
     const secrets = new SecretStore(createSecretBackend(DATA_DIR));
 
     const serviceState = new ServiceState();
-    const currentAccountId = () => (active.mode === 'accounts' ? active.account.id : 'single');
     // 本地备份与云端各自成服务：它不需要凭据，所以默认配置下就能用。
     const localBackupService = new LocalBackupService({
       settings: new SqliteSettingsRepository(getSqlite),
@@ -92,7 +113,7 @@ async function main() {
     const localImport =
       active.mode === 'accounts'
         ? new LocalImportService({
-            store: new AccountsStore(DATA_DIR),
+            store: accountsStore!,
             dataDir: DATA_DIR,
             migrate,
             localWatermarks: () => migrationWatermarks(getSqlite()),
@@ -101,7 +122,7 @@ async function main() {
     const accounts =
       active.mode === 'accounts'
         ? new AccountsService({
-            store: new AccountsStore(DATA_DIR),
+            store: accountsStore!,
             holder,
             state: serviceState,
             migrate,

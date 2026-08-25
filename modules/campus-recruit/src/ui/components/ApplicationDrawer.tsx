@@ -5,6 +5,7 @@ import {
   Field,
   IconCalendar,
   IconClock,
+  IconEdit,
   IconPlus,
   IconTrash,
   IconX,
@@ -14,7 +15,6 @@ import {
 import {
   APPLICATION_PRIORITIES,
   ROUND_KINDS,
-  type ApplicationOutcome,
   type ApplicationPriority,
   type ApplicationView,
   type CreateRoundInput,
@@ -23,7 +23,10 @@ import {
   type UpdateApplicationInput,
   type UpdateRoundInput,
 } from '../../contract.js';
+import { outcomeSelectChange, outcomeSelectValue } from '../utils/outcomeSelect.js';
+import { nameForKindChange, suggestRoundKind } from '../utils/roundNaming.js';
 import { PriorityBadge } from './PriorityBadge.js';
+import { RoundEditForm } from './RoundEditForm.js';
 import {
   ApplicationStatusChip,
   ROUND_KIND_LABEL,
@@ -52,28 +55,6 @@ function nullableText(value: string): string | null {
   return trimmed === '' ? null : trimmed;
 }
 
-function formatInstant(value: string): string {
-  try {
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(value));
-  } catch {
-    return value;
-  }
-}
-
-function suggestRoundKind(name: string): RoundKind {
-  if (name.includes('简历') || name.includes('初筛') || name.includes('网申')) return 'screening';
-  if (name.includes('笔试')) return 'written';
-  if (name.includes('测评')) return 'assessment';
-  if (/hr/i.test(name)) return 'hr';
-  if (name.includes('面')) return 'technical';
-  return 'other';
-}
-
 /**
  * 轮次列表项
  */
@@ -88,12 +69,36 @@ function RoundItem({
   onRemove: () => void;
   disabled: boolean;
 }) {
+  const { formatUtcShort } = useTimezone();
   const [notes, setNotes] = useState(round.notes ?? '');
   const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
     setNotes(round.notes ?? '');
   }, [round.notes]);
+
+  if (isEditing) {
+    return (
+      <div className="rounded-lg border border-accent/40 bg-accent/5 p-3.5 shadow-sm">
+        <div className="mb-2.5 flex items-center gap-2">
+          <span className="flex size-5 items-center justify-center rounded-full bg-ink text-[10px] font-bold text-white">
+            {round.sequence}
+          </span>
+          <h4 className="text-[13px] font-bold text-ink">编辑轮次</h4>
+        </div>
+        <RoundEditForm
+          round={round}
+          disabled={disabled}
+          onCancel={() => setIsEditing(false)}
+          onSave={(input) => {
+            onUpdate(input);
+            setIsEditing(false);
+          }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-line bg-surface p-3.5 shadow-2xs">
@@ -103,7 +108,14 @@ function RoundItem({
             <span className="flex size-5 items-center justify-center rounded-full bg-ink text-[10px] font-bold text-white">
               {round.sequence}
             </span>
-            <span className="text-[14px] font-bold text-ink">{round.name}</span>
+            <button
+              type="button"
+              onClick={() => setIsEditing(true)}
+              className="text-[14px] font-bold text-ink hover:text-accent hover:underline"
+              title="编辑这一轮"
+            >
+              {round.name}
+            </button>
             <RoundKindChip kind={round.kind} />
             <RoundOutcomeChip outcome={round.outcome} />
           </div>
@@ -112,10 +124,16 @@ function RoundItem({
             {round.scheduledAt ? (
               <span className="flex items-center gap-1 font-medium text-accent">
                 <IconClock size={13} />
-                <span>{formatInstant(round.scheduledAt)}</span>
+                <span>{formatUtcShort(round.scheduledAt)}</span>
               </span>
             ) : (
               <span className="text-muted">时间待定</span>
+            )}
+            {round.deadlineAt && (
+              <span className="flex items-center gap-1 font-medium text-warning">
+                <IconCalendar size={13} />
+                <span>截止 {formatUtcShort(round.deadlineAt)}</span>
+              </span>
             )}
             {round.format && <span>形式: {round.format}</span>}
             {round.durationMin && <span>时长: {round.durationMin}分钟</span>}
@@ -124,6 +142,17 @@ function RoundItem({
 
         {/* 结果切换按钮 */}
         <div className="flex flex-wrap items-center gap-1.5 pt-1 sm:pt-0">
+          {round.outcome !== 'completed' && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onUpdate({ outcome: 'completed' })}
+              className="rounded bg-warning-soft px-2 py-1 text-[11px] font-bold text-warning hover:bg-warning/20"
+              title="做完了，但结果还没出来"
+            >
+              已完成
+            </button>
+          )}
           {round.outcome !== 'passed' && (
             <button
               type="button"
@@ -154,6 +183,15 @@ function RoundItem({
               重置待定
             </button>
           )}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => setIsEditing(true)}
+            className="rounded p-1 text-muted hover:bg-accent-soft hover:text-accent"
+            title="编辑此轮次"
+          >
+            <IconEdit size={13} />
+          </button>
           <button
             type="button"
             disabled={disabled}
@@ -235,6 +273,7 @@ function AddRoundSection({
   const [kind, setKind] = useState<RoundKind>('other');
   const [kindChosen, setKindChosen] = useState(false);
   const [scheduledLocal, setScheduledLocal] = useState('');
+  const [deadlineLocal, setDeadlineLocal] = useState('');
   const [format, setFormat] = useState('');
   const [duration, setDuration] = useState('');
   const [isExpanded, setIsExpanded] = useState(false);
@@ -247,6 +286,7 @@ function AddRoundSection({
         name: name.trim(),
         kind,
         scheduledAt: scheduledLocal === '' ? null : toUtcIso(scheduledLocal),
+        deadlineAt: deadlineLocal === '' ? null : toUtcIso(deadlineLocal),
         format: nullableText(format),
         durationMin: duration === '' ? null : Number(duration),
       });
@@ -254,6 +294,7 @@ function AddRoundSection({
       setKind('other');
       setKindChosen(false);
       setScheduledLocal('');
+      setDeadlineLocal('');
       setFormat('');
       setDuration('');
       setIsExpanded(false);
@@ -267,6 +308,15 @@ function AddRoundSection({
     if (!kindChosen) {
       setKind(suggestRoundKind(next));
     }
+  }
+
+  // 类型与名称绝大多数时候重叠，所以选完类型顺手把名字带过去；
+  // 「其他」和手打过的名字不动（规则与测试都在 utils/roundNaming.ts）
+  function onKindChange(next: RoundKind) {
+    setKind(next);
+    setKindChosen(true);
+    const suggested = nameForKindChange(next, name);
+    if (suggested !== null) setName(suggested);
   }
 
   if (!isExpanded) {
@@ -311,10 +361,7 @@ function AddRoundSection({
         <Field label="轮次类型">
           <select
             value={kind}
-            onChange={(e) => {
-              setKind(e.target.value as RoundKind);
-              setKindChosen(true);
-            }}
+            onChange={(e) => onKindChange(e.target.value as RoundKind)}
             className={controlClass}
           >
             {ROUND_KINDS.map((k) => (
@@ -326,8 +373,8 @@ function AddRoundSection({
         </Field>
       </div>
 
-      <div className="grid gap-2.5 sm:grid-cols-3">
-        <Field label="面试时间 (时分一体)" className="sm:col-span-2">
+      <div className="grid gap-2.5 sm:grid-cols-2">
+        <Field label="安排时间 (时分一体)">
           <DatePicker
             value={scheduledLocal}
             onChange={setScheduledLocal}
@@ -336,11 +383,34 @@ function AddRoundSection({
             className="w-full"
           />
         </Field>
+        <Field label="截止时间 (测评 / 笔试常用)">
+          <DatePicker
+            value={deadlineLocal}
+            onChange={setDeadlineLocal}
+            placeholder="最晚做完的时刻"
+            showTime={true}
+            className="w-full"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-2.5 sm:grid-cols-2">
         <Field label="形式">
           <input
             value={format}
             onChange={(e) => setFormat(e.target.value)}
             placeholder="视频 / 现场 / 电话"
+            className={controlClass}
+          />
+        </Field>
+        <Field label="时长 (分钟)">
+          <input
+            type="number"
+            min={1}
+            max={1440}
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            placeholder="60"
             className={controlClass}
           />
         </Field>
@@ -378,6 +448,8 @@ function ProfileForm({
     city: application.city ?? '',
     channel: application.channel ?? '',
     referral: application.referral ?? '',
+    applyEmail: application.applyEmail ?? '',
+    applyPhone: application.applyPhone ?? '',
     priority: application.priority,
     applyDeadlineDate: application.applyDeadlineDate ?? '',
     salary: application.salary ?? '',
@@ -394,6 +466,8 @@ function ProfileForm({
       city: application.city ?? '',
       channel: application.channel ?? '',
       referral: application.referral ?? '',
+      applyEmail: application.applyEmail ?? '',
+      applyPhone: application.applyPhone ?? '',
       priority: application.priority,
       applyDeadlineDate: application.applyDeadlineDate ?? '',
       salary: application.salary ?? '',
@@ -413,6 +487,8 @@ function ProfileForm({
       city: nullableText(form.city),
       channel: nullableText(form.channel),
       referral: nullableText(form.referral),
+      applyEmail: nullableText(form.applyEmail),
+      applyPhone: nullableText(form.applyPhone),
       priority: form.priority,
       applyDeadlineDate: form.applyDeadlineDate === '' ? null : form.applyDeadlineDate,
       salary: nullableText(form.salary),
@@ -497,7 +573,7 @@ function ProfileForm({
         </Field>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-3">
         <Field label="投递渠道">
           <input
             value={form.channel}
@@ -511,6 +587,33 @@ function ProfileForm({
             value={form.referral}
             onChange={(e) => set('referral', e.target.value)}
             placeholder="例如：NTAXXXXX"
+            className={controlClass}
+          />
+        </Field>
+        <Field label="行业">
+          <input
+            value={form.industry}
+            onChange={(e) => set('industry', e.target.value)}
+            placeholder="例如：消费电子 / 新能源"
+            className={controlClass}
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="投递邮箱">
+          <input
+            value={form.applyEmail}
+            onChange={(e) => set('applyEmail', e.target.value)}
+            placeholder="投这家用的邮箱"
+            className={controlClass}
+          />
+        </Field>
+        <Field label="投递手机号">
+          <input
+            value={form.applyPhone}
+            onChange={(e) => set('applyPhone', e.target.value)}
+            placeholder="投这家用的手机号"
             className={controlClass}
           />
         </Field>
@@ -632,12 +735,10 @@ export function ApplicationDrawer({
             <div className="flex items-center gap-2">
               <label className="text-muted">终局结果:</label>
               <select
-                value={application.outcome ?? ''}
+                value={outcomeSelectValue(application)}
                 disabled={isBusy}
                 onChange={(e) =>
-                  onUpdateApplication(application.id, {
-                    outcome: (e.target.value === '' ? null : e.target.value) as ApplicationOutcome,
-                  })
+                  onUpdateApplication(application.id, outcomeSelectChange(e.target.value))
                 }
                 className={`${controlClass} py-0.5 text-[12px]`}
               >
@@ -646,6 +747,7 @@ export function ApplicationDrawer({
                 <option value="offer">Offer 🎉</option>
                 <option value="rejected">已挂 / 未通过</option>
                 <option value="declined">已拒绝</option>
+                <option value="shelved">泡池子 / 挂起</option>
               </select>
 
               <button
