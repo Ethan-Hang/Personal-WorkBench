@@ -10,6 +10,7 @@ import {
   usePreferences,
   SlotProvider,
   type SlotMap,
+  type SlotEntry,
   AppShell,
   useTheme,
   PALETTES,
@@ -31,7 +32,12 @@ import {
   type CommandItemDescriptor,
 } from '@workbench/ui';
 import { uiModules } from './modules.js';
-import { applyModuleOrder, CORE_MODULE_IDS } from './moduleOrder.js';
+import {
+  applyModuleOrder,
+  enabledModules,
+  isModuleDisabled,
+  CORE_MODULE_IDS,
+} from './moduleLayout.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { createHttpSettingsStore } from './settingsStore.js';
@@ -53,15 +59,41 @@ const settingsStore = createHttpSettingsStore();
  * 所以工作台想在今日页上摆习惯打卡，走的不是 `import`，而是工作台声明插槽、
  * 习惯导出组件、这里把两者接上。模块之间因此仍然互不认识。
  *
+ * 每条贡献都记着 `moduleId`：关掉一个模块要连它贡献到别处的界面一起撤掉，
+ * 否则关掉习惯之后，今日页上那张打卡卡片还在——那才是真正会被当成 bug 报的形态。
+ *
  * 模块作用域建一次即可：元素是不可变的，重建只会让消费方每帧收到新引用。
  */
-const UI_SLOTS: SlotMap = {
-  [WORKBENCH_SLOTS.todayMetrics]: [{ id: 'habit-checkin', node: <TodayCheckinMetric /> }],
-  [WORKBENCH_SLOTS.todayAside]: [{ id: 'habit-today', node: <TodayHabitCard /> }],
-  [WORKBENCH_SLOTS.calendarAside]: [
-    { id: 'habit-today', node: <TodayHabitCard variant="calendar" /> },
-  ],
-};
+const SLOT_CONTRIBUTIONS: ReadonlyArray<{
+  moduleId: string;
+  slot: string;
+  entry: SlotEntry;
+}> = [
+  {
+    moduleId: 'habit',
+    slot: WORKBENCH_SLOTS.todayMetrics,
+    entry: { id: 'habit-checkin', node: <TodayCheckinMetric /> },
+  },
+  {
+    moduleId: 'habit',
+    slot: WORKBENCH_SLOTS.todayAside,
+    entry: { id: 'habit-today', node: <TodayHabitCard /> },
+  },
+  {
+    moduleId: 'habit',
+    slot: WORKBENCH_SLOTS.calendarAside,
+    entry: { id: 'habit-today', node: <TodayHabitCard variant="calendar" /> },
+  },
+];
+
+function buildSlots(disabledModules: readonly string[]): SlotMap {
+  const out: Record<string, SlotEntry[]> = {};
+  for (const c of SLOT_CONTRIBUTIONS) {
+    if (isModuleDisabled(c.moduleId, disabledModules)) continue;
+    (out[c.slot] ??= []).push(c.entry);
+  }
+  return out;
+}
 
 /**
  * 模块 id → 展示名，由注册表直接得出。
@@ -76,7 +108,10 @@ function AppContent() {
   const { mode, setMode, setPalette } = useTheme();
   const { preferences } = usePreferences();
 
-  const navEntries = uiModules.flatMap((m) => m.nav);
+  // 关掉的模块从这里就消失，下面的导航、路由与命令面板因此只可能看到开着的那些。
+  // 核心模块由 isModuleDisabled 兜住，永远关不掉（见 moduleLayout.ts）。
+  const activeModules = enabledModules(uiModules, preferences.disabledModules);
+  const navEntries = activeModules.flatMap((m) => m.nav);
   const firstPath = navEntries[0]?.path;
 
   // 查询工作台今日与待排程事项
@@ -102,7 +137,7 @@ function AppContent() {
   const navGroups: ShellNavGroup[] = [
     {
       label: '核心工作',
-      items: uiModules
+      items: activeModules
         .filter((m) => CORE_MODULE_IDS.has(m.id))
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
@@ -110,7 +145,7 @@ function AppContent() {
     {
       label: '专业模块',
       items: applyModuleOrder(
-        uiModules.filter((m) => !CORE_MODULE_IDS.has(m.id)),
+        activeModules.filter((m) => !CORE_MODULE_IDS.has(m.id)),
         preferences.moduleOrder,
       )
         .flatMap((m) => m.nav)
@@ -180,7 +215,7 @@ function AppContent() {
     });
 
     // 动态挂载各模块的导航
-    for (const mod of uiModules) {
+    for (const mod of activeModules) {
       for (const nav of mod.nav) {
         let icon: ReactNode = <IconBriefcase size={15} />;
         if (nav.path === '/today' || nav.path === '/') icon = <IconHome size={15} />;
@@ -276,7 +311,14 @@ function AppContent() {
     // 4. 招聘投递与各轮次详情 (Campus Recruit Applications & Rounds)
     //    命令面板跨季搜索，所以每条结果都要标出它属于哪一季——
     //    否则搜到一条别的季的投递时，人不知道自己在看什么
-    const applications: ApplicationView[] = campusQuery.data?.applications ?? [];
+    // 关掉招聘管理时连它的搜索结果一起撤掉：⌘K 里还能搜到并跳进一个没有路由的页面，
+    // 比留着导航更让人困惑
+    const applications: ApplicationView[] = isModuleDisabled(
+      'campus-recruit',
+      preferences.disabledModules,
+    )
+      ? []
+      : (campusQuery.data?.applications ?? []);
     for (const app of applications) {
       // 4.1 投递主条目 (公司 + 岗位)
       const appBadges = [app.seasonName, `${app.priority}级`, app.status.label];
@@ -361,6 +403,7 @@ function AppContent() {
     todayQuery.data,
     unscheduledQuery.data,
     campusQuery.data,
+    preferences.disabledModules,
   ]);
 
   return (
@@ -378,15 +421,32 @@ function AppContent() {
         )}
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/about" element={<AboutPage />} />
-        {uiModules.flatMap((m) =>
+        {activeModules.flatMap((m) =>
           m.routes.map((r) => (
             <Route key={r.path} path={r.path} element={r.element as ReactNode} />
           )),
+        )}
+        {/* 关掉的模块留在书签或历史里的 URL 会走到这里。没有这条兜底就是白屏——
+            页面既不渲染也不报错，看起来像应用坏了而不是「这个模块关着」。 */}
+        {firstPath !== undefined && (
+          <Route path="*" element={<Navigate to={firstPath} replace />} />
         )}
       </Routes>
       <RestoreOverlay />
     </AppShell>
   );
+}
+
+/**
+ * 只为在 PreferencesProvider 内部取到偏好而存在的一层——插槽内容要跟着模块开关走。
+ */
+function ModuleSlots({ children }: { children: ReactNode }) {
+  const { preferences } = usePreferences();
+  const slots = useMemo(
+    () => buildSlots(preferences.disabledModules),
+    [preferences.disabledModules],
+  );
+  return <SlotProvider slots={slots}>{children}</SlotProvider>;
 }
 
 export function App() {
@@ -396,9 +456,9 @@ export function App() {
         <TimezoneProvider>
           <PreferencesProvider>
             <ModuleLabelProvider labels={MODULE_LABELS}>
-              <SlotProvider slots={UI_SLOTS}>
+              <ModuleSlots>
                 <AppContent />
-              </SlotProvider>
+              </ModuleSlots>
             </ModuleLabelProvider>
           </PreferencesProvider>
         </TimezoneProvider>

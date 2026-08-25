@@ -8,8 +8,8 @@ import {
 } from './settings.js';
 
 describe('DEFAULT_SETTINGS', () => {
-  it('十四个键齐全，且与现有 localStorage 时代的默认值一致', () => {
-    expect(SETTING_KEYS).toHaveLength(14);
+  it('十五个键齐全，且与现有 localStorage 时代的默认值一致', () => {
+    expect(SETTING_KEYS).toHaveLength(15);
     expect(DEFAULT_SETTINGS).toEqual({
       'theme.mode': 'system',
       'theme.palette': 'warm',
@@ -20,6 +20,7 @@ describe('DEFAULT_SETTINGS', () => {
       'workbench.enableAnimations': true,
       'workbench.showCompletedTasks': true,
       'workbench.moduleOrder': [],
+      'workbench.disabledModules': [],
       'backup.autoEnabled': false,
       'backup.retentionCount': 10,
       'localBackup.targetDir': '',
@@ -61,8 +62,9 @@ describe('本地备份设置', () => {
 });
 
 describe('idList codec（模块顺序）', () => {
-  it('默认空数组：没表达过偏好时按注册表原序渲染', () => {
+  it('默认空数组：没表达过偏好时按注册表原序渲染，且一个模块都没关', () => {
     expect(DEFAULT_SETTINGS['workbench.moduleOrder']).toEqual([]);
+    expect(DEFAULT_SETTINGS['workbench.disabledModules']).toEqual([]);
   });
 
   it('接受字符串数组', () => {

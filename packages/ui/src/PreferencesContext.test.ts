@@ -9,6 +9,7 @@ describe('PreferencesContext defaults & structure', () => {
       enableAnimations: true,
       showCompletedTasks: true,
       moduleOrder: [],
+      disabledModules: [],
     });
   });
 

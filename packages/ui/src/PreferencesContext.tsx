@@ -16,6 +16,11 @@ export interface WorkbenchPreferences {
    * 注册表才是真相，这里只是偏好：对不上的 id 忽略，没提到的模块追加在末尾。
    */
   moduleOrder: string[];
+  /**
+   * 被关掉的模块 id。只影响界面，不停止后端与 core Item 投影（关掉 ≠ 卸载）。
+   * 核心模块永远不在这里生效，由 web 的 moduleLayout 强制。
+   */
+  disabledModules: string[];
 }
 
 const PREF_KEYS = {
@@ -24,6 +29,7 @@ const PREF_KEYS = {
   enableAnimations: 'workbench.enableAnimations',
   showCompletedTasks: 'workbench.showCompletedTasks',
   moduleOrder: 'workbench.moduleOrder',
+  disabledModules: 'workbench.disabledModules',
 } as const satisfies Record<keyof WorkbenchPreferences, SettingKey>;
 
 function toPreferences(settings: AppSettings): WorkbenchPreferences {
@@ -33,6 +39,7 @@ function toPreferences(settings: AppSettings): WorkbenchPreferences {
     enableAnimations: settings['workbench.enableAnimations'],
     showCompletedTasks: settings['workbench.showCompletedTasks'],
     moduleOrder: settings['workbench.moduleOrder'],
+    disabledModules: settings['workbench.disabledModules'],
   };
 }
 

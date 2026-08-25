@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { applyModuleOrder, moveInList } from './moduleOrder.js';
+import {
+  applyModuleOrder,
+  enabledModules,
+  isModuleDisabled,
+  moveInList,
+  toggleDisabled,
+} from './moduleLayout.js';
 
 const registry = [{ id: 'habit' }, { id: 'campus-recruit' }, { id: 'notes' }, { id: 'research' }];
 
@@ -58,5 +64,57 @@ describe('moveInList', () => {
   it('越界索引原样返回', () => {
     expect(moveInList(['a', 'b'], 5, 'up')).toEqual(['a', 'b']);
     expect(moveInList([], 0, 'down')).toEqual([]);
+  });
+});
+
+describe('isModuleDisabled', () => {
+  it('在名单里的模块算关掉', () => {
+    expect(isModuleDisabled('notes', ['notes'])).toBe(true);
+    expect(isModuleDisabled('notes', [])).toBe(false);
+  });
+
+  it('核心模块永远开着，哪怕设置里真的存着它——关了就没有今日与周历', () => {
+    expect(isModuleDisabled('workbench', ['workbench'])).toBe(false);
+    expect(isModuleDisabled('todo', ['todo', 'notes'])).toBe(false);
+  });
+});
+
+describe('enabledModules', () => {
+  it('滤掉关掉的，保留顺序', () => {
+    expect(enabledModules(registry, ['campus-recruit', 'research']).map((m) => m.id)).toEqual([
+      'habit',
+      'notes',
+    ]);
+  });
+
+  it('名单里有不存在的 id 不影响其余', () => {
+    expect(enabledModules(registry, ['已卸载']).map((m) => m.id)).toEqual([
+      'habit',
+      'campus-recruit',
+      'notes',
+      'research',
+    ]);
+  });
+});
+
+describe('toggleDisabled', () => {
+  it('关一个、再开回来', () => {
+    const off = toggleDisabled([], 'notes', true);
+    expect(off).toEqual(['notes']);
+    expect(toggleDisabled(off, 'notes', false)).toEqual([]);
+  });
+
+  it('重复关不会写进两条——去重后消费方才不会看到两个同名条目', () => {
+    expect(toggleDisabled(['notes'], 'notes', true)).toEqual(['notes']);
+  });
+
+  it('请求关掉核心模块时原样返回，不写进名单', () => {
+    expect(toggleDisabled(['notes'], 'workbench', true)).toEqual(['notes']);
+  });
+
+  it('不改动传入的数组', () => {
+    const before = ['notes'];
+    toggleDisabled(before, 'habit', true);
+    expect(before).toEqual(['notes']);
   });
 });

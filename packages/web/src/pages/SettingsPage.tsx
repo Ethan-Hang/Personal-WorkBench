@@ -26,7 +26,13 @@ import {
   IconArrowDown,
 } from '@workbench/ui';
 import { uiModules } from '../modules.js';
-import { applyModuleOrder, moveInList, CORE_MODULE_IDS } from '../moduleOrder.js';
+import {
+  applyModuleOrder,
+  isModuleDisabled,
+  moveInList,
+  toggleDisabled,
+  CORE_MODULE_IDS,
+} from '../moduleLayout.js';
 import { AccountsPanel } from '../accounts/AccountsPanel.js';
 import { BackupPanel } from '../sync/BackupPanel.js';
 import { LocalBackupPanel } from '../sync/LocalBackupPanel.js';
@@ -510,12 +516,23 @@ function ModulesTab() {
     );
   };
 
+  const setEnabled = (id: string, enabled: boolean) => {
+    setPreference('disabledModules', toggleDisabled(preferences.disabledModules, id, !enabled));
+  };
+
   return (
     <div key="modules" className="space-y-6 animate-slide-right-in">
       <div>
         <h2 className="text-base font-bold text-ink">已安装业务模块</h2>
         <p className="text-xs text-secondary">
           遵循模块隔离铁律，每个模块为全栈垂直切片；列表直接来自前端模块注册表
+        </p>
+        <p className="mt-2 rounded-control border border-line bg-surface-2 px-3 py-2 text-[11px] leading-relaxed text-secondary">
+          <strong className="text-ink">关闭只影响界面</strong>
+          ：导航、路由、命令面板与该模块摆在别处的卡片都会隐藏，但服务端仍在运行、数据仍在库里。
+          已投影成事项的内容（如招聘的面试轮次）
+          <strong className="text-ink">照常出现在日历与今日</strong>
+          ——那是客观时间，不随界面开关消失。要彻底移除请卸载模块。
         </p>
       </div>
 
@@ -536,40 +553,51 @@ function ModulesTab() {
       <div className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">
           <h3 className="text-xs font-bold tracking-wider text-secondary uppercase">专业模块</h3>
-          <p className="text-[11px] text-muted">上移 / 下移即时生效，侧边栏顺序跟着变</p>
+          <p className="text-[11px] text-muted">开关与排序即时生效，侧边栏跟着变</p>
         </div>
-        {extraModules.map((m, index) => (
-          <Panel
-            key={m.id}
-            title={`${m.title} (${m.id})`}
-            hint="领域扩展"
-            action={
-              <div className="flex items-center gap-1.5">
-                <Chip tone="good">已激活</Chip>
-                <button
-                  type="button"
-                  disabled={index === 0}
-                  onClick={() => move(index, 'up')}
-                  title="上移"
-                  className="flex size-7 items-center justify-center rounded-control border border-line bg-surface text-secondary hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                >
-                  <IconArrowUp size={14} />
-                </button>
-                <button
-                  type="button"
-                  disabled={index === extraModules.length - 1}
-                  onClick={() => move(index, 'down')}
-                  title="下移"
-                  className="flex size-7 items-center justify-center rounded-control border border-line bg-surface text-secondary hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                >
-                  <IconArrowDown size={14} />
-                </button>
-              </div>
-            }
-          >
-            <ModuleRoutes paths={m.nav.map((n) => n.path)} />
-          </Panel>
-        ))}
+        {extraModules.map((m, index) => {
+          const isOn = !isModuleDisabled(m.id, preferences.disabledModules);
+          return (
+            <Panel
+              key={m.id}
+              title={`${m.title} (${m.id})`}
+              hint={isOn ? '领域扩展' : '领域扩展 · 已关闭'}
+              className={isOn ? '' : 'opacity-60'}
+              action={
+                <div className="flex items-center gap-1.5">
+                  <Chip tone={isOn ? 'good' : 'neutral'}>{isOn ? '已启用' : '已关闭'}</Chip>
+                  <Switch
+                    size="sm"
+                    tone="good"
+                    checked={isOn}
+                    onChange={(next) => setEnabled(m.id, next)}
+                    aria-label={`启用或关闭${m.title}`}
+                  />
+                  <button
+                    type="button"
+                    disabled={index === 0}
+                    onClick={() => move(index, 'up')}
+                    title="上移"
+                    className="flex size-7 items-center justify-center rounded-control border border-line bg-surface text-secondary hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    <IconArrowUp size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={index === extraModules.length - 1}
+                    onClick={() => move(index, 'down')}
+                    title="下移"
+                    className="flex size-7 items-center justify-center rounded-control border border-line bg-surface text-secondary hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                  >
+                    <IconArrowDown size={14} />
+                  </button>
+                </div>
+              }
+            >
+              <ModuleRoutes paths={m.nav.map((n) => n.path)} />
+            </Panel>
+          );
+        })}
       </div>
     </div>
   );

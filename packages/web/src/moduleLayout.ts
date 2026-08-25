@@ -1,5 +1,5 @@
 /**
- * 侧边栏「专业模块」的排序。
+ * 侧边栏「专业模块」的排布：顺序与开关。
  *
  * 存的是一串模块 id（设置键 `workbench.moduleOrder`），**注册表才是真相**：
  * 顺序只是一份偏好提示。因此这里的两条规则是承重的——
@@ -51,4 +51,36 @@ export function moveInList<T>(list: readonly T[], index: number, direction: 'up'
   next[index] = next[target] as T;
   next[target] = moved;
   return next;
+}
+
+/**
+ * 这个模块是不是被关掉了。
+ *
+ * **核心模块永远返回 false**，哪怕设置里真的存着它的 id——这一条是承重的：
+ * 关掉工作台会让今日与周历一起消失，首页 `/` 的重定向也没了目标，
+ * 而设置是能被手工改库或从别的设备同步过来的。把保护放在这个纯函数里，
+ * 侧边栏、路由与设置页三处才不可能各判各的。
+ */
+export function isModuleDisabled(id: string, disabled: readonly string[]): boolean {
+  if (CORE_MODULE_IDS.has(id)) return false;
+  return disabled.includes(id);
+}
+
+/** 只留下没被关掉的模块。 */
+export function enabledModules<T extends OrderableModule>(
+  modules: readonly T[],
+  disabled: readonly string[],
+): T[] {
+  return modules.filter((m) => !isModuleDisabled(m.id, disabled));
+}
+
+/** 加入或移除一个 id，返回新数组。核心模块不可关，请求关它时原样返回。 */
+export function toggleDisabled(
+  disabled: readonly string[],
+  id: string,
+  nextDisabled: boolean,
+): string[] {
+  if (nextDisabled && CORE_MODULE_IDS.has(id)) return [...disabled];
+  const without = disabled.filter((d) => d !== id);
+  return nextDisabled ? [...without, id] : without;
 }
