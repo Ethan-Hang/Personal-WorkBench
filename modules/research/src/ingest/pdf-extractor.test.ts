@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -20,6 +20,21 @@ async function tempFile(name: string, bytes: string | Buffer): Promise<string> {
 }
 
 describe('隔离 PDF worker', () => {
+  it('根运行环境显式安装 worker 使用的 PDF 解析器', async () => {
+    const parsePackage = async (packageUrl: URL) =>
+      JSON.parse(await readFile(packageUrl, 'utf8')) as {
+        dependencies?: Record<string, string>;
+      };
+    const [rootPackage, researchPackage] = await Promise.all([
+      parsePackage(new URL('../../../../package.json', import.meta.url)),
+      parsePackage(new URL('../../package.json', import.meta.url)),
+    ]);
+
+    expect(rootPackage.dependencies?.['pdfjs-dist']).toBe(
+      researchPackage.dependencies?.['pdfjs-dist'],
+    );
+  });
+
   it('从生成 PDF 提取 embedded 元数据和第一页文本', async () => {
     const path = await tempFile(
       'normal.pdf',

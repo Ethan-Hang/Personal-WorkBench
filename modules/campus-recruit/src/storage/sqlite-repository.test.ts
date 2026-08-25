@@ -344,7 +344,7 @@ describe('SqliteCampusRecruitRepository', () => {
     expect(await repo.countApplicationsInSeason('missing')).toBe(0);
 
     // 季里还有投递时外键会拦下删除——service 层会在此之前先回 409 并提示
-    expect(() => repo.deleteSeason('season-spring')).rejects.toThrow();
+    await expect(() => repo.deleteSeason('season-spring')).rejects.toThrow();
     await repo.deleteApplication('app-spring');
     expect(await repo.deleteSeason('season-spring')).toBe(true);
     expect(await repo.deleteSeason('season-spring')).toBe(false);

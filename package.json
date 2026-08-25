@@ -44,7 +44,8 @@
     "*.{ts,tsx,js,json,md,css,yml}": "prettier --write"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "pdfjs-dist": "6.2.108"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true,
