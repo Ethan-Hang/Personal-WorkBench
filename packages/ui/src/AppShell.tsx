@@ -87,28 +87,20 @@ export function AppShell({
               onClick={() => setIsSidebarCollapsed(false)}
               aria-label="展开侧边栏"
               title="展开侧边栏"
-              className="group mx-auto flex size-10 items-center justify-center rounded-xl bg-accent text-white font-extrabold text-sm shadow-xs transition-all hover:scale-105 hover:shadow-md"
+              className="mx-auto flex size-8 items-center justify-center rounded-lg border border-sidebar-line/50 bg-sidebar-active/40 text-sidebar-muted transition-all hover:border-sidebar-line hover:bg-sidebar-active hover:text-white"
             >
-              <span className="group-hover:hidden">序</span>
-              <span className="hidden group-hover:inline-flex">
-                <IconChevronRight size={16} />
-              </span>
+              <IconChevronRight size={16} />
             </button>
           ) : (
             /* 展开状态下：左侧品牌，右侧折叠按钮 */
             <div className="flex w-full items-center justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-xl bg-accent text-white font-extrabold text-sm shadow-xs">
-                  序
-                </div>
-                <div className="min-w-0 flex-1 overflow-hidden">
-                  <h1 className="text-sm font-bold tracking-tight text-white truncate leading-tight">
-                    个人工作台
-                  </h1>
-                  <p className="text-[10px] text-sidebar-muted truncate leading-tight">
-                    把计划变成真实行动
-                  </p>
-                </div>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <h1 className="text-sm font-bold tracking-tight text-white truncate leading-tight">
+                  个人工作台
+                </h1>
+                <p className="text-[10px] text-sidebar-muted truncate leading-tight">
+                  把计划变成真实行动
+                </p>
               </div>
 
               <button

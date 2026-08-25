@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="个人工作台">
+  <rect width="64" height="64" rx="16" fill="#08111f" />
+
+  <path d="M20 12h24v8H20zM28 20h8v4h-8z" fill="#3b82f6" />
+  <path d="M44 20h8v24h-8zM40 28h4v8h-4z" fill="#22d3ee" />
+  <path d="M20 44h24v8H20zM28 40h8v4h-8z" fill="#22d3ee" />
+  <path d="M12 20h8v24h-8zM20 28h4v8h-4z" fill="#3b82f6" />
+
+  <rect x="24" y="24" width="16" height="16" rx="4" fill="#e0f2fe" />
+</svg>
