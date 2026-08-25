@@ -11,6 +11,11 @@ export interface WorkbenchPreferences {
   enableAnimations: boolean;
   /** 在今日执行舱待办列表底部展示已完成任务折叠分组 */
   showCompletedTasks: boolean;
+  /**
+   * 侧边栏「专业模块」的展示顺序，存模块 id。空数组 = 按注册表原序。
+   * 注册表才是真相，这里只是偏好：对不上的 id 忽略，没提到的模块追加在末尾。
+   */
+  moduleOrder: string[];
 }
 
 const PREF_KEYS = {
@@ -18,6 +23,7 @@ const PREF_KEYS = {
   autoExpandOverdue: 'workbench.autoExpandOverdue',
   enableAnimations: 'workbench.enableAnimations',
   showCompletedTasks: 'workbench.showCompletedTasks',
+  moduleOrder: 'workbench.moduleOrder',
 } as const satisfies Record<keyof WorkbenchPreferences, SettingKey>;
 
 function toPreferences(settings: AppSettings): WorkbenchPreferences {
@@ -26,6 +32,7 @@ function toPreferences(settings: AppSettings): WorkbenchPreferences {
     autoExpandOverdue: settings['workbench.autoExpandOverdue'],
     enableAnimations: settings['workbench.enableAnimations'],
     showCompletedTasks: settings['workbench.showCompletedTasks'],
+    moduleOrder: settings['workbench.moduleOrder'],
   };
 }
 
@@ -33,12 +40,22 @@ function toPatch(patch: Partial<WorkbenchPreferences>): Partial<AppSettings> {
   const out: Partial<AppSettings> = {};
   for (const [uiKey, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    out[PREF_KEYS[uiKey as keyof WorkbenchPreferences]] = value;
+    // 每个键的值类型各不相同，索引写入需要一次收窄；PREF_KEYS 的
+    // `satisfies Record<keyof WorkbenchPreferences, SettingKey>` 已经保证了键的对应关系。
+    (out as Record<SettingKey, unknown>)[PREF_KEYS[uiKey as keyof WorkbenchPreferences]] = value;
   }
   return out;
 }
 
 export const DEFAULT_PREFERENCES: Readonly<WorkbenchPreferences> = toPreferences(DEFAULT_SETTINGS);
+
+/**
+ * 只有布尔项能「切换」。不收窄的话 `togglePreference('moduleOrder')` 会把整条顺序
+ * 变成 `false`，且类型检查放行。
+ */
+export type BooleanPreferenceKey = {
+  [K in keyof WorkbenchPreferences]: WorkbenchPreferences[K] extends boolean ? K : never;
+}[keyof WorkbenchPreferences];
 
 export interface PreferencesContextValue {
   preferences: WorkbenchPreferences;
@@ -46,7 +63,7 @@ export interface PreferencesContextValue {
     key: K,
     value: WorkbenchPreferences[K] | ((prev: WorkbenchPreferences[K]) => WorkbenchPreferences[K]),
   ) => void;
-  togglePreference: (key: keyof WorkbenchPreferences) => void;
+  togglePreference: (key: BooleanPreferenceKey) => void;
   updatePreferences: (
     patch:
       | Partial<WorkbenchPreferences>
@@ -85,7 +102,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   );
 
   const togglePreference = useCallback(
-    (key: keyof WorkbenchPreferences) => {
+    (key: BooleanPreferenceKey) => {
       update(toPatch({ [key]: !preferences[key] } as Partial<WorkbenchPreferences>));
     },
     [preferences, update],

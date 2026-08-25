@@ -19,6 +19,21 @@ describe('GET /api/settings', () => {
 });
 
 describe('PATCH /api/settings', () => {
+  it('模块顺序这类数组值能整条往返——它走的是同一套 JSON 落库，不是标量特例', async () => {
+    const app = await makeApp();
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/settings',
+      payload: { settings: { 'workbench.moduleOrder': ['notes', 'habit', 'research'] } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().settings['workbench.moduleOrder']).toEqual(['notes', 'habit', 'research']);
+
+    const back = await app.inject({ method: 'GET', url: '/api/settings' });
+    expect(back.json().settings['workbench.moduleOrder']).toEqual(['notes', 'habit', 'research']);
+    await app.close();
+  });
+
   it('写入后返回完整设置，storedKeys 只含真正落库的键', async () => {
     const app = await makeApp();
     const res = await app.inject({

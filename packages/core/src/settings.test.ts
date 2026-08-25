@@ -8,8 +8,8 @@ import {
 } from './settings.js';
 
 describe('DEFAULT_SETTINGS', () => {
-  it('十三个键齐全，且与现有 localStorage 时代的默认值一致', () => {
-    expect(SETTING_KEYS).toHaveLength(13);
+  it('十四个键齐全，且与现有 localStorage 时代的默认值一致', () => {
+    expect(SETTING_KEYS).toHaveLength(14);
     expect(DEFAULT_SETTINGS).toEqual({
       'theme.mode': 'system',
       'theme.palette': 'warm',
@@ -19,6 +19,7 @@ describe('DEFAULT_SETTINGS', () => {
       'workbench.autoExpandOverdue': false,
       'workbench.enableAnimations': true,
       'workbench.showCompletedTasks': true,
+      'workbench.moduleOrder': [],
       'backup.autoEnabled': false,
       'backup.retentionCount': 10,
       'localBackup.targetDir': '',
@@ -56,6 +57,39 @@ describe('本地备份设置', () => {
     const resolved = resolveSettings({ 'localBackup.retentionCount': 3 });
     expect(resolved['localBackup.retentionCount']).toBe(3);
     expect(resolved['backup.retentionCount']).toBe(10);
+  });
+});
+
+describe('idList codec（模块顺序）', () => {
+  it('默认空数组：没表达过偏好时按注册表原序渲染', () => {
+    expect(DEFAULT_SETTINGS['workbench.moduleOrder']).toEqual([]);
+  });
+
+  it('接受字符串数组', () => {
+    const s = resolveSettings({ 'workbench.moduleOrder': ['notes', 'habit'] });
+    expect(s['workbench.moduleOrder']).toEqual(['notes', 'habit']);
+  });
+
+  it('去重——同一个 id 出现两次会让消费方渲染出两个同名条目', () => {
+    const s = resolveSettings({ 'workbench.moduleOrder': ['habit', 'notes', 'habit'] });
+    expect(s['workbench.moduleOrder']).toEqual(['habit', 'notes']);
+  });
+
+  it('非数组、含空串或含非字符串一律回落默认', () => {
+    expect(resolveSettings({ 'workbench.moduleOrder': 'habit' })['workbench.moduleOrder']).toEqual(
+      [],
+    );
+    expect(
+      resolveSettings({ 'workbench.moduleOrder': ['habit', ''] })['workbench.moduleOrder'],
+    ).toEqual([]);
+    expect(
+      resolveSettings({ 'workbench.moduleOrder': ['habit', 3] })['workbench.moduleOrder'],
+    ).toEqual([]);
+  });
+
+  it('不校验成员是否还装着——卸载一个模块不该让整条顺序变脏值', () => {
+    const s = resolveSettings({ 'workbench.moduleOrder': ['已卸载的模块', 'habit'] });
+    expect(s['workbench.moduleOrder']).toEqual(['已卸载的模块', 'habit']);
   });
 });
 

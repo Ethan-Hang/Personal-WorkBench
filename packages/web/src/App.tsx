@@ -7,6 +7,7 @@ import {
   ThemeProvider,
   TimezoneProvider,
   PreferencesProvider,
+  usePreferences,
   SlotProvider,
   type SlotMap,
   AppShell,
@@ -30,6 +31,7 @@ import {
   type CommandItemDescriptor,
 } from '@workbench/ui';
 import { uiModules } from './modules.js';
+import { applyModuleOrder, CORE_MODULE_IDS } from './moduleOrder.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AboutPage } from './pages/AboutPage.js';
 import { createHttpSettingsStore } from './settingsStore.js';
@@ -72,6 +74,7 @@ function AppContent() {
   const location = useLocation();
   const navigate = useNavigate();
   const { mode, setMode, setPalette } = useTheme();
+  const { preferences } = usePreferences();
 
   const navEntries = uiModules.flatMap((m) => m.nav);
   const firstPath = navEntries[0]?.path;
@@ -94,19 +97,22 @@ function AppContent() {
     queryFn: () => fetchApplications(),
   });
 
-  // 将注册的 UI 模块组织为侧边栏导航分组
+  // 将注册的 UI 模块组织为侧边栏导航分组。
+  // 「专业模块」按偏好里的顺序排；注册表仍是真相，顺序只是一份提示（见 moduleOrder.ts）。
   const navGroups: ShellNavGroup[] = [
     {
       label: '核心工作',
       items: uiModules
-        .filter((m) => m.id === 'workbench' || m.id === 'todo')
+        .filter((m) => CORE_MODULE_IDS.has(m.id))
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
     },
     {
       label: '专业模块',
-      items: uiModules
-        .filter((m) => m.id !== 'workbench' && m.id !== 'todo')
+      items: applyModuleOrder(
+        uiModules.filter((m) => !CORE_MODULE_IDS.has(m.id)),
+        preferences.moduleOrder,
+      )
         .flatMap((m) => m.nav)
         .map((n) => ({ path: n.path, label: n.label })),
     },

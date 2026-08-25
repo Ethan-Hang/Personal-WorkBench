@@ -8,6 +8,7 @@ describe('PreferencesContext defaults & structure', () => {
       autoExpandOverdue: false,
       enableAnimations: true,
       showCompletedTasks: true,
+      moduleOrder: [],
     });
   });
 

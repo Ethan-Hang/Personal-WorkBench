@@ -81,6 +81,29 @@ function timezone(fallback: string): SettingCodec<string> {
   };
 }
 
+/**
+ * id 列表，用于「顺序」类设置。
+ *
+ * **只做形状校验，不校验成员是否还存在**——core 不知道装了哪些模块（铁律 2），
+ * 成员合法性由消费方在渲染时与注册表求交：存着的 id 对不上就忽略，注册表里多出来的
+ * 追加在末尾。这样卸载一个模块不会让整条顺序变成脏值被整体丢弃，装一个新模块也不会
+ * 因为不在顺序里而消失。
+ *
+ * 去重是承重的：同一个 id 出现两次会让消费方渲染出两个同名条目。
+ */
+function idList(): SettingCodec<string[]> {
+  return {
+    // 空数组 = 「没表达过偏好」，一律按注册表原序渲染。
+    // 这份默认值会被 DEFAULT_SETTINGS 共享引用，消费方一律构造新数组，不得原地改。
+    default: [],
+    parse: (raw) => {
+      if (!Array.isArray(raw)) return undefined;
+      if (!raw.every((v) => typeof v === 'string' && v.length > 0)) return undefined;
+      return [...new Set(raw as string[])];
+    },
+  };
+}
+
 export const SETTINGS_CODECS = {
   'theme.mode': oneOf(['light', 'dark', 'system'] as const, 'system'),
   'theme.palette': oneOf(['warm', 'forest', 'ocean', 'amber', 'mono'] as const, 'warm'),
@@ -90,6 +113,11 @@ export const SETTINGS_CODECS = {
   'workbench.autoExpandOverdue': bool(false),
   'workbench.enableAnimations': bool(true),
   'workbench.showCompletedTasks': bool(true),
+  /**
+   * 侧边栏「专业模块」的展示顺序，存模块 id。空数组 = 按注册表原序。
+   * 只覆盖专业模块——「核心工作」那一组是工作台自己的两条导航，不参与排序。
+   */
+  'workbench.moduleOrder': idList(),
   /**
    * 自动备份默认**关**。默认配置下因此零出站网络请求，本地优先不被稀释；
    * 手动备份与恢复都不受这个开关约束（设计 §6.6）。

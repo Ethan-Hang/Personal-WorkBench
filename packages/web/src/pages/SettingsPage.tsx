@@ -22,7 +22,11 @@ import {
   IconBriefcase,
   IconUser,
   IconCloud,
+  IconArrowUp,
+  IconArrowDown,
 } from '@workbench/ui';
+import { uiModules } from '../modules.js';
+import { applyModuleOrder, moveInList, CORE_MODULE_IDS } from '../moduleOrder.js';
 import { AccountsPanel } from '../accounts/AccountsPanel.js';
 import { BackupPanel } from '../sync/BackupPanel.js';
 import { LocalBackupPanel } from '../sync/LocalBackupPanel.js';
@@ -107,7 +111,7 @@ export function SettingsPage() {
     { id: 'timezone', label: '时区与时间', icon: IconClock },
     { id: 'preferences', label: '工作台偏好', icon: IconSparkles },
     { id: 'storage', label: '数据与存储', icon: IconDatabase },
-    { id: 'modules', label: '已安装模块', icon: IconBriefcase, badge: '2' },
+    { id: 'modules', label: '已安装模块', icon: IconBriefcase, badge: String(uiModules.length) },
   ];
 
   return (
@@ -472,54 +476,118 @@ export function SettingsPage() {
             </div>
           )}
 
-          {activeTab === 'modules' && (
-            <div key="modules" className="space-y-6 animate-slide-right-in">
-              <div>
-                <h2 className="text-base font-bold text-ink">已安装业务模块</h2>
-                <p className="text-xs text-secondary">遵循模块隔离铁律，每个模块为全栈垂直切片</p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4">
-                <Panel
-                  title="待办模块 (todo)"
-                  hint="内置核心"
-                  action={<Chip tone="accent">核心模块</Chip>}
-                >
-                  <div className="text-xs space-y-2 text-secondary">
-                    <div>
-                      <strong>职责</strong>：提供今日执行舱、任务创建、权重排序与完成标记。
-                    </div>
-                    <div>
-                      <strong>路由</strong>：<code>/today</code>
-                    </div>
-                  </div>
-                </Panel>
-
-                <Panel
-                  title="招聘管理模块 (campus-recruit)"
-                  hint="领域扩展"
-                  action={<Chip tone="good">已激活</Chip>}
-                >
-                  <div className="text-xs space-y-2 text-secondary">
-                    <div>
-                      <strong>职责</strong>
-                      ：多招聘季（秋招 / 春招 /
-                      社招）并存的投递进度追踪、面试轮次记录、按季转化漏斗分析。
-                    </div>
-                    <div>
-                      <strong>路由</strong>：<code>/campus</code>, <code>/campus/stats</code>
-                    </div>
-                    <div>
-                      <strong>数据表</strong>：<code>campus_recruit_seasons</code>,{' '}
-                      <code>campus_recruit_applications</code>, <code>campus_recruit_rounds</code>
-                    </div>
-                  </div>
-                </Panel>
-              </div>
-            </div>
-          )}
+          {activeTab === 'modules' && <ModulesTab />}
         </main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * 已安装模块。**整段由 `uiModules` 注册表推导**——这一页此前是手写死的两块 Panel，
+ * 于是列着早已不再注册的 todo，而真正装着的 habit / notes / research 一个都没出现。
+ * 「加模块 = 加一行注册」要成立，这里就不能有第二份需要人手同步的清单。
+ */
+function ModulesTab() {
+  const { preferences, setPreference } = usePreferences();
+
+  const coreModules = uiModules.filter((m) => CORE_MODULE_IDS.has(m.id));
+  const extraModules = applyModuleOrder(
+    uiModules.filter((m) => !CORE_MODULE_IDS.has(m.id)),
+    preferences.moduleOrder,
+  );
+
+  // 顺序落库时写的是**当前展示的完整 id 列表**，而不是在存量顺序上打补丁——
+  // 存量顺序可能是空的（从未排过）或含着已卸载的 id，在它上面挪位置会挪错。
+  const move = (index: number, direction: 'up' | 'down') => {
+    setPreference(
+      'moduleOrder',
+      moveInList(
+        extraModules.map((m) => m.id),
+        index,
+        direction,
+      ),
+    );
+  };
+
+  return (
+    <div key="modules" className="space-y-6 animate-slide-right-in">
+      <div>
+        <h2 className="text-base font-bold text-ink">已安装业务模块</h2>
+        <p className="text-xs text-secondary">
+          遵循模块隔离铁律，每个模块为全栈垂直切片；列表直接来自前端模块注册表
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold tracking-wider text-secondary uppercase">核心工作</h3>
+        {coreModules.map((m) => (
+          <Panel
+            key={m.id}
+            title={`${m.title} (${m.id})`}
+            hint="内置核心"
+            action={<Chip tone="accent">核心模块</Chip>}
+          >
+            <ModuleRoutes paths={m.nav.map((n) => n.path)} />
+          </Panel>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="text-xs font-bold tracking-wider text-secondary uppercase">专业模块</h3>
+          <p className="text-[11px] text-muted">上移 / 下移即时生效，侧边栏顺序跟着变</p>
+        </div>
+        {extraModules.map((m, index) => (
+          <Panel
+            key={m.id}
+            title={`${m.title} (${m.id})`}
+            hint="领域扩展"
+            action={
+              <div className="flex items-center gap-1.5">
+                <Chip tone="good">已激活</Chip>
+                <button
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => move(index, 'up')}
+                  title="上移"
+                  className="flex size-7 items-center justify-center rounded-control border border-line bg-surface text-secondary hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                >
+                  <IconArrowUp size={14} />
+                </button>
+                <button
+                  type="button"
+                  disabled={index === extraModules.length - 1}
+                  onClick={() => move(index, 'down')}
+                  title="下移"
+                  className="flex size-7 items-center justify-center rounded-control border border-line bg-surface text-secondary hover:bg-surface-2 hover:text-ink disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                >
+                  <IconArrowDown size={14} />
+                </button>
+              </div>
+            }
+          >
+            <ModuleRoutes paths={m.nav.map((n) => n.path)} />
+          </Panel>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ModuleRoutes({ paths }: { paths: readonly string[] }) {
+  if (paths.length === 0) {
+    return <div className="text-xs text-secondary">无导航入口</div>;
+  }
+  return (
+    <div className="text-xs text-secondary">
+      <strong>路由</strong>：
+      {paths.map((p, i) => (
+        <span key={p}>
+          {i > 0 && ', '}
+          <code>{p}</code>
+        </span>
+      ))}
     </div>
   );
 }

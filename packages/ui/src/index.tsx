@@ -36,7 +36,11 @@ export type { ScheduleRangeValue, ScheduleRangePickerProps } from './ScheduleRan
 export { TimezoneMapSelector } from './TimezoneMapSelector.js';
 export { TodayClockCard } from './TodayClockCard.js';
 export { PreferencesProvider, usePreferences, DEFAULT_PREFERENCES } from './PreferencesContext.js';
-export type { WorkbenchPreferences, PreferencesContextValue } from './PreferencesContext.js';
+export type {
+  WorkbenchPreferences,
+  PreferencesContextValue,
+  BooleanPreferenceKey,
+} from './PreferencesContext.js';
 export { AppShell } from './AppShell.js';
 export type { ShellNavGroup, ShellNavItem } from './AppShell.js';
 export { CommandPalette, matchCommandItem } from './CommandPalette.js';
