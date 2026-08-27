@@ -171,6 +171,60 @@ export function runItemRepositoryContract(
       expect(found.map((i) => i.title).sort()).toEqual(['今天的', '前天的']);
     });
 
+    it('list 按 scheduledBeforeDate 只取排程日已过去的全天事项（严格小于）', async () => {
+      for (const date of ['2026-09-18', '2026-09-20', '2026-09-21']) {
+        await repo.create('todo', {
+          kind: 'task',
+          title: date,
+          scheduled: { kind: 'all-day', date },
+        });
+      }
+
+      const found = await repo.list({ scheduledBeforeDate: '2026-09-20' });
+      expect(found.map((i) => i.title)).toEqual(['2026-09-18']);
+    });
+
+    it('list 按 scheduledBefore 只取排在此刻之前的定时事项（严格小于）', async () => {
+      for (const start of [
+        '2026-09-19T10:00:00.000Z',
+        '2026-09-20T00:00:00.000Z',
+        '2026-09-20T10:00:00.000Z',
+      ]) {
+        await repo.create('todo', {
+          kind: 'task',
+          title: start,
+          scheduled: { kind: 'timed', start },
+        });
+      }
+
+      const found = await repo.list({ scheduledBefore: '2026-09-20T00:00:00.000Z' });
+      expect(found.map((i) => i.title)).toEqual(['2026-09-19T10:00:00.000Z']);
+    });
+
+    it('scheduledBeforeDate 与 scheduledBefore 取并集，凑齐「排程已过去」的两类事项', async () => {
+      await repo.create('todo', {
+        kind: 'task',
+        title: '过去的全天',
+        scheduled: { kind: 'all-day', date: '2026-09-18' },
+      });
+      await repo.create('todo', {
+        kind: 'task',
+        title: '过去的定时',
+        scheduled: { kind: 'timed', start: '2026-09-19T10:00:00.000Z' },
+      });
+      await repo.create('todo', {
+        kind: 'task',
+        title: '今天的全天',
+        scheduled: { kind: 'all-day', date: '2026-09-20' },
+      });
+
+      const found = await repo.list({
+        scheduledBeforeDate: '2026-09-20',
+        scheduledBefore: '2026-09-20T00:00:00.000Z',
+      });
+      expect(found.map((i) => i.title).sort()).toEqual(['过去的全天', '过去的定时']);
+    });
+
     it('list 按 statuses 过滤', async () => {
       await repo.create('todo', { kind: 'task', title: '未完成' });
       const done = await repo.create('todo', { kind: 'task', title: '已完成' });

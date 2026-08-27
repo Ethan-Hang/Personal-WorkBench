@@ -84,7 +84,7 @@ describe('listToday 跨模块聚合', () => {
     expect(today.scheduled).toHaveLength(0);
   });
 
-  it('前几天未完成的全天事项被带到今天', async () => {
+  it('前几天未完成的全天事项算逾期，即使它没有 DDL', async () => {
     await items.create('todo', {
       kind: 'task',
       title: '拖了两天',
@@ -92,7 +92,50 @@ describe('listToday 跨模块聚合', () => {
     });
 
     const today = await listToday(ctx, OPTS);
-    expect(today.scheduled.map((i) => i.title)).toEqual(['拖了两天']);
+    // 排程日过了就算逾期。绝大多数事项没填 DDL，只认 dueAt 会让逾期桶恒为空
+    expect(today.overdue.map((i) => i.title)).toEqual(['拖了两天']);
+    expect(today.scheduled).toHaveLength(0);
+  });
+
+  it('排在过去的定时事项也算逾期，不再两个桶都落不进去', async () => {
+    await items.create('todo', {
+      kind: 'task',
+      title: '昨天下午的',
+      scheduled: { kind: 'timed', start: '2026-09-19T06:00:00.000Z' },
+    });
+
+    const today = await listToday(ctx, OPTS);
+    expect(today.overdue.map((i) => i.title)).toEqual(['昨天下午的']);
+  });
+
+  it('今天的排程不算逾期——哪怕时刻已经过去了', async () => {
+    await items.create('todo', {
+      kind: 'task',
+      title: '今早八点',
+      scheduled: { kind: 'timed', start: '2026-09-20T00:00:00.000Z' },
+    });
+    await items.create('todo', {
+      kind: 'task',
+      title: '今天全天',
+      scheduled: { kind: 'all-day', date: '2026-09-20' },
+    });
+
+    const today = await listToday(ctx, OPTS);
+    expect(today.overdue).toHaveLength(0);
+    expect(today.scheduled.map((i) => i.title).sort()).toEqual(['今天全天', '今早八点']);
+  });
+
+  it('DDL 已过且排程日也过的事项只出现一次', async () => {
+    await items.create('todo', {
+      kind: 'task',
+      title: '两头都过期',
+      dueAt: '2026-09-19T00:00:00.000Z',
+      scheduled: { kind: 'all-day', date: '2026-09-18' },
+    });
+
+    const today = await listToday(ctx, OPTS);
+    expect(today.overdue.map((i) => i.title)).toEqual(['两头都过期']);
+    expect(today.scheduled).toHaveLength(0);
   });
 
   it('已完成的进 completed，不进 scheduled 也不进 overdue', async () => {

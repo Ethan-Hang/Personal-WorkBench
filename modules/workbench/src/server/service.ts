@@ -128,15 +128,30 @@ export async function listToday(ctx: ModuleContext, opts: ServiceOptions): Promi
   // 本地日边界在应用层换算成 UTC 区间，SQL 只做字符串比较（spec §6.4）
   const range = localDayRange(date, opts.zone);
 
-  const overdueItems = await ctx.items.list({
-    dueBefore: now,
-    statuses: [...OPEN_STATUSES],
-  });
+  // 逾期有两条独立的判据，取并集：
+  //   ① DDL 已过（`dueBefore`）——「最晚做完」的那一刻过去了；
+  //   ② 排程日已过（`scheduledBeforeDate` / `scheduledBefore`）——「打算哪天做」的那天过去了，人没做。
+  // 只认 ① 的话逾期桶实际上恒为空：建待办时不填截止日期是常态，dueAt 绝大多数为 null。
+  // ② 的颗粒度刻意是「天」而非「时刻」：今早八点排的事拖到十点还不叫逾期，拖到明天才叫。
+  const [dueOverdue, scheduleOverdue] = await Promise.all([
+    ctx.items.list({ dueBefore: now, statuses: [...OPEN_STATUSES] }),
+    ctx.items.list({
+      scheduledBeforeDate: date,
+      scheduledBefore: range.startUtc,
+      statuses: [...OPEN_STATUSES],
+    }),
+  ]);
+  const overdueItems = [...dueOverdue];
+  const seen = new Set(dueOverdue.map((i) => i.id));
+  for (const item of scheduleOverdue) {
+    if (!seen.has(item.id)) overdueItems.push(item);
+  }
 
+  // 只取今天的。前几天没做完的不再混进来——它们已经由上面的判据 ② 进了 overdue，
+  // 在那里被显式标成逾期，而不是不声不响地混在今天的排程里。
   const scheduledItems = await ctx.items.list({
     scheduledWithin: range,
-    // 前几天没做完的全天事项被带到今天，不会悄悄消失
-    scheduledOnOrBeforeDate: date,
+    scheduledOnDate: date,
     statuses: [...OPEN_STATUSES],
   });
 

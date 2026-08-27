@@ -33,6 +33,16 @@ export interface ListItemsQuery {
   /** 全天排程早于或等于此浮动日期。用于把未完成的旧任务带到今天。 */
   scheduledOnOrBeforeDate?: string;
   /**
+   * 全天排程**严格早于**此浮动日期。与 `scheduledOnOrBeforeDate` 的区别只在端点：
+   * 那个含当天（把旧事项带到今天），这个不含（只要「已经过去的」）。
+   */
+  scheduledBeforeDate?: string;
+  /**
+   * 定时排程**严格早于**此刻。与 `scheduledBeforeDate` 取并集，
+   * 即可一次拿全「排程已经过去」的两类事项（浮动日期一支 + 时刻一支）。
+   */
+  scheduledBefore?: IsoInstant;
+  /**
    * 全天排程落在此浮动日期区间内（**含两端**）。与上面三个排程条件取并集。
    * 日历的周 / 月视图靠它 + `scheduledWithin` 一次拿全全天与定时两类事项。
    * 浮动日期不转 UTC（spec §6.2），所以这里是纯字符串比较，与 `scheduledWithin` 的时刻区间不同。
