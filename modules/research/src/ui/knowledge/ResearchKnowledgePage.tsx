@@ -20,12 +20,30 @@ import {
 } from '../api.js';
 import { ResearchSectionNav } from '../components/ResearchSectionNav.js';
 import { ClaimBoard } from './ClaimBoard.js';
+import { KnowledgeSearch } from './KnowledgeSearch.js';
 import { MatrixEditor } from './MatrixEditor.js';
 import { NoteEditor } from './NoteEditor.js';
 import { SourceStatus, sourceStateDescription } from './SourceStatus.js';
+import { WritingBoard } from './WritingBoard.js';
 
 type ContextSelection = 'all' | 'general' | string;
 type MobilePane = 'notes' | 'evidence' | 'inspect';
+type KnowledgeMode = 'sources' | 'claims' | 'matrices' | 'writing';
+
+function initialQueryValue(name: string): string | null {
+  return typeof window === 'undefined'
+    ? null
+    : new URLSearchParams(window.location.search).get(name);
+}
+
+function initialKnowledgeMode(): KnowledgeMode {
+  const mode = initialQueryValue('mode');
+  return mode === 'claims' || mode === 'matrices' || mode === 'writing' ? mode : 'sources';
+}
+
+function initialSourceStatus(): 'active' | 'deleted' {
+  return initialQueryValue('sourceStatus') === 'deleted' ? 'deleted' : 'active';
+}
 
 function contextQuery(selection: ContextSelection) {
   if (selection === 'all') return {};
@@ -215,13 +233,16 @@ function EvidenceInspector({
 
 export function ResearchKnowledgePage() {
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<'sources' | 'claims' | 'matrices'>('sources');
+  const [mode, setMode] = useState<KnowledgeMode>(initialKnowledgeMode);
   const [context, setContext] = useState<ContextSelection>('all');
-  const [status, setStatus] = useState<'active' | 'deleted'>('active');
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [status, setStatus] = useState<'active' | 'deleted'>(initialSourceStatus);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(() =>
+    initialQueryValue('note'),
+  );
   const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
   const [selectionKind, setSelectionKind] = useState<'note' | 'evidence'>('evidence');
   const [mobilePane, setMobilePane] = useState<MobilePane>('evidence');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const contextsQuery = useQuery({
@@ -424,10 +445,15 @@ export function ResearchKnowledgePage() {
               ? `${notes.length} 条笔记 · ${evidence.length} 条证据`
               : mode === 'claims'
                 ? '组织可追溯的观点与证据关系'
-                : '按论文和问题比较证据'}
+                : mode === 'matrices'
+                  ? '按论文和问题比较证据'
+                  : '把论述与研究资料组织成文稿'}
           </p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setSearchOpen((open) => !open)}>
+            {searchOpen ? '关闭搜索' : '搜索知识'}
+          </Button>
           <select
             aria-label="研究上下文"
             value={context}
@@ -449,12 +475,16 @@ export function ResearchKnowledgePage() {
                 ['sources', '资料'],
                 ['claims', '观点'],
                 ['matrices', '矩阵'],
+                ['writing', '写作'],
               ] as const
             ).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
-                onClick={() => setMode(value)}
+                onClick={() => {
+                  setMode(value);
+                  setSearchOpen(false);
+                }}
                 className={`px-2.5 py-1 text-xs font-semibold ${mode === value ? 'bg-surface-2 text-ink' : 'text-muted hover:text-secondary'}`}
               >
                 {label}
@@ -480,7 +510,12 @@ export function ResearchKnowledgePage() {
         </div>
       </header>
 
-      {mode === 'sources' ? (
+      {searchOpen ? (
+        <KnowledgeSearch
+          contextId={context === 'all' ? undefined : context === 'general' ? null : context}
+          onMessage={setMessage}
+        />
+      ) : mode === 'sources' ? (
         <>
           <div className="grid shrink-0 grid-cols-3 border-b border-line lg:hidden" role="tablist">
             {(
@@ -678,12 +713,40 @@ export function ResearchKnowledgePage() {
         <ClaimBoard
           contextId={context === 'all' ? undefined : context === 'general' ? null : context}
           contextArchived={selectedContextArchived}
+          initialClaimId={initialQueryValue('claim')}
+          initialStatus={
+            initialQueryValue('claimStatus') === 'draft' ||
+            initialQueryValue('claimStatus') === 'archived' ||
+            initialQueryValue('claimStatus') === 'deleted'
+              ? (initialQueryValue('claimStatus') as 'draft' | 'archived' | 'deleted')
+              : 'active'
+          }
           onMessage={setMessage}
         />
-      ) : (
+      ) : mode === 'matrices' ? (
         <MatrixEditor
           contextId={context === 'all' ? undefined : context === 'general' ? null : context}
           contextArchived={selectedContextArchived}
+          initialMatrixId={initialQueryValue('matrix')}
+          initialStatus={
+            initialQueryValue('matrixStatus') === 'archived' ||
+            initialQueryValue('matrixStatus') === 'deleted'
+              ? (initialQueryValue('matrixStatus') as 'archived' | 'deleted')
+              : 'active'
+          }
+          onMessage={setMessage}
+        />
+      ) : (
+        <WritingBoard
+          contextId={context === 'all' ? undefined : context === 'general' ? null : context}
+          contextArchived={selectedContextArchived}
+          initialDocumentId={initialQueryValue('document')}
+          initialStatus={
+            initialQueryValue('writingStatus') === 'archived' ||
+            initialQueryValue('writingStatus') === 'deleted'
+              ? (initialQueryValue('writingStatus') as 'archived' | 'deleted')
+              : 'active'
+          }
           onMessage={setMessage}
         />
       )}

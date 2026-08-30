@@ -13,6 +13,9 @@ import type {
   KnowledgeRevision,
   KnowledgeEntityType,
   KnowledgeRevisionReason,
+  KnowledgeSearchEntityType,
+  KnowledgeSearchResult,
+  KnowledgeSearchStatus,
   MatrixCandidates,
   MatrixCell,
   MatrixCellEvidence,
@@ -24,6 +27,11 @@ import type {
   NoteLink,
   NoteLinkTarget,
   ResearchNote,
+  WritingBlock,
+  WritingBlockKind,
+  WritingDocument,
+  WritingDocumentDetail,
+  WritingDocumentStatus,
 } from '../contract.js';
 import type { AnnotationDraft } from '../annotation/repository.js';
 
@@ -56,6 +64,45 @@ export interface MatrixListQuery {
   status: MatrixStatus;
   before?: KnowledgeCursor;
   limit: number;
+}
+
+export interface WritingDocumentListQuery {
+  contextId?: string | null;
+  status: WritingDocumentStatus;
+  before?: KnowledgeCursor;
+  limit: number;
+}
+
+export interface KnowledgeSearchCursor {
+  updatedAt: string;
+  entityType: KnowledgeSearchEntityType;
+  entityId: string;
+  seen: number;
+}
+
+export interface KnowledgeSearchQuery {
+  query: string;
+  contextId?: string | null;
+  workId?: string;
+  entityTypes: KnowledgeSearchEntityType[];
+  statuses: KnowledgeSearchStatus[];
+  sourceStates?: EvidenceSourceState[];
+  before?: KnowledgeSearchCursor;
+  limit: number;
+  maxResults: number;
+}
+
+export interface KnowledgeSearchPage {
+  items: KnowledgeSearchResult[];
+  next: KnowledgeSearchCursor | null;
+}
+
+export interface KnowledgeSearchRebuildResult {
+  notes: number;
+  evidence: number;
+  claims: number;
+  writingDocuments: number;
+  total: number;
 }
 
 export interface KnowledgePage<T> {
@@ -217,6 +264,51 @@ export interface MatrixCellEvidenceDraft {
   evidenceId: string;
 }
 
+export interface WritingDocumentDraft {
+  id: string;
+  contextId: string | null;
+  title: string;
+}
+
+export interface WritingDocumentChanges {
+  contextId: string | null;
+  title: string;
+  status: 'active' | 'archived';
+  expectedRevision: number;
+  revisionId: string;
+}
+
+export interface WritingStructureBlockDraft {
+  id: string;
+  sectionId: string;
+  kind: WritingBlockKind;
+  text: string | null;
+  targetId: string | null;
+  targetLabel: string | null;
+  position: number;
+  existing: boolean;
+}
+
+export interface WritingStructureSectionDraft {
+  id: string;
+  title: string;
+  position: number;
+  existing: boolean;
+  blocks: WritingStructureBlockDraft[];
+}
+
+export interface WritingStructureDraft {
+  expectedStructureRevision: number;
+  revisionId: string;
+  sections: WritingStructureSectionDraft[];
+}
+
+export interface WritingBlockChanges {
+  text: string;
+  expectedRevision: number;
+  revisionId: string;
+}
+
 export interface KnowledgeRevisionDraft {
   expectedRevision: number;
   revisionId: string;
@@ -249,6 +341,9 @@ export interface DirectEvidenceResult {
 }
 
 export interface KnowledgeRepository {
+  searchKnowledge(query: KnowledgeSearchQuery): Promise<KnowledgeSearchPage>;
+  rebuildKnowledgeSearch(): Promise<KnowledgeSearchRebuildResult>;
+
   getAnnotationSource(annotationId: string): Promise<KnowledgeAnnotationSource | null>;
   getAssetSource(
     assetId: string,
@@ -376,6 +471,36 @@ export interface KnowledgeRepository {
     id: string,
     draft: KnowledgeRevisionDraft,
   ): Promise<KnowledgeChangeResult<MatrixCellEvidence>>;
+
+  getWritingDocument(
+    id: string,
+    includeDeletedStructure: boolean,
+  ): Promise<WritingDocumentDetail | null>;
+  listWritingDocuments(query: WritingDocumentListQuery): Promise<KnowledgePage<WritingDocument>>;
+  createWritingDocument(
+    draft: WritingDocumentDraft,
+  ): Promise<KnowledgeCreateResult<WritingDocumentDetail>>;
+  updateWritingDocument(
+    id: string,
+    changes: WritingDocumentChanges,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>>;
+  deleteWritingDocument(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>>;
+  restoreWritingDocument(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>>;
+  updateWritingStructure(
+    id: string,
+    draft: WritingStructureDraft,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>>;
+  getWritingBlock(id: string): Promise<WritingBlock | null>;
+  updateWritingBlock(
+    id: string,
+    changes: WritingBlockChanges,
+  ): Promise<KnowledgeChangeResult<WritingBlock>>;
 
   listNoteLinks(noteId: string, includeDeleted: boolean): Promise<NoteLink[] | null>;
   createNoteLink(draft: NoteLinkDraft): Promise<KnowledgeCreateResult<NoteLink>>;

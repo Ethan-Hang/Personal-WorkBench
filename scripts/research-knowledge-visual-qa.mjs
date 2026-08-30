@@ -25,7 +25,7 @@ function parseArgs(argv) {
       console.log(`Research knowledge visual QA
 
 Usage:
-  node scripts/research-knowledge-visual-qa.mjs --phase c1|c2|all [--output PATH] [--keep-data]
+  node scripts/research-knowledge-visual-qa.mjs --phase c1|c2|c3|all [--output PATH] [--keep-data]
 
 Environment:
   RESEARCH_KNOWLEDGE_BROWSER  Edge/Chrome executable override`);
@@ -34,8 +34,8 @@ Environment:
       throw new Error(`unknown argument: ${value}`);
     }
   }
-  if (!['c1', 'c2', 'all'].includes(options.phase)) {
-    throw new Error('--phase supports c1, c2, or all');
+  if (!['c1', 'c2', 'c3', 'all'].includes(options.phase)) {
+    throw new Error('--phase supports c1, c2, c3, or all');
   }
   return options;
 }
@@ -442,6 +442,60 @@ async function seedClaimsAndMatrix(apiBase, assets) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body: 'Source revised after matrix review', expectedRevision: 1 }),
   });
+  return { claim, matrix, supportingEvidence, qualifyingEvidence };
+}
+
+async function seedWritingBoard(apiBase, resources) {
+  const notes = await requestJson(`${apiBase}/api/research/v1/notes?limit=100`);
+  const note = notes.notes?.[0];
+  if (!note) throw new Error('writing QA requires the browser-created note');
+  const document = await requestJson(`${apiBase}/api/research/v1/writing-documents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Sourced literature review draft with a deliberately long working title',
+    }),
+  });
+  const structured = await requestJson(
+    `${apiBase}/api/research/v1/writing-documents/${document.id}/structure`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedStructureRevision: document.structureRevision,
+        sections: [
+          {
+            title: 'Argument and evidence',
+            position: 0,
+            blocks: [
+              {
+                kind: 'text',
+                text: 'The working argument connects the main estimate to its sample boundary.',
+                position: 0,
+              },
+              { kind: 'note', targetId: note.id, position: 1 },
+              { kind: 'evidence', targetId: resources.supportingEvidence.id, position: 2 },
+              { kind: 'claim', targetId: resources.claim.id, position: 3 },
+              { kind: 'matrix', targetId: resources.matrix.id, position: 4 },
+            ],
+          },
+          {
+            title: 'Limitations and next steps',
+            position: 1,
+            blocks: [
+              {
+                kind: 'text',
+                text: 'The comparison still needs a broader population and a second replication.',
+                position: 0,
+              },
+              { kind: 'evidence', targetId: resources.qualifyingEvidence.id, position: 1 },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+  return structured;
 }
 
 function findBrowserExecutable() {
@@ -917,7 +971,9 @@ async function captureKnowledgeState({
        Array.from(document.querySelectorAll('button')).some((node) =>
          node.textContent?.trim() === '观点') &&
        Array.from(document.querySelectorAll('button')).some((node) =>
-         node.textContent?.trim() === '矩阵')`,
+         node.textContent?.trim() === '矩阵') &&
+       Array.from(document.querySelectorAll('button')).some((node) =>
+         node.textContent?.trim() === '写作')`,
       `${id} knowledge page did not render at ${width}px`,
       30_000,
     );
@@ -941,6 +997,63 @@ async function captureKnowledgeState({
          document.body.innerText.includes('4 篇文献 × 3 行') &&
          document.body.innerText.includes('需要复核')`,
         `matrix workspace did not render at ${width}px`,
+      );
+    } else if (mode === 'writing') {
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('写作')))) {
+        throw new Error('writing workspace could not be selected');
+      }
+      try {
+        await waitForExpression(
+          session.cdp,
+          `Array.from(document.querySelectorAll('input')).some((node) =>
+             node.value.includes('Sourced literature review draft')) &&
+           Array.from(document.querySelectorAll('input')).some((node) =>
+             node.value === 'Argument and evidence') &&
+           document.body.innerText.includes('The effect is durable but sample-dependent.') &&
+           document.body.innerText.includes('查看来源')`,
+          `writing workspace did not render at ${width}px`,
+        );
+      } catch (error) {
+        const state = await evaluateValue(
+          session.cdp,
+          `({
+            inputs: Array.from(document.querySelectorAll('input')).map((node) => node.value),
+            text: document.body.innerText.slice(0, 4000)
+          })`,
+        );
+        throw new Error(`${error.message}: ${JSON.stringify(state)}`);
+      }
+    } else if (mode === 'search') {
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('搜索知识')))) {
+        throw new Error('knowledge search could not be opened');
+      }
+      await waitForExpression(
+        session.cdp,
+        `document.body.innerText.includes('搜索研究知识') &&
+         document.querySelector('input[placeholder="输入标题、正文或原文关键词"]') !== null`,
+        `knowledge search did not render at ${width}px`,
+      );
+      await evaluateValue(
+        session.cdp,
+        `(() => {
+          const input = document.querySelector('input[placeholder="输入标题、正文或原文关键词"]');
+          if (!input) return false;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          setter.call(input, 'durable');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`,
+      );
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('搜索')))) {
+        throw new Error('knowledge search could not be submitted');
+      }
+      await waitForExpression(
+        session.cdp,
+        `document.body.innerText.includes('Durable effect') &&
+         document.body.innerText.includes('The effect is durable but sample-dependent.') &&
+         document.querySelector('a[href^="/research/read/"]') !== null &&
+         document.querySelector('a[href^="/research/knowledge?"]') !== null`,
+        `knowledge search results did not render at ${width}px`,
       );
     } else if (empty) {
       if (!(await evaluateValue(session.cdp, clickButtonExpression('回收站')))) {
@@ -1097,12 +1210,23 @@ async function main() {
     if (!evidencePage.evidence.some((item) => item.sourceSnapshot?.sourceKind === 'ocr')) {
       throw new Error('browser OCR proxy flow did not create OCR evidence');
     }
-    if (options.phase === 'c2' || options.phase === 'all') {
-      await seedClaimsAndMatrix(apiBase, assets);
+    let comparisonResources = null;
+    if (options.phase === 'c2' || options.phase === 'c3' || options.phase === 'all') {
+      comparisonResources = await seedClaimsAndMatrix(apiBase, assets);
+    }
+    if (options.phase === 'c3' || options.phase === 'all') {
+      await seedWritingBoard(apiBase, comparisonResources);
     }
 
     const captures = [];
-    const modes = options.phase === 'c1' ? ['sources'] : ['claims', 'matrices'];
+    const modes =
+      options.phase === 'c1'
+        ? ['sources']
+        : options.phase === 'c2'
+          ? ['claims', 'matrices']
+          : options.phase === 'c3'
+            ? ['writing', 'search']
+            : ['sources', 'claims', 'matrices', 'writing', 'search'];
     for (const mode of modes) {
       for (const width of [1440, 1024, 768, 390]) {
         captures.push(

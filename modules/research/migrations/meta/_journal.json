@@ -57,6 +57,20 @@
       "when": 1788086000000,
       "tag": "0007_research_claims_and_matrices",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788090000000,
+      "tag": "0008_research_writing_board",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788092311000,
+      "tag": "0009_research_scale_indexes",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { makeResearchDatabase } from '../testing/harness.js';
 
 describe('research knowledge migration', () => {
-  it('建立 C1/C2 真源、revision 与 FTS 表，并可重复运行迁移入口', () => {
+  it('建立 C1-C3 真源、revision 与 FTS 表，并可重复运行迁移入口', () => {
     const database = makeResearchDatabase();
     try {
       const names = database.sqlite
@@ -14,7 +14,9 @@ describe('research knowledge migration', () => {
              'research_knowledge_revisions', 'research_knowledge_search',
              'research_knowledge_search_fts', 'research_claims', 'research_claim_evidence',
              'research_matrices', 'research_matrix_columns', 'research_matrix_rows',
-             'research_matrix_cells', 'research_matrix_cell_evidence'
+             'research_matrix_cells', 'research_matrix_cell_evidence',
+             'research_writing_documents', 'research_writing_sections',
+             'research_writing_blocks'
            ) ORDER BY name`,
         )
         .all()
@@ -33,7 +35,18 @@ describe('research knowledge migration', () => {
         'research_matrix_rows',
         'research_note_links',
         'research_notes',
+        'research_writing_blocks',
+        'research_writing_documents',
+        'research_writing_sections',
       ]);
+      expect(
+        database.sqlite
+          .prepare(
+            `SELECT name FROM sqlite_master
+             WHERE type = 'index' AND name = 'idx_research_evidence_status_updated'`,
+          )
+          .get(),
+      ).toEqual({ name: 'idx_research_evidence_status_updated' });
 
       expect(() => runMigrationsFrom(database.db, 'modules/research/migrations')).not.toThrow();
     } finally {
@@ -61,6 +74,42 @@ describe('research knowledge migration', () => {
            VALUES ('note-1', 'Methods', '', 'active', 1, ?, ?)`,
         )
         .run('2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+      database.sqlite
+        .prepare(
+          `INSERT INTO research_writing_documents
+           (id, title, status, structure_revision, revision, created_at, updated_at)
+           VALUES ('document-1', 'Draft', 'active', 1, 1, ?, ?)`,
+        )
+        .run('2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+      database.sqlite
+        .prepare(
+          `INSERT INTO research_writing_sections
+           (id, document_id, title, position, status, revision, created_at, updated_at)
+           VALUES ('section-1', 'document-1', 'Introduction', 0, 'active', 1, ?, ?)`,
+        )
+        .run('2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z');
+      expect(() =>
+        database.sqlite
+          .prepare(
+            `INSERT INTO research_writing_blocks
+             (id, document_id, section_id, kind, text_content, note_id, target_label, position,
+              status, revision, created_at, updated_at)
+             VALUES ('bad-writing-block', 'document-1', 'section-1', 'text', 'Draft text',
+                     'note-1', 'Methods', 0, 'active', 1, ?, ?)`,
+          )
+          .run('2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z'),
+      ).toThrow(/constraint/i);
+      expect(() =>
+        database.sqlite
+          .prepare(
+            `INSERT INTO research_writing_blocks
+             (id, document_id, section_id, kind, note_id, target_label, position, status,
+              revision, created_at, updated_at)
+             VALUES ('bad-writing-ref', 'document-1', 'section-1', 'note', 'note-1', NULL,
+                     0, 'active', 1, ?, ?)`,
+          )
+          .run('2026-08-30T00:00:00.000Z', '2026-08-30T00:00:00.000Z'),
+      ).toThrow(/constraint/i);
 
       database.sqlite
         .prepare(

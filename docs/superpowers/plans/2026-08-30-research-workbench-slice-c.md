@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §11.2、§16“切片 C”、§17.8–§17.9。
 
-**Status:** 已确认，实施中。C1 和 C2 已完成，下一步进入 C3 写作与交付。
+**Status:** 已确认，实施中。C1、C2 和 C3 Task 9 已完成，下一步进入 C3 统一检索。
 
 ## 执行方式
 
@@ -382,12 +382,12 @@ node .\scripts\research-knowledge-compat.mjs --phase c2 --browser
 
 **提交：** `feat(research): compose sourced writing`
 
-- [ ] `0008` 建立写作板、章节和块，显式约束文本块或恰好一个资源引用。
-- [ ] Service 实现文档标题、归档恢复、章节增删排序、文本块编辑和四类资源引用块。
-- [ ] 文档结构和单块内容分别使用 revision；移动块保留稳定 ID，不复制来源对象。
-- [ ] 引用对象删除、归档或来源不可用时，写作板显示状态和保留的可读标签，不把引用变成普通文本。
-- [ ] Writing Board 支持章节、大纲、正文、资源插入、拖动/键盘排序、来源预览和回跳；不引入富文本编辑器依赖。
-- [ ] 自动覆盖从笔记、证据、观点和矩阵加入写作板，以及关系解除和恢复。
+- [x] `0008` 建立写作板、章节和块，显式约束文本块或恰好一个资源引用。
+- [x] Service 实现文档标题、归档恢复、章节增删排序、文本块编辑和四类资源引用块。
+- [x] 文档结构和单块内容分别使用 revision；移动块保留稳定 ID，不复制来源对象。
+- [x] 引用对象删除、归档或来源不可用时，写作板显示状态和保留的可读标签，不把引用变成普通文本。
+- [x] Writing Board 支持章节、大纲、正文、资源插入、拖动/键盘排序、来源预览和回跳；不引入富文本编辑器依赖。
+- [x] 自动覆盖从笔记、证据、观点和矩阵加入写作板，以及关系解除和恢复。
 
 **验证：**
 
@@ -395,22 +395,47 @@ node .\scripts\research-knowledge-compat.mjs --phase c2 --browser
 npx vitest run modules/research/src/storage/knowledge-migrations.test.ts modules/research/src/storage/knowledge-repository.test.ts modules/research/src/knowledge/service.test.ts modules/research/src/server/knowledge-routes.test.ts modules/research/src/ui/api.test.ts
 ```
 
+**阶段记录（2026-08-30，macOS arm64）：** Task 9 定向模块共 5 个文件、39 项测试通过；C3
+兼容入口共 7 个文件、43 项测试通过。Microsoft Edge 152 在 1440、1024、768 和 390 像素的全新
+profile 中显示两章正文、笔记/证据/观点/矩阵四类稳定引用、来源状态和回跳入口，页面没有水平溢出。
+生产 Vite 构建通过，保留现有的大 chunk 提示；截图、浏览器 profile、临时数据库和生成 PDF 仅用于本轮验收并清理。
+Windows 11 x64 的 C3 领域与 UI 模块保持 `not-run`，在 Windows 上运行：
+
+```powershell
+npm run setup
+node .\scripts\research-knowledge-compat.mjs --phase c3 --browser
+```
+
 ### Task 10：完成 C 统一检索和规模基准
 
 **提交：** `feat(research): search research knowledge`
 
-- [ ] 完成笔记、证据、观点和写作正文的 FTS 写入、删除/恢复同步、来源状态过滤和重建。
-- [ ] 搜索 API 支持 query、上下文、Work、对象类型、状态、来源状态、稳定分页和明确最大结果数。
-- [ ] 搜索结果返回命中字段与摘要；来源对象可回阅读器，其他对象回知识页对应面板。
-- [ ] 自动覆盖设计 C-08：笔记、证据、观点和写作正文的全文命中、结构化过滤与稳定回跳一致。
-- [ ] 规模脚本生成 10,000 Work、50,000 批注、20,000 证据、5,000 观点、100 矩阵和一个 200 × 50 矩阵。
-- [ ] 在临时磁盘 SQLite 测量建库、普通列表、FTS、矩阵窗口、单元格保存、revision 和 `integrity_check`；记录观察值后为最终验收设置阈值。
-- [ ] 测试结束清理临时目录，记录数据库大小和峰值 RSS，不复制真实 PDF。
+- [x] 完成笔记、证据、观点和写作正文的 FTS 写入、删除/恢复同步、来源状态过滤和重建。
+- [x] 搜索 API 支持 query、上下文、Work、对象类型、状态、来源状态、稳定分页和明确最大结果数。
+- [x] 搜索结果返回命中字段与摘要；来源对象可回阅读器，其他对象回知识页对应面板。
+- [x] 自动覆盖设计 C-08：笔记、证据、观点和写作正文的全文命中、结构化过滤与稳定回跳一致。
+- [x] 规模脚本生成 10,000 Work、50,000 批注、20,000 证据、5,000 观点、100 矩阵和一个 200 × 50 矩阵。
+- [x] 在临时磁盘 SQLite 测量建库、普通列表、FTS、矩阵窗口、单元格保存、revision 和 `integrity_check`；记录观察值后为最终验收设置阈值。
+- [x] 测试结束清理临时目录，记录数据库大小和峰值 RSS，不复制真实 PDF。
 
 **验证：**
 
 ```bash
-npx vitest run modules/research/src/storage/knowledge-scale.test.ts modules/research/src/storage/knowledge-repository.test.ts modules/research/src/server/knowledge-routes.test.ts
+npx vitest run modules/research/src/storage/knowledge-migrations.test.ts modules/research/src/storage/knowledge-scale.test.ts modules/research/src/storage/knowledge-repository.test.ts modules/research/src/knowledge/service.test.ts modules/research/src/server/knowledge-routes.test.ts modules/research/src/ui/api.test.ts
+```
+
+**阶段记录（2026-08-30，macOS arm64）：** C-08 定向模块共 6 个文件、43 项测试通过；C3
+兼容入口加入代表规模后共 8 个文件、47 项测试通过。目标规模在 APFS 临时磁盘数据库完成：建库
+7.04 s、FTS 重建 5.53 s、统一检索 p95 25.12 ms、证据列表 37.39 ms、200 × 50 矩阵窗口
+12.16 ms、单元格 revision 保存 0.92 ms、`integrity_check` 与外键检查 355.45 ms；数据库
+83.95 MiB，进程 RSS 303.03 MiB。首次实测暴露无上下文证据列表缺少索引，修复后由 10.6 s
+降至 37.39 ms。Microsoft Edge 152 使用全新 profile 在 1440、1024、768 和 390 像素完成写作板与
+统一搜索，验证证据回阅读器、观点回知识页的稳定链接且无水平溢出。临时数据库、截图和浏览器 profile
+均在记录结果后清理。Windows 11 x64 的同模块仍为 `not-run`，在 Windows 上运行：
+
+```powershell
+npm run setup
+node .\scripts\research-knowledge-compat.mjs --phase c3 --browser --target-scale
 ```
 
 ### Task 11：实现 Markdown/CSV 输出和 canonical v2 迁移

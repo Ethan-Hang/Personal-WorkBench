@@ -158,15 +158,19 @@ function RelationEditor({
 export function ClaimBoard({
   contextId,
   contextArchived,
+  initialClaimId,
+  initialStatus,
   onMessage,
 }: {
   contextId: string | null | undefined;
   contextArchived: boolean;
+  initialClaimId?: string | null;
+  initialStatus?: ClaimStatus;
   onMessage: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<ClaimStatus>('active');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [status, setStatus] = useState<ClaimStatus>(initialStatus ?? 'active');
+  const [selectedId, setSelectedId] = useState<string | null>(initialClaimId ?? null);
   const [mobilePane, setMobilePane] = useState<MobilePane>('claims');
   const [statement, setStatement] = useState('');
   const [rationale, setRationale] = useState('');

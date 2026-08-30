@@ -103,6 +103,7 @@ export const RESEARCH_API_V1 = {
   annotationRevisions: (id: string) => `${API_ROOT}/annotations/${id}/revisions`,
   knowledgeSummary: `${API_ROOT}/knowledge/summary`,
   knowledgeSearch: `${API_ROOT}/knowledge/search`,
+  knowledgeSearchRebuild: `${API_ROOT}/knowledge/search/rebuild`,
   notes: `${API_ROOT}/notes`,
   note: (id: string) => `${API_ROOT}/notes/${id}`,
   noteRestore: (id: string) => `${API_ROOT}/notes/${id}/restore`,
@@ -135,6 +136,11 @@ export const RESEARCH_API_V1 = {
   matrixCellReview: (id: string) => `${API_ROOT}/matrix-cells/${id}/review`,
   matrixCellEvidenceItem: (id: string) => `${API_ROOT}/matrix-cell-evidence/${id}`,
   matrixCellEvidenceRestore: (id: string) => `${API_ROOT}/matrix-cell-evidence/${id}/restore`,
+  writingDocuments: `${API_ROOT}/writing-documents`,
+  writingDocument: (id: string) => `${API_ROOT}/writing-documents/${id}`,
+  writingDocumentRestore: (id: string) => `${API_ROOT}/writing-documents/${id}/restore`,
+  writingDocumentStructure: (id: string) => `${API_ROOT}/writing-documents/${id}/structure`,
+  writingBlock: (id: string) => `${API_ROOT}/writing-blocks/${id}`,
 } as const;
 
 export const WORK_TYPES = [
@@ -303,6 +309,8 @@ export const RESEARCH_ERROR_CODES = [
   'KNOWLEDGE_MATRIX_NOT_FOUND',
   'KNOWLEDGE_MATRIX_CELL_NOT_FOUND',
   'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
+  'KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND',
+  'KNOWLEDGE_WRITING_BLOCK_NOT_FOUND',
   'KNOWLEDGE_SOURCE_NOT_FOUND',
   'KNOWLEDGE_CONFLICT',
   'KNOWLEDGE_INVALID',
@@ -361,6 +369,26 @@ export type MatrixRowKind = (typeof MATRIX_ROW_KINDS)[number];
 
 export const MATRIX_REVIEW_STATES = ['current', 'needs-review'] as const;
 export type MatrixReviewState = (typeof MATRIX_REVIEW_STATES)[number];
+
+export const WRITING_DOCUMENT_STATUSES = ['active', 'archived', 'deleted'] as const;
+export type WritingDocumentStatus = (typeof WRITING_DOCUMENT_STATUSES)[number];
+
+export const WRITING_BLOCK_KINDS = ['text', 'note', 'evidence', 'claim', 'matrix'] as const;
+export type WritingBlockKind = (typeof WRITING_BLOCK_KINDS)[number];
+
+export const WRITING_RESOURCE_STATES = ['current', 'archived', 'deleted', 'unavailable'] as const;
+export type WritingResourceState = (typeof WRITING_RESOURCE_STATES)[number];
+
+export const KNOWLEDGE_SEARCH_ENTITY_TYPES = [
+  'note',
+  'evidence',
+  'claim',
+  'writing-document',
+] as const;
+export type KnowledgeSearchEntityType = (typeof KNOWLEDGE_SEARCH_ENTITY_TYPES)[number];
+
+export const KNOWLEDGE_SEARCH_STATUSES = ['active', 'draft', 'archived', 'deleted'] as const;
+export type KnowledgeSearchStatus = (typeof KNOWLEDGE_SEARCH_STATUSES)[number];
 
 export const EVIDENCE_SOURCE_KINDS = ['pdf', 'ocr'] as const;
 export type EvidenceSourceKind = (typeof EVIDENCE_SOURCE_KINDS)[number];
@@ -958,6 +986,75 @@ export const matrixCandidatesSchema = z.object({
 });
 export type MatrixCandidates = z.infer<typeof matrixCandidatesSchema>;
 
+export const writingDocumentSchema = z.object({
+  id: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  title: z.string().trim().min(1).max(500),
+  status: z.enum(WRITING_DOCUMENT_STATUSES),
+  structureRevision: z.number().int().positive(),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  archivedAt: instantSchema.nullable(),
+  deletedAt: instantSchema.nullable(),
+});
+export type WritingDocument = z.infer<typeof writingDocumentSchema>;
+
+const writingBlockBaseSchema = z.object({
+  id: researchIdSchema,
+  documentId: researchIdSchema,
+  sectionId: researchIdSchema,
+  position: z.number().int().nonnegative(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+
+export const writingBlockSchema = z.discriminatedUnion('kind', [
+  writingBlockBaseSchema.extend({
+    kind: z.literal('text'),
+    text: z.string().max(500_000),
+    targetId: z.null(),
+    targetLabel: z.null(),
+    targetState: z.null(),
+    targetUrl: z.null(),
+    sourceState: z.null(),
+  }),
+  ...(['note', 'evidence', 'claim', 'matrix'] as const).map((kind) =>
+    writingBlockBaseSchema.extend({
+      kind: z.literal(kind),
+      text: z.null(),
+      targetId: researchIdSchema,
+      targetLabel: z.string().trim().min(1).max(1_000),
+      targetState: z.enum(WRITING_RESOURCE_STATES),
+      targetUrl: z.string().min(1).max(4_096).nullable(),
+      sourceState: z.enum(EVIDENCE_SOURCE_STATES).nullable(),
+    }),
+  ),
+]);
+export type WritingBlock = z.infer<typeof writingBlockSchema>;
+
+export const writingSectionSchema = z.object({
+  id: researchIdSchema,
+  documentId: researchIdSchema,
+  title: z.string().trim().min(1).max(500),
+  position: z.number().int().nonnegative(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+  blocks: z.array(writingBlockSchema),
+});
+export type WritingSection = z.infer<typeof writingSectionSchema>;
+
+export const writingDocumentDetailSchema = writingDocumentSchema.extend({
+  sections: z.array(writingSectionSchema),
+});
+export type WritingDocumentDetail = z.infer<typeof writingDocumentDetailSchema>;
+
 export const noteLinkTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work'), workId: researchIdSchema }),
   z.object({ kind: z.literal('annotation'), annotationId: researchIdSchema }),
@@ -1048,6 +1145,72 @@ export const matricesPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type MatricesPage = z.infer<typeof matricesPageSchema>;
+
+export const listWritingDocumentsQuerySchema = knowledgePageInputSchema.extend({
+  contextId: researchIdSchema.nullable().optional(),
+  status: z.enum(WRITING_DOCUMENT_STATUSES).default('active'),
+});
+export type ListWritingDocumentsQuery = z.infer<typeof listWritingDocumentsQuerySchema>;
+
+export const writingDocumentsPageSchema = z.object({
+  documents: z.array(writingDocumentSchema),
+  nextCursor: z.string().nullable(),
+});
+export type WritingDocumentsPage = z.infer<typeof writingDocumentsPageSchema>;
+
+export const knowledgeSearchResultSchema = z.object({
+  entityType: z.enum(KNOWLEDGE_SEARCH_ENTITY_TYPES),
+  entityId: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  workId: researchIdSchema.nullable(),
+  title: z.string().max(10_000),
+  excerpt: z.string().max(20_000),
+  matchedFields: z
+    .array(z.enum(['title', 'body']))
+    .min(1)
+    .max(2),
+  status: z.enum(KNOWLEDGE_SEARCH_STATUSES),
+  sourceState: z.enum(EVIDENCE_SOURCE_STATES).nullable(),
+  targetUrl: z.string().min(1).max(4_096),
+  updatedAt: instantSchema,
+});
+export type KnowledgeSearchResult = z.infer<typeof knowledgeSearchResultSchema>;
+
+export const knowledgeSearchInputSchema = z.object({
+  query: z.string().trim().min(1).max(500),
+  contextId: researchIdSchema.nullable().optional(),
+  workId: researchIdSchema.optional(),
+  entityTypes: z
+    .array(z.enum(KNOWLEDGE_SEARCH_ENTITY_TYPES))
+    .min(1)
+    .max(KNOWLEDGE_SEARCH_ENTITY_TYPES.length)
+    .default([...KNOWLEDGE_SEARCH_ENTITY_TYPES]),
+  statuses: z
+    .array(z.enum(KNOWLEDGE_SEARCH_STATUSES))
+    .min(1)
+    .max(KNOWLEDGE_SEARCH_STATUSES.length)
+    .default(['active', 'draft', 'archived']),
+  sourceStates: z.array(z.enum(EVIDENCE_SOURCE_STATES)).min(1).max(5).optional(),
+  cursor: z.string().min(1).max(1_024).nullable().default(null),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+export type KnowledgeSearchInput = z.infer<typeof knowledgeSearchInputSchema>;
+
+export const knowledgeSearchResponseSchema = z.object({
+  results: z.array(knowledgeSearchResultSchema).max(100),
+  nextCursor: z.string().nullable(),
+  maxResults: z.number().int().positive(),
+});
+export type KnowledgeSearchResponse = z.infer<typeof knowledgeSearchResponseSchema>;
+
+export const knowledgeSearchRebuildResponseSchema = z.object({
+  notes: z.number().int().nonnegative(),
+  evidence: z.number().int().nonnegative(),
+  claims: z.number().int().nonnegative(),
+  writingDocuments: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+});
+export type KnowledgeSearchRebuildResponse = z.infer<typeof knowledgeSearchRebuildResponseSchema>;
 
 export const createNoteInputSchema = z.object({
   contextId: researchIdSchema.nullable().default(null),
@@ -1239,6 +1402,75 @@ export const reviewMatrixCellInputSchema = z.object({
   expectedRevision: z.number().int().positive(),
 });
 export type ReviewMatrixCellInput = z.infer<typeof reviewMatrixCellInputSchema>;
+
+export const createWritingDocumentInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  title: z.string().trim().min(1).max(500),
+});
+export type CreateWritingDocumentInput = z.infer<typeof createWritingDocumentInputSchema>;
+
+export const updateWritingDocumentInputSchema = z
+  .object({
+    contextId: researchIdSchema.nullable().optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    status: z.enum(['active', 'archived']).optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine(
+    (value) => Object.keys(value).some((key) => key !== 'expectedRevision'),
+    '没有写作板变更',
+  );
+export type UpdateWritingDocumentInput = z.infer<typeof updateWritingDocumentInputSchema>;
+
+const writingBlockPositionSchema = z.number().int().min(0).max(1_999);
+export const writingExistingBlockPlacementInputSchema = z.object({
+  id: researchIdSchema,
+  position: writingBlockPositionSchema,
+});
+export const writingNewBlockInputSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('text'),
+    text: z.string().max(500_000),
+    position: writingBlockPositionSchema,
+  }),
+  ...(['note', 'evidence', 'claim', 'matrix'] as const).map((kind) =>
+    z.object({
+      kind: z.literal(kind),
+      targetId: researchIdSchema,
+      position: writingBlockPositionSchema,
+    }),
+  ),
+]);
+export const writingStructureBlockInputSchema = z.union([
+  writingExistingBlockPlacementInputSchema,
+  writingNewBlockInputSchema,
+]);
+export type WritingStructureBlockInput = z.infer<typeof writingStructureBlockInputSchema>;
+
+export const writingStructureSectionInputSchema = z.object({
+  id: researchIdSchema.optional(),
+  title: z.string().trim().min(1).max(500),
+  position: z.number().int().min(0).max(99),
+  blocks: z.array(writingStructureBlockInputSchema).max(2_000),
+});
+export type WritingStructureSectionInput = z.infer<typeof writingStructureSectionInputSchema>;
+
+export const updateWritingStructureInputSchema = z
+  .object({
+    expectedStructureRevision: z.number().int().positive(),
+    sections: z.array(writingStructureSectionInputSchema).max(100),
+  })
+  .refine(
+    (value) => value.sections.reduce((count, section) => count + section.blocks.length, 0) <= 2_000,
+    '写作板最多包含 2000 个块',
+  );
+export type UpdateWritingStructureInput = z.infer<typeof updateWritingStructureInputSchema>;
+
+export const updateWritingBlockInputSchema = z.object({
+  text: z.string().max(500_000),
+  expectedRevision: z.number().int().positive(),
+});
+export type UpdateWritingBlockInput = z.infer<typeof updateWritingBlockInputSchema>;
 
 export const previewEvidenceRebindInputSchema = z.object({
   annotationId: researchIdSchema,

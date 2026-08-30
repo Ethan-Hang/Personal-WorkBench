@@ -27,6 +27,8 @@ import {
   KNOWLEDGE_REVISION_REASONS,
   MATRIX_ROW_KINDS,
   MATRIX_STATUSES,
+  WRITING_BLOCK_KINDS,
+  WRITING_DOCUMENT_STATUSES,
   EVIDENCE_SOURCE_KINDS,
   EVIDENCE_SOURCE_STATES,
   LOCATION_STATES,
@@ -947,6 +949,7 @@ export const researchEvidence = sqliteTable(
       table.updatedAt,
       table.id,
     ),
+    index('idx_research_evidence_status_updated').on(table.status, table.updatedAt, table.id),
     index('idx_research_evidence_annotation').on(table.annotationId, table.status),
     index('idx_research_evidence_asset').on(table.assetId, table.status),
   ],
@@ -1283,6 +1286,143 @@ export const researchMatrixCellEvidence = sqliteTable(
     uniqueIndex('uq_research_matrix_cell_evidence_active')
       .on(table.cellId, table.evidenceId)
       .where(sql`${table.status} = 'active'`),
+  ],
+);
+
+export const researchWritingDocuments = sqliteTable(
+  'research_writing_documents',
+  {
+    id: text('id').primaryKey(),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    title: text('title').notNull(),
+    status: text('status').notNull().default('active'),
+    statusBeforeDelete: text('status_before_delete'),
+    structureRevision: integer('structure_revision').notNull().default(1),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    archivedAt: text('archived_at'),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_writing_documents_title', sql`length(trim(${table.title})) > 0`),
+    check('ck_research_writing_documents_status', enumSql('status', WRITING_DOCUMENT_STATUSES)),
+    check(
+      'ck_research_writing_documents_previous_status',
+      sql`${table.statusBeforeDelete} IS NULL OR ${enumSql('status_before_delete', ['active', 'archived'])}`,
+    ),
+    check(
+      'ck_research_writing_documents_delete_state',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL) AND (${table.status} = 'deleted') = (${table.statusBeforeDelete} IS NOT NULL)`,
+    ),
+    check(
+      'ck_research_writing_documents_archive_state',
+      sql`(${table.status} = 'archived' OR (${table.status} = 'deleted' AND ${table.statusBeforeDelete} = 'archived')) = (${table.archivedAt} IS NOT NULL)`,
+    ),
+    check('ck_research_writing_documents_structure_revision', sql`${table.structureRevision} >= 1`),
+    check('ck_research_writing_documents_revision', sql`${table.revision} >= 1`),
+    index('idx_research_writing_documents_context_status').on(
+      table.contextId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+  ],
+);
+
+export const researchWritingSections = sqliteTable(
+  'research_writing_sections',
+  {
+    id: text('id').primaryKey(),
+    documentId: text('document_id')
+      .notNull()
+      .references(() => researchWritingDocuments.id, { onDelete: 'restrict' }),
+    title: text('title').notNull(),
+    position: integer('position').notNull(),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_writing_sections_title', sql`length(trim(${table.title})) > 0`),
+    check('ck_research_writing_sections_position', sql`${table.position} >= 0`),
+    check('ck_research_writing_sections_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_writing_sections_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_writing_sections_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_writing_sections_order').on(
+      table.documentId,
+      table.status,
+      table.position,
+      table.id,
+    ),
+  ],
+);
+
+export const researchWritingBlocks = sqliteTable(
+  'research_writing_blocks',
+  {
+    id: text('id').primaryKey(),
+    documentId: text('document_id')
+      .notNull()
+      .references(() => researchWritingDocuments.id, { onDelete: 'restrict' }),
+    sectionId: text('section_id')
+      .notNull()
+      .references(() => researchWritingSections.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    textContent: text('text_content'),
+    noteId: text('note_id').references(() => researchNotes.id, { onDelete: 'restrict' }),
+    evidenceId: text('evidence_id').references(() => researchEvidence.id, {
+      onDelete: 'restrict',
+    }),
+    claimId: text('claim_id').references(() => researchClaims.id, { onDelete: 'restrict' }),
+    matrixId: text('matrix_id').references(() => researchMatrices.id, {
+      onDelete: 'restrict',
+    }),
+    targetLabel: text('target_label'),
+    position: integer('position').notNull(),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_writing_blocks_kind', enumSql('kind', WRITING_BLOCK_KINDS)),
+    check(
+      'ck_research_writing_blocks_content',
+      sql`(${table.kind} = 'text' AND ${table.textContent} IS NOT NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NULL) OR (${table.kind} = 'note' AND ${table.textContent} IS NULL AND ${table.noteId} IS NOT NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'evidence' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NOT NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'claim' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NOT NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'matrix' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NOT NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0)`,
+    ),
+    check('ck_research_writing_blocks_position', sql`${table.position} >= 0`),
+    check('ck_research_writing_blocks_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_writing_blocks_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_writing_blocks_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_writing_blocks_order').on(
+      table.sectionId,
+      table.status,
+      table.position,
+      table.id,
+    ),
+    index('idx_research_writing_blocks_document').on(
+      table.documentId,
+      table.status,
+      table.sectionId,
+      table.position,
+      table.id,
+    ),
+    index('idx_research_writing_blocks_note').on(table.noteId, table.status),
+    index('idx_research_writing_blocks_evidence').on(table.evidenceId, table.status),
+    index('idx_research_writing_blocks_claim').on(table.claimId, table.status),
+    index('idx_research_writing_blocks_matrix').on(table.matrixId, table.status),
   ],
 );
 

@@ -81,15 +81,19 @@ function structureInput(
 export function MatrixEditor({
   contextId,
   contextArchived,
+  initialMatrixId,
+  initialStatus,
   onMessage,
 }: {
   contextId: string | null | undefined;
   contextArchived: boolean;
+  initialMatrixId?: string | null;
+  initialStatus?: MatrixStatus;
   onMessage: (message: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<MatrixStatus>('active');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [status, setStatus] = useState<MatrixStatus>(initialStatus ?? 'active');
+  const [selectedId, setSelectedId] = useState<string | null>(initialMatrixId ?? null);
   const [columnOffset, setColumnOffset] = useState(0);
   const [rowOffset, setRowOffset] = useState(0);
   const [selectedCoordinate, setSelectedCoordinate] = useState<{

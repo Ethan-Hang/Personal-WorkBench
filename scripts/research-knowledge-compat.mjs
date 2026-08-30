@@ -10,17 +10,18 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, '..');
 
 function parseArgs(argv) {
-  const options = { phase: 'c1', browser: false, output: null };
+  const options = { phase: 'c1', browser: false, targetScale: false, output: null };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === '--phase') options.phase = argv[++index];
     else if (value === '--browser') options.browser = true;
+    else if (value === '--target-scale') options.targetScale = true;
     else if (value === '--output') options.output = argv[++index];
     else if (value === '--help' || value === '-h') {
       console.log(`Research knowledge compatibility runner
 
 Usage:
-  node scripts/research-knowledge-compat.mjs --phase c1|c2|all [--browser]
+  node scripts/research-knowledge-compat.mjs --phase c1|c2|c3|all [--browser] [--target-scale]
 
 The runner records results by module and current platform. It never marks an untested
 platform as passed.`);
@@ -29,8 +30,8 @@ platform as passed.`);
       throw new Error(`unknown argument: ${value}`);
     }
   }
-  if (!['c1', 'c2', 'all'].includes(options.phase)) {
-    throw new Error('--phase supports c1, c2, or all; c3 is enabled with its slice');
+  if (!['c1', 'c2', 'c3', 'all'].includes(options.phase)) {
+    throw new Error('--phase supports c1, c2, c3, or all');
   }
   return options;
 }
@@ -64,12 +65,12 @@ function filesystemName() {
   }
 }
 
-async function run(command, args) {
+async function run(command, args, env = process.env) {
   const startedAt = Date.now();
   console.log(`\n> ${[command, ...args].map((value) => JSON.stringify(value)).join(' ')}`);
   const child = spawn(command, args, {
     cwd: repoRoot,
-    env: process.env,
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
@@ -100,9 +101,8 @@ async function main() {
   );
   await mkdir(outputRoot, { recursive: true });
 
-  const moduleRun = await run(process.execPath, [
-    path.join(repoRoot, 'node_modules', 'vitest', 'vitest.mjs'),
-    'run',
+  const includeScale = options.phase === 'c3' || options.phase === 'all';
+  const testFiles = [
     'modules/research/src/acceptance/slice-c-workflow.test.ts',
     'modules/research/src/storage/knowledge-migrations.test.ts',
     'modules/research/src/storage/knowledge-repository.test.ts',
@@ -110,7 +110,16 @@ async function main() {
     'modules/research/src/knowledge/source-state.test.ts',
     'modules/research/src/server/knowledge-routes.test.ts',
     'modules/research/src/ui/api.test.ts',
-  ]);
+    ...(includeScale ? ['modules/research/src/storage/knowledge-scale.test.ts'] : []),
+  ];
+  const moduleRun = await run(
+    process.execPath,
+    [path.join(repoRoot, 'node_modules', 'vitest', 'vitest.mjs'), 'run', ...testFiles],
+    {
+      ...process.env,
+      ...(includeScale && options.targetScale ? { RUN_RESEARCH_KNOWLEDGE_SCALE: '1' } : {}),
+    },
+  );
 
   let visualRun = null;
   let visualResult = null;
@@ -130,7 +139,14 @@ async function main() {
   const otherPlatforms = ['darwin-arm64', 'win32-x64'].filter(
     (platform) => platform !== currentPlatform,
   );
-  const phaseLabel = options.phase === 'c1' ? 'c1-source-evidence' : 'c2-claims-matrices';
+  const phaseLabel =
+    options.phase === 'c1'
+      ? 'c1-source-evidence'
+      : options.phase === 'c2'
+        ? 'c2-claims-matrices'
+        : options.phase === 'c3'
+          ? 'c3-writing-search-delivery'
+          : 'c1-c3-research-knowledge';
   const modules = [
     {
       id: `${phaseLabel}-domain-and-integrity`,
@@ -146,6 +162,17 @@ async function main() {
       durationMs: visualRun?.durationMs ?? null,
       evidence: options.browser ? path.relative(repoRoot, visualOutput) : null,
     },
+    ...(includeScale
+      ? [
+          {
+            id: `${phaseLabel}-${options.targetScale ? 'target' : 'representative'}-scale`,
+            platform: currentPlatform,
+            status: 'passed',
+            durationMs: moduleRun.durationMs,
+            evidence: 'modules/research/src/storage/knowledge-scale.test.ts',
+          },
+        ]
+      : []),
     ...otherPlatforms.flatMap((platform) => [
       {
         id: `${phaseLabel}-domain-and-integrity`,
@@ -161,6 +188,17 @@ async function main() {
         durationMs: null,
         evidence: null,
       },
+      ...(includeScale
+        ? [
+            {
+              id: `${phaseLabel}-${options.targetScale ? 'target' : 'representative'}-scale`,
+              platform,
+              status: 'not-run',
+              durationMs: null,
+              evidence: null,
+            },
+          ]
+        : []),
     ]),
   ];
   const result = {
@@ -187,11 +225,20 @@ async function main() {
       ...(options.phase === 'c1'
         ? []
         : ['claims with and without evidence', 'cross-paper matrix and review baseline']),
+      ...(options.phase === 'c3' || options.phase === 'all'
+        ? [
+            'writing sections',
+            'text blocks',
+            'four stable resource references',
+            'unified knowledge search and stable links',
+          ]
+        : []),
     ],
     conditions: {
       visualProfiles: options.browser ? 'fresh profile per viewport and state' : 'not-run',
       viewports: options.browser ? [1440, 1024, 768, 390] : [],
       privatePdfRequired: false,
+      scale: includeScale ? (options.targetScale ? 'target' : 'representative') : 'not-run',
     },
     modules,
   };

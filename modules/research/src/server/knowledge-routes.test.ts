@@ -8,11 +8,15 @@ import {
   claimEvidenceSchema,
   claimSchema,
   evidenceDetailSchema,
+  knowledgeSearchRebuildResponseSchema,
+  knowledgeSearchResponseSchema,
   matrixCellEvidenceSchema,
   matrixCellSchema,
   matrixCellWindowSchema,
   matrixDetailSchema,
   researchNoteSchema,
+  writingBlockSchema,
+  writingDocumentDetailSchema,
 } from '../contract.js';
 import { makeResearchDatabase } from '../testing/harness.js';
 import { createResearchServerModule } from './index.js';
@@ -471,6 +475,178 @@ describe('research knowledge routes', () => {
         payload: { expectedRevision: 1 },
       });
       expect(deleteLinkResponse.json()).toMatchObject({ status: 'deleted', revision: 2 });
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('写作板 API 分离文档、结构和文本变更，并支持安全移除与恢复', async () => {
+    const { app, sqlite } = await fixture();
+    try {
+      const note = researchNoteSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.notes,
+            payload: { title: 'Robustness notes', body: 'Source notes.' },
+          })
+        ).json(),
+      );
+      const createdResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.writingDocuments,
+        payload: { title: 'Robustness draft' },
+      });
+      expect(createdResponse.statusCode).toBe(200);
+      const document = writingDocumentDetailSchema.parse(createdResponse.json());
+      expect(document).toMatchObject({ contextId: null, structureRevision: 1, sections: [] });
+
+      const structuredResponse = await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.writingDocumentStructure(document.id),
+        payload: {
+          expectedStructureRevision: 1,
+          sections: [
+            {
+              title: 'Results',
+              position: 0,
+              blocks: [
+                { kind: 'text', text: 'The result remains robust.', position: 0 },
+                { kind: 'note', targetId: note.id, position: 1 },
+              ],
+            },
+          ],
+        },
+      });
+      expect(structuredResponse.statusCode, structuredResponse.body).toBe(200);
+      const structured = writingDocumentDetailSchema.parse(structuredResponse.json());
+      const textBlock = writingBlockSchema.parse(structured.sections[0]?.blocks[0]);
+      const noteBlock = writingBlockSchema.parse(structured.sections[0]?.blocks[1]);
+      expect(structured).toMatchObject({ revision: 1, structureRevision: 2 });
+      expect(noteBlock).toMatchObject({
+        kind: 'note',
+        targetLabel: 'Robustness notes',
+        targetState: 'current',
+      });
+
+      const editedResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.writingBlock(textBlock.id),
+        payload: { text: 'The result is robust in every specification.', expectedRevision: 1 },
+      });
+      expect(editedResponse.statusCode).toBe(200);
+      expect(editedResponse.json()).toMatchObject({ revision: 2 });
+      const staleResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.writingBlock(textBlock.id),
+        payload: { text: 'Stale edit', expectedRevision: 1 },
+      });
+      expect(staleResponse.statusCode).toBe(409);
+      expect(staleResponse.json()).toMatchObject({
+        code: 'KNOWLEDGE_CONFLICT',
+        details: { current: { revision: 2 } },
+      });
+
+      const removedResponse = await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.writingDocumentStructure(document.id),
+        payload: {
+          expectedStructureRevision: 2,
+          sections: [
+            {
+              id: structured.sections[0]!.id,
+              title: 'Results',
+              position: 0,
+              blocks: [{ id: textBlock.id, position: 0 }],
+            },
+          ],
+        },
+      });
+      expect(removedResponse.statusCode).toBe(200);
+      const deletedStructureResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.writingDocument(document.id)}?includeDeletedStructure=true`,
+      });
+      expect(deletedStructureResponse.statusCode).toBe(200);
+      expect(
+        writingDocumentDetailSchema
+          .parse(deletedStructureResponse.json())
+          .sections.flatMap((section) => section.blocks)
+          .find((block) => block.id === noteBlock.id),
+      ).toMatchObject({ status: 'deleted', targetLabel: 'Robustness notes' });
+
+      const listedResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.writingDocuments}?contextId=general`,
+      });
+      expect(listedResponse.statusCode).toBe(200);
+      expect(listedResponse.json()).toMatchObject({ documents: [{ id: document.id }] });
+      const deletedResponse = await app.inject({
+        method: 'DELETE',
+        url: RESEARCH_API_V1.writingDocument(document.id),
+        payload: { expectedRevision: 1 },
+      });
+      expect(deletedResponse.json()).toMatchObject({ status: 'deleted', revision: 2 });
+      const restoredResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.writingDocumentRestore(document.id),
+        payload: { expectedRevision: 2 },
+      });
+      expect(restoredResponse.json()).toMatchObject({ status: 'active', revision: 3 });
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('统一检索 API 解析结构化筛选并可重建派生索引', async () => {
+    const { app, sqlite } = await fixture();
+    try {
+      const note = researchNoteSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.notes,
+            payload: { title: 'Searchroute methods', body: 'Robust identification.' },
+          })
+        ).json(),
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.knowledgeSearch}?query=searchroute&contextId=general&entityTypes=note&statuses=active&limit=10`,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      expect(knowledgeSearchResponseSchema.parse(response.json())).toMatchObject({
+        results: [
+          {
+            entityId: note.id,
+            entityType: 'note',
+            contextId: null,
+            matchedFields: ['title'],
+          },
+        ],
+        nextCursor: null,
+        maxResults: 500,
+      });
+
+      const invalid = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.knowledgeSearch}?query=searchroute&entityTypes=matrix`,
+      });
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toMatchObject({ code: 'KNOWLEDGE_INVALID' });
+
+      sqlite.prepare('DELETE FROM research_knowledge_search').run();
+      const rebuild = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.knowledgeSearchRebuild,
+      });
+      expect(rebuild.statusCode, rebuild.body).toBe(200);
+      expect(knowledgeSearchRebuildResponseSchema.parse(rebuild.json())).toMatchObject({
+        notes: 1,
+        total: 1,
+      });
     } finally {
       await app.close();
       sqlite.close();

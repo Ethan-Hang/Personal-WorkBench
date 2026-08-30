@@ -777,4 +777,332 @@ describe('ResearchKnowledgeService', () => {
       fixture.sqlite.close();
     }
   });
+
+  it('写作板保留资源引用、稳定块 ID，并分离结构与文本 revision', async () => {
+    const fixture = serviceFixture();
+    try {
+      seedPaper(fixture.sqlite);
+      seedAnnotation(fixture.sqlite);
+      const note = await fixture.service.createNote({
+        contextId: null,
+        title: 'Identification notes',
+        body: 'Instrument assumptions.',
+      });
+      const evidence = await fixture.service.createEvidence({
+        contextId: null,
+        annotationId: 'annotation-1',
+        sourceKind: 'pdf',
+        title: 'First-stage evidence',
+        summary: 'The instrument predicts treatment.',
+        notes: null,
+      });
+      const claim = await fixture.service.createClaim({
+        contextId: null,
+        statement: 'The instrument identifies the causal effect.',
+        rationale: null,
+        status: 'active',
+      });
+      const matrix = await fixture.service.createMatrix({
+        contextId: null,
+        title: 'Identification comparison',
+        description: null,
+      });
+      const document = await fixture.service.createWritingDocument({
+        contextId: null,
+        title: 'Causal identification draft',
+      });
+
+      const structured = await fixture.service.updateWritingStructure(document.id, {
+        expectedStructureRevision: 1,
+        sections: [
+          {
+            title: 'Introduction',
+            position: 0,
+            blocks: [
+              { kind: 'text', text: 'Initial argument.', position: 0 },
+              { kind: 'note', targetId: note.id, position: 1 },
+              { kind: 'evidence', targetId: evidence.id, position: 2 },
+              { kind: 'claim', targetId: claim.id, position: 3 },
+              { kind: 'matrix', targetId: matrix.id, position: 4 },
+            ],
+          },
+        ],
+      });
+      expect(structured).toMatchObject({ structureRevision: 2, revision: 1 });
+      expect(structured.sections[0]?.blocks).toMatchObject([
+        { kind: 'text', text: 'Initial argument.' },
+        {
+          kind: 'note',
+          targetId: note.id,
+          targetLabel: 'Identification notes',
+          targetUrl: expect.stringContaining('sourceStatus=active'),
+        },
+        {
+          kind: 'evidence',
+          targetId: evidence.id,
+          targetLabel: 'First-stage evidence',
+          sourceState: 'current',
+        },
+        {
+          kind: 'claim',
+          targetId: claim.id,
+          targetLabel: 'The instrument identifies the causal effect.',
+          targetUrl: expect.stringContaining('claimStatus=active'),
+        },
+        { kind: 'matrix', targetId: matrix.id, targetLabel: 'Identification comparison' },
+      ]);
+
+      const section = structured.sections[0]!;
+      const [textBlock, noteBlock, evidenceBlock, claimBlock, matrixBlock] = section.blocks;
+      const edited = await fixture.service.updateWritingBlock(textBlock!.id, {
+        text: 'Revised argument.',
+        expectedRevision: textBlock!.revision,
+      });
+      expect(edited).toMatchObject({ text: 'Revised argument.', revision: 2 });
+      const afterTextEdit = await fixture.service.getWritingDocument(document.id);
+      expect(afterTextEdit.structureRevision).toBe(2);
+      expect(
+        afterTextEdit.sections
+          .flatMap((item) => item.blocks)
+          .find((block) => block.id === textBlock!.id),
+      ).toMatchObject({ id: textBlock!.id, text: 'Revised argument.' });
+
+      const moved = await fixture.service.updateWritingStructure(document.id, {
+        expectedStructureRevision: 2,
+        sections: [
+          {
+            id: section.id,
+            title: 'Introduction',
+            position: 0,
+            blocks: [
+              { id: noteBlock!.id, position: 0 },
+              { id: evidenceBlock!.id, position: 1 },
+              { id: claimBlock!.id, position: 2 },
+              { id: matrixBlock!.id, position: 3 },
+            ],
+          },
+          {
+            title: 'Discussion',
+            position: 1,
+            blocks: [{ id: textBlock!.id, position: 0 }],
+          },
+        ],
+      });
+      const discussion = moved.sections[1]!;
+      expect(discussion.blocks[0]).toMatchObject({
+        id: textBlock!.id,
+        text: 'Revised argument.',
+        sectionId: discussion.id,
+      });
+
+      const withoutNote = await fixture.service.updateWritingStructure(document.id, {
+        expectedStructureRevision: 3,
+        sections: moved.sections.map((item) => ({
+          id: item.id,
+          title: item.title,
+          position: item.position,
+          blocks: item.blocks
+            .filter((block) => block.id !== noteBlock!.id)
+            .map((block, position) => ({ id: block.id, position })),
+        })),
+      });
+      expect(withoutNote.structureRevision).toBe(4);
+      const withDeleted = await fixture.service.getWritingDocument(document.id, true);
+      expect(
+        withDeleted.sections
+          .flatMap((item) => item.blocks)
+          .find((block) => block.id === noteBlock!.id),
+      ).toMatchObject({ status: 'deleted', targetLabel: 'Identification notes' });
+
+      const restored = await fixture.service.updateWritingStructure(document.id, {
+        expectedStructureRevision: 4,
+        sections: withoutNote.sections.map((item) => ({
+          id: item.id,
+          title: item.title,
+          position: item.position,
+          blocks:
+            item.id === section.id
+              ? [
+                  { id: noteBlock!.id, position: 0 },
+                  ...item.blocks.map((block, index) => ({ id: block.id, position: index + 1 })),
+                ]
+              : item.blocks.map((block, position) => ({ id: block.id, position })),
+        })),
+      });
+      expect(
+        restored.sections
+          .flatMap((item) => item.blocks)
+          .find((block) => block.id === noteBlock!.id),
+      ).toMatchObject({ id: noteBlock!.id, status: 'active' });
+
+      await fixture.service.deleteNote(note.id, { expectedRevision: note.revision });
+      expect(
+        (await fixture.service.getWritingDocument(document.id)).sections
+          .flatMap((item) => item.blocks)
+          .find((block) => block.id === noteBlock!.id),
+      ).toMatchObject({
+        targetState: 'deleted',
+        targetLabel: 'Identification notes',
+        targetUrl: expect.stringContaining('sourceStatus=deleted'),
+      });
+      fixture.sqlite
+        .prepare("UPDATE research_asset_locations SET state = 'missing' WHERE id = 'location-1'")
+        .run();
+      expect(
+        (await fixture.service.getWritingDocument(document.id)).sections
+          .flatMap((item) => item.blocks)
+          .find((block) => block.id === evidenceBlock!.id),
+      ).toMatchObject({ targetState: 'unavailable', sourceState: 'source-unavailable' });
+
+      const archived = await fixture.service.updateWritingDocument(document.id, {
+        status: 'archived',
+        expectedRevision: document.revision,
+      });
+      expect(archived).toMatchObject({ status: 'archived', revision: 2, structureRevision: 5 });
+      const deleted = await fixture.service.deleteWritingDocument(document.id, {
+        expectedRevision: archived.revision,
+      });
+      const restoredDocument = await fixture.service.restoreWritingDocument(document.id, {
+        expectedRevision: deleted.revision,
+      });
+      expect(restoredDocument).toMatchObject({ status: 'archived', revision: 4 });
+    } finally {
+      fixture.sqlite.close();
+    }
+  });
+
+  it('统一检索同步四类正文、结构化筛选、动态来源状态和稳定分页', async () => {
+    const fixture = serviceFixture();
+    try {
+      seedPaper(fixture.sqlite);
+      seedAnnotation(fixture.sqlite);
+      const note = await fixture.service.createNote({
+        contextId: null,
+        title: 'Unifiedtoken methods note',
+        body: 'Identification assumptions.',
+      });
+      const evidence = await fixture.service.createEvidence({
+        contextId: null,
+        annotationId: 'annotation-1',
+        sourceKind: 'pdf',
+        title: 'Instrument result',
+        summary: 'Unifiedtoken evidence for the first stage.',
+        notes: null,
+      });
+      const claim = await fixture.service.createClaim({
+        contextId: null,
+        statement: 'Unifiedtoken identifies treatment.',
+        rationale: 'The exclusion restriction remains explicit.',
+        status: 'active',
+      });
+      const document = await fixture.service.createWritingDocument({
+        contextId: null,
+        title: 'Identification draft',
+      });
+      await fixture.service.updateWritingStructure(document.id, {
+        expectedStructureRevision: 1,
+        sections: [
+          {
+            title: 'Argument',
+            position: 0,
+            blocks: [{ kind: 'text', text: 'Unifiedtoken synthesis paragraph.', position: 0 }],
+          },
+        ],
+      });
+
+      const first = await fixture.service.searchKnowledge({
+        query: 'unifiedtoken',
+        entityTypes: ['note', 'evidence', 'claim', 'writing-document'],
+        statuses: ['active', 'draft', 'archived'],
+        cursor: null,
+        limit: 2,
+      });
+      expect(first.results).toHaveLength(2);
+      expect(first.nextCursor).not.toBeNull();
+      const second = await fixture.service.searchKnowledge({
+        query: 'unifiedtoken',
+        entityTypes: ['note', 'evidence', 'claim', 'writing-document'],
+        statuses: ['active', 'draft', 'archived'],
+        cursor: first.nextCursor,
+        limit: 2,
+      });
+      const allResults = [...first.results, ...second.results];
+      expect(new Set(allResults.map((result) => result.entityId)).size).toBe(4);
+      expect(allResults.map((result) => result.entityType).sort()).toEqual([
+        'claim',
+        'evidence',
+        'note',
+        'writing-document',
+      ]);
+      expect(allResults.find((result) => result.entityId === document.id)).toMatchObject({
+        matchedFields: ['body'],
+        targetUrl: expect.stringContaining(`document=${document.id}`),
+      });
+
+      const byWork = await fixture.service.searchKnowledge({
+        query: 'unifiedtoken',
+        workId: 'work-1',
+        entityTypes: ['note', 'evidence', 'claim', 'writing-document'],
+        statuses: ['active'],
+        cursor: null,
+        limit: 30,
+      });
+      expect(byWork.results).toMatchObject([
+        {
+          entityId: evidence.id,
+          entityType: 'evidence',
+          sourceState: 'current',
+          targetUrl: expect.stringContaining('/research/read/asset-1?'),
+        },
+      ]);
+
+      fixture.sqlite
+        .prepare("UPDATE research_asset_locations SET state = 'missing' WHERE id = 'location-1'")
+        .run();
+      const unavailable = await fixture.service.searchKnowledge({
+        query: 'unifiedtoken',
+        entityTypes: ['evidence'],
+        statuses: ['active'],
+        sourceStates: ['source-unavailable'],
+        cursor: null,
+        limit: 30,
+      });
+      expect(unavailable.results).toMatchObject([
+        { entityId: evidence.id, sourceState: 'source-unavailable' },
+      ]);
+
+      await fixture.service.deleteNote(note.id, { expectedRevision: note.revision });
+      const deleted = await fixture.service.searchKnowledge({
+        query: 'unifiedtoken',
+        entityTypes: ['note'],
+        statuses: ['deleted'],
+        cursor: null,
+        limit: 30,
+      });
+      expect(deleted.results).toMatchObject([
+        {
+          entityId: note.id,
+          status: 'deleted',
+          targetUrl: expect.stringContaining('sourceStatus=deleted'),
+        },
+      ]);
+
+      fixture.sqlite
+        .prepare("DELETE FROM research_knowledge_search WHERE entity_type = 'claim'")
+        .run();
+      const rebuilt = await fixture.service.rebuildKnowledgeSearch();
+      expect(rebuilt).toMatchObject({ notes: 1, evidence: 1, claims: 1, writingDocuments: 1 });
+      expect(rebuilt.total).toBe(4);
+      const rebuiltClaim = await fixture.service.searchKnowledge({
+        query: 'unifiedtoken',
+        entityTypes: ['claim'],
+        statuses: ['active'],
+        cursor: null,
+        limit: 30,
+      });
+      expect(rebuiltClaim.results).toMatchObject([{ entityId: claim.id }]);
+    } finally {
+      fixture.sqlite.close();
+    }
+  });
 });

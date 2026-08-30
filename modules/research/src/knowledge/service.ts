@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  KNOWLEDGE_SEARCH_ENTITY_TYPES,
   claimEvidenceSchema,
   claimsPageSchema,
   claimSchema,
@@ -9,6 +10,8 @@ import {
   evidenceSchema,
   evidenceSourceSnapshotSchema,
   matricesPageSchema,
+  knowledgeSearchRebuildResponseSchema,
+  knowledgeSearchResponseSchema,
   matrixCandidatesSchema,
   matrixCellEvidenceSchema,
   matrixCellSchema,
@@ -17,6 +20,9 @@ import {
   noteLinkSchema,
   notesPageSchema,
   researchNoteSchema,
+  writingBlockSchema,
+  writingDocumentDetailSchema,
+  writingDocumentsPageSchema,
   type CreateDirectEvidenceInput,
   type CreateClaimEvidenceInput,
   type CreateClaimInput,
@@ -26,6 +32,7 @@ import {
   type CreateEvidenceInput,
   type CreateNoteInput,
   type CreateNoteLinkInput,
+  type CreateWritingDocumentInput,
   type ConfirmEvidenceRebindInput,
   type Evidence,
   type EvidenceDetail,
@@ -34,10 +41,14 @@ import {
   type KnowledgeRevision,
   type KnowledgeEntityType,
   type KnowledgeRevisionInput,
+  type KnowledgeSearchInput,
+  type KnowledgeSearchRebuildResponse,
+  type KnowledgeSearchResponse,
   type ListMatricesQuery,
   type ListEvidenceQuery,
   type ListClaimsQuery,
   type ListNotesQuery,
+  type ListWritingDocumentsQuery,
   type NoteLink,
   type NotesPage,
   type MatricesPage,
@@ -60,6 +71,12 @@ import {
   type UpdateMatrixInput,
   type UpdateMatrixStructureInput,
   type UpdateNoteInput,
+  type UpdateWritingBlockInput,
+  type UpdateWritingDocumentInput,
+  type UpdateWritingStructureInput,
+  type WritingBlock,
+  type WritingDocumentDetail,
+  type WritingDocumentsPage,
 } from '../contract.js';
 import { KnowledgeError } from './errors.js';
 import type {
@@ -67,6 +84,7 @@ import type {
   KnowledgeCreateResult,
   KnowledgeCursor,
   KnowledgeRepository,
+  KnowledgeSearchCursor,
 } from './repository.js';
 
 interface ResearchKnowledgeServiceOptions {
@@ -98,6 +116,41 @@ function decodeCursor(cursor: string | null): KnowledgeCursor | undefined {
   throw new KnowledgeError('KNOWLEDGE_INVALID', '分页游标无效', 400);
 }
 
+function encodeSearchCursor(cursor: KnowledgeSearchCursor | null): string | null {
+  return cursor ? Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url') : null;
+}
+
+function decodeSearchCursor(cursor: string | null): KnowledgeSearchCursor | undefined {
+  if (cursor === null) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof parsed.updatedAt === 'string' &&
+      typeof parsed.entityType === 'string' &&
+      KNOWLEDGE_SEARCH_ENTITY_TYPES.includes(
+        parsed.entityType as (typeof KNOWLEDGE_SEARCH_ENTITY_TYPES)[number],
+      ) &&
+      typeof parsed.entityId === 'string' &&
+      typeof parsed.seen === 'number' &&
+      Number.isInteger(parsed.seen) &&
+      parsed.seen >= 0
+    ) {
+      return {
+        updatedAt: parsed.updatedAt,
+        entityType: parsed.entityType as KnowledgeSearchCursor['entityType'],
+        entityId: parsed.entityId,
+        seen: parsed.seen,
+      };
+    }
+  } catch {
+    // handled below
+  }
+  throw new KnowledgeError('KNOWLEDGE_INVALID', '搜索分页游标无效', 400);
+}
+
 function createResult<T>(result: KnowledgeCreateResult<T>): T {
   if (result.kind === 'created') return result.value;
   if (result.kind === 'context-not-found') {
@@ -121,7 +174,9 @@ function changeResult<T>(
     | 'KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND'
     | 'KNOWLEDGE_MATRIX_NOT_FOUND'
     | 'KNOWLEDGE_MATRIX_CELL_NOT_FOUND'
-    | 'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
+    | 'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND'
+    | 'KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND'
+    | 'KNOWLEDGE_WRITING_BLOCK_NOT_FOUND',
   label: string,
 ): T {
   if (result.kind === 'saved') return result.value;
@@ -205,6 +260,31 @@ export class ResearchKnowledgeService {
   ) {
     this.createId = options.createId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+  }
+
+  async searchKnowledge(input: KnowledgeSearchInput): Promise<KnowledgeSearchResponse> {
+    const page = await this.repository.searchKnowledge({
+      query: input.query,
+      ...('contextId' in input ? { contextId: input.contextId } : {}),
+      ...(input.workId ? { workId: input.workId } : {}),
+      entityTypes: input.entityTypes,
+      statuses: input.statuses,
+      ...(input.sourceStates ? { sourceStates: input.sourceStates } : {}),
+      before: decodeSearchCursor(input.cursor),
+      limit: input.limit,
+      maxResults: 500,
+    });
+    return knowledgeSearchResponseSchema.parse({
+      results: page.items,
+      nextCursor: encodeSearchCursor(page.next),
+      maxResults: 500,
+    });
+  }
+
+  async rebuildKnowledgeSearch(): Promise<KnowledgeSearchRebuildResponse> {
+    return knowledgeSearchRebuildResponseSchema.parse(
+      await this.repository.rebuildKnowledgeSearch(),
+    );
   }
 
   async listNotes(input: ListNotesQuery): Promise<NotesPage> {
@@ -999,6 +1079,220 @@ export class ResearchKnowledgeService {
         }),
         'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
         '矩阵证据关系',
+      ),
+    );
+  }
+
+  async listWritingDocuments(input: ListWritingDocumentsQuery): Promise<WritingDocumentsPage> {
+    const page = await this.repository.listWritingDocuments({
+      ...('contextId' in input ? { contextId: input.contextId } : {}),
+      status: input.status,
+      before: decodeCursor(input.cursor),
+      limit: input.limit,
+    });
+    return writingDocumentsPageSchema.parse({
+      documents: page.items,
+      nextCursor: encodeCursor(page.next),
+    });
+  }
+
+  async getWritingDocument(
+    id: string,
+    includeDeletedStructure = false,
+  ): Promise<WritingDocumentDetail> {
+    const document = await this.repository.getWritingDocument(id, includeDeletedStructure);
+    if (!document) {
+      throw new KnowledgeError('KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND', '写作板不存在', 404);
+    }
+    return writingDocumentDetailSchema.parse(document);
+  }
+
+  async createWritingDocument(input: CreateWritingDocumentInput): Promise<WritingDocumentDetail> {
+    return writingDocumentDetailSchema.parse(
+      createResult(
+        await this.repository.createWritingDocument({
+          id: this.createId(),
+          contextId: input.contextId,
+          title: input.title.trim(),
+        }),
+      ),
+    );
+  }
+
+  async updateWritingDocument(
+    id: string,
+    input: UpdateWritingDocumentInput,
+  ): Promise<WritingDocumentDetail> {
+    const current = await this.getWritingDocument(id);
+    return writingDocumentDetailSchema.parse(
+      changeResult(
+        await this.repository.updateWritingDocument(id, {
+          contextId: input.contextId === undefined ? current.contextId : input.contextId,
+          title: input.title?.trim() ?? current.title,
+          status: input.status ?? (current.status === 'archived' ? 'archived' : 'active'),
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND',
+        '写作板',
+      ),
+    );
+  }
+
+  async deleteWritingDocument(
+    id: string,
+    input: KnowledgeRevisionInput,
+  ): Promise<WritingDocumentDetail> {
+    return writingDocumentDetailSchema.parse(
+      changeResult(
+        await this.repository.deleteWritingDocument(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND',
+        '写作板',
+      ),
+    );
+  }
+
+  async restoreWritingDocument(
+    id: string,
+    input: KnowledgeRevisionInput,
+  ): Promise<WritingDocumentDetail> {
+    return writingDocumentDetailSchema.parse(
+      changeResult(
+        await this.repository.restoreWritingDocument(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND',
+        '写作板',
+      ),
+    );
+  }
+
+  private async writingTargetLabel(
+    kind: 'note' | 'evidence' | 'claim' | 'matrix',
+    targetId: string,
+  ): Promise<string> {
+    if (kind === 'note') {
+      const target = await this.repository.getNote(targetId);
+      if (!target || target.status === 'deleted') {
+        throw new KnowledgeError('KNOWLEDGE_SOURCE_NOT_FOUND', '笔记引用对象不存在', 404);
+      }
+      return target.title;
+    }
+    if (kind === 'evidence') {
+      const target = await this.repository.getEvidence(targetId);
+      if (!target || target.status === 'deleted') {
+        throw new KnowledgeError('KNOWLEDGE_SOURCE_NOT_FOUND', '证据引用对象不存在', 404);
+      }
+      return target.title ?? target.sourceSnapshot.workTitle;
+    }
+    if (kind === 'claim') {
+      const target = await this.repository.getClaim(targetId);
+      if (!target || target.status === 'deleted') {
+        throw new KnowledgeError('KNOWLEDGE_SOURCE_NOT_FOUND', '观点引用对象不存在', 404);
+      }
+      return target.statement;
+    }
+    const target = await this.repository.getMatrix(targetId, false);
+    if (!target || target.status === 'deleted') {
+      throw new KnowledgeError('KNOWLEDGE_SOURCE_NOT_FOUND', '矩阵引用对象不存在', 404);
+    }
+    return target.title;
+  }
+
+  async updateWritingStructure(
+    id: string,
+    input: UpdateWritingStructureInput,
+  ): Promise<WritingDocumentDetail> {
+    const full = await this.getWritingDocument(id, true);
+    const existingSections = new Map(full.sections.map((section) => [section.id, section]));
+    const existingBlocks = new Map(
+      full.sections.flatMap((section) => section.blocks).map((block) => [block.id, block]),
+    );
+    const sections = await Promise.all(
+      input.sections.map(async (section) => {
+        const sectionId = section.id ?? this.createId();
+        const blocks = await Promise.all(
+          section.blocks.map(async (block) => {
+            if ('id' in block) {
+              const existing = existingBlocks.get(block.id);
+              if (!existing) {
+                throw new KnowledgeError(
+                  'KNOWLEDGE_SOURCE_NOT_FOUND',
+                  '写作块不属于当前写作板',
+                  404,
+                );
+              }
+              return {
+                id: existing.id,
+                sectionId,
+                kind: existing.kind,
+                text: existing.text,
+                targetId: existing.targetId,
+                targetLabel: existing.targetLabel,
+                position: block.position,
+                existing: true,
+              };
+            }
+            if (block.kind === 'text') {
+              return {
+                id: this.createId(),
+                sectionId,
+                kind: 'text' as const,
+                text: block.text,
+                targetId: null,
+                targetLabel: null,
+                position: block.position,
+                existing: false,
+              };
+            }
+            return {
+              id: this.createId(),
+              sectionId,
+              kind: block.kind,
+              text: null,
+              targetId: block.targetId,
+              targetLabel: await this.writingTargetLabel(block.kind, block.targetId),
+              position: block.position,
+              existing: false,
+            };
+          }),
+        );
+        return {
+          id: sectionId,
+          title: section.title.trim(),
+          position: section.position,
+          existing: existingSections.has(sectionId),
+          blocks,
+        };
+      }),
+    );
+    return writingDocumentDetailSchema.parse(
+      changeResult(
+        await this.repository.updateWritingStructure(id, {
+          expectedStructureRevision: input.expectedStructureRevision,
+          revisionId: this.createId(),
+          sections,
+        }),
+        'KNOWLEDGE_WRITING_DOCUMENT_NOT_FOUND',
+        '写作板结构',
+      ),
+    );
+  }
+
+  async updateWritingBlock(id: string, input: UpdateWritingBlockInput): Promise<WritingBlock> {
+    return writingBlockSchema.parse(
+      changeResult(
+        await this.repository.updateWritingBlock(id, {
+          text: input.text,
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_WRITING_BLOCK_NOT_FOUND',
+        '写作块',
       ),
     );
   }

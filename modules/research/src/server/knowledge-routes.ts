@@ -6,6 +6,7 @@ import {
   KNOWLEDGE_BASIC_STATUSES,
   MATRIX_STATUSES,
   RESEARCH_API_V1,
+  WRITING_DOCUMENT_STATUSES,
   createClaimEvidenceInputSchema,
   createClaimInputSchema,
   createMatrixCellEvidenceInputSchema,
@@ -14,8 +15,10 @@ import {
   createEvidenceRequestSchema,
   createNoteInputSchema,
   createNoteLinkInputSchema,
+  createWritingDocumentInputSchema,
   evidenceRebindRequestSchema,
   knowledgeRevisionInputSchema,
+  knowledgeSearchInputSchema,
   matrixCandidatesQuerySchema,
   matrixCellWindowQuerySchema,
   reviewMatrixCellInputSchema,
@@ -26,6 +29,9 @@ import {
   updateMatrixStructureInputSchema,
   updateEvidenceInputSchema,
   updateNoteInputSchema,
+  updateWritingBlockInputSchema,
+  updateWritingDocumentInputSchema,
+  updateWritingStructureInputSchema,
 } from '../contract.js';
 import { KnowledgeError } from '../knowledge/errors.js';
 import type { ResearchKnowledgeService } from '../knowledge/service.js';
@@ -61,8 +67,27 @@ const matrixListQuery = z.object({
   cursor: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(30),
 });
+const writingDocumentListQuery = z.object({
+  contextId: z.string().min(1).optional(),
+  status: z.enum(WRITING_DOCUMENT_STATUSES).default('active'),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
 const linkListQuery = z.object({
   includeDeleted: z.enum(['true', 'false']).default('false'),
+});
+const writingDocumentDetailQuery = z.object({
+  includeDeletedStructure: z.enum(['true', 'false']).default('false'),
+});
+const knowledgeSearchRouteQuery = z.object({
+  query: z.string().trim().min(1).max(500),
+  contextId: z.string().min(1).optional(),
+  workId: z.string().min(1).optional(),
+  entityTypes: z.string().max(200).optional(),
+  statuses: z.string().max(200).optional(),
+  sourceStates: z.string().max(300).optional(),
+  cursor: z.string().min(1).max(1_024).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
 });
 
 function invalidRequest(reply: FastifyReply, message: string) {
@@ -104,10 +129,42 @@ function parsedContextId(value: string | undefined): string | null | undefined {
   return value === undefined ? undefined : value === GENERAL_READING_CONTEXT_ID ? null : value;
 }
 
+function commaSeparated(value: string | undefined): string[] | undefined {
+  return value?.split(',').map((item) => item.trim());
+}
+
 export function registerResearchKnowledgeRoutes(
   app: FastifyInstance,
   service: ResearchKnowledgeService,
 ): void {
+  app.get(RESEARCH_API_V1.knowledgeSearch, async (request, reply) => {
+    const routeQuery = knowledgeSearchRouteQuery.safeParse(request.query ?? {});
+    if (!routeQuery.success)
+      return invalidRequest(reply, routeQuery.error.issues[0]?.message ?? '搜索条件无效');
+    const contextId = parsedContextId(routeQuery.data.contextId);
+    const input = knowledgeSearchInputSchema.safeParse({
+      query: routeQuery.data.query,
+      ...(contextId !== undefined ? { contextId } : {}),
+      ...(routeQuery.data.workId ? { workId: routeQuery.data.workId } : {}),
+      ...(routeQuery.data.entityTypes
+        ? { entityTypes: commaSeparated(routeQuery.data.entityTypes) }
+        : {}),
+      ...(routeQuery.data.statuses ? { statuses: commaSeparated(routeQuery.data.statuses) } : {}),
+      ...(routeQuery.data.sourceStates
+        ? { sourceStates: commaSeparated(routeQuery.data.sourceStates) }
+        : {}),
+      cursor: routeQuery.data.cursor ?? null,
+      limit: routeQuery.data.limit,
+    });
+    if (!input.success)
+      return invalidRequest(reply, input.error.issues[0]?.message ?? '搜索条件无效');
+    return knowledgeRequest(reply, () => service.searchKnowledge(input.data));
+  });
+
+  app.post(RESEARCH_API_V1.knowledgeSearchRebuild, async (_request, reply) =>
+    knowledgeRequest(reply, () => service.rebuildKnowledgeSearch()),
+  );
+
   app.get(RESEARCH_API_V1.notes, async (request, reply) => {
     const parsed = listQuery.safeParse(request.query ?? {});
     if (!parsed.success)
@@ -542,5 +599,77 @@ export function registerResearchKnowledgeRoutes(
     const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
     if ('sent' in input) return input;
     return knowledgeRequest(reply, () => service.restoreMatrixCellEvidence(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.writingDocuments, async (request, reply) => {
+    const parsed = writingDocumentListQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '筛选无效');
+    const contextId = parsedContextId(parsed.data.contextId);
+    return knowledgeRequest(reply, () =>
+      service.listWritingDocuments({
+        ...(contextId !== undefined ? { contextId } : {}),
+        status: parsed.data.status,
+        cursor: parsed.data.cursor ?? null,
+        limit: parsed.data.limit,
+      }),
+    );
+  });
+
+  app.post(RESEARCH_API_V1.writingDocuments, async (request, reply) => {
+    const input = parseBody(createWritingDocumentInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.createWritingDocument(input));
+  });
+
+  app.get(RESEARCH_API_V1.writingDocument(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const parsed = writingDocumentDetailQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '结构筛选无效');
+    return knowledgeRequest(reply, () =>
+      service.getWritingDocument(id, parsed.data.includeDeletedStructure === 'true'),
+    );
+  });
+
+  app.patch(RESEARCH_API_V1.writingDocument(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateWritingDocumentInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateWritingDocument(id, input));
+  });
+
+  app.delete(RESEARCH_API_V1.writingDocument(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.deleteWritingDocument(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.writingDocumentRestore(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.restoreWritingDocument(id, input));
+  });
+
+  app.put(RESEARCH_API_V1.writingDocumentStructure(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateWritingStructureInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateWritingStructure(id, input));
+  });
+
+  app.patch(RESEARCH_API_V1.writingBlock(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateWritingBlockInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateWritingBlock(id, input));
   });
 }

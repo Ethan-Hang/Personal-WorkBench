@@ -12,6 +12,8 @@ import {
   type KnowledgeEntityType,
   type KnowledgeRevision,
   type KnowledgeRevisionReason,
+  type KnowledgeSearchEntityType,
+  type KnowledgeSearchResult,
   type MatrixCandidates,
   type MatrixCell,
   type MatrixCellEvidence,
@@ -22,6 +24,11 @@ import {
   type MatrixRow,
   type NoteLink,
   type ResearchNote,
+  type WritingBlock,
+  type WritingDocument,
+  type WritingDocumentDetail,
+  type WritingResourceState,
+  type WritingSection,
 } from '../contract.js';
 import type {
   DirectEvidenceDraft,
@@ -46,6 +53,9 @@ import type {
   KnowledgeCreateResult,
   KnowledgeListQuery,
   KnowledgePage,
+  KnowledgeSearchPage,
+  KnowledgeSearchQuery,
+  KnowledgeSearchRebuildResult,
   KnowledgeRepository,
   KnowledgeRevisionDraft,
   KnowledgeAnnotationSource,
@@ -54,6 +64,11 @@ import type {
   NoteChanges,
   NoteDraft,
   NoteLinkDraft,
+  WritingBlockChanges,
+  WritingDocumentChanges,
+  WritingDocumentDraft,
+  WritingDocumentListQuery,
+  WritingStructureDraft,
 } from '../knowledge/repository.js';
 import { evidenceSourceState } from '../knowledge/source-state.js';
 
@@ -137,6 +152,21 @@ function toComparisonMatrix(row: Row): ComparisonMatrix {
     title: requiredText(row, 'title'),
     description: nullableText(row, 'description'),
     status: requiredText(row, 'status') as ComparisonMatrix['status'],
+    structureRevision: requiredNumber(row, 'structure_revision'),
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    archivedAt: nullableText(row, 'archived_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+}
+
+function toWritingDocument(row: Row): WritingDocument {
+  return {
+    id: requiredText(row, 'id'),
+    contextId: nullableText(row, 'context_id'),
+    title: requiredText(row, 'title'),
+    status: requiredText(row, 'status') as WritingDocument['status'],
     structureRevision: requiredNumber(row, 'structure_revision'),
     revision: requiredNumber(row, 'revision'),
     createdAt: requiredText(row, 'created_at'),
@@ -379,6 +409,18 @@ const evidenceSelect = `
   JOIN research_annotations annotation ON annotation.id = e.annotation_id
   JOIN research_assets asset ON asset.id = e.asset_id`;
 
+function knowledgeFtsExpression(value: string): string {
+  const tokens = value.normalize('NFKC').match(/[\p{L}\p{N}]+/gu) ?? [];
+  return tokens
+    .slice(0, 24)
+    .map((token) => `"${token.replaceAll('"', '""')}"*`)
+    .join(' AND ');
+}
+
+function stripFtsMarkers(value: string): string {
+  return value.replaceAll('\u0001', '').replaceAll('\u0002', '');
+}
+
 export class SqliteKnowledgeRepository implements KnowledgeRepository {
   constructor(
     private readonly getSqlite: () => Database.Database,
@@ -549,6 +591,175 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
         .all(id) as Row[]
     ).map(toMatrixRow);
     return { ...toComparisonMatrix(row), columns, rows };
+  }
+
+  private writingTarget(kind: Exclude<WritingBlock['kind'], 'text'>, id: string) {
+    if (kind === 'note') {
+      const row = this.sqlite.prepare('SELECT * FROM research_notes WHERE id = ?').get(id) as
+        Row | undefined;
+      if (!row) return null;
+      const note = toResearchNote(row);
+      const params = new URLSearchParams({
+        mode: 'sources',
+        note: note.id,
+        sourceStatus: note.status === 'deleted' ? 'deleted' : 'active',
+      });
+      return {
+        label: note.title,
+        state: (note.status === 'deleted' ? 'deleted' : 'current') as WritingResourceState,
+        url: `/research/knowledge?${params.toString()}`,
+        sourceState: null,
+      };
+    }
+    if (kind === 'evidence') {
+      const evidence = this.getEvidenceSync(id);
+      if (!evidence) return null;
+      const params = new URLSearchParams({
+        page: String(evidence.sourceSnapshot.pageNumber),
+        context: evidence.sourceSnapshot.contextId ?? 'general',
+        annotation: evidence.annotationId,
+      });
+      return {
+        label: evidence.title ?? evidence.sourceSnapshot.workTitle,
+        state: (evidence.status === 'deleted'
+          ? 'deleted'
+          : evidence.sourceState === 'source-unavailable'
+            ? 'unavailable'
+            : 'current') as WritingResourceState,
+        url: `/research/read/${encodeURIComponent(evidence.assetId)}?${params.toString()}`,
+        sourceState: evidence.sourceState,
+      };
+    }
+    if (kind === 'claim') {
+      const claim = this.getClaimSync(id);
+      if (!claim) return null;
+      const params = new URLSearchParams({
+        mode: 'claims',
+        claim: claim.id,
+        claimStatus: claim.status,
+      });
+      return {
+        label: claim.statement,
+        state: (claim.status === 'deleted'
+          ? 'deleted'
+          : claim.status === 'archived'
+            ? 'archived'
+            : 'current') as WritingResourceState,
+        url: `/research/knowledge?${params.toString()}`,
+        sourceState: null,
+      };
+    }
+    const matrix = this.getMatrixSync(id, false);
+    if (!matrix) return null;
+    const params = new URLSearchParams({
+      mode: 'matrices',
+      matrix: matrix.id,
+      matrixStatus: matrix.status,
+    });
+    return {
+      label: matrix.title,
+      state: (matrix.status === 'deleted'
+        ? 'deleted'
+        : matrix.status === 'archived'
+          ? 'archived'
+          : 'current') as WritingResourceState,
+      url: `/research/knowledge?${params.toString()}`,
+      sourceState: null,
+    };
+  }
+
+  private getWritingBlockSync(id: string): WritingBlock | null {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_writing_blocks WHERE id = ?')
+      .get(id) as Row | undefined;
+    if (!row) return null;
+    const base = {
+      id: requiredText(row, 'id'),
+      documentId: requiredText(row, 'document_id'),
+      sectionId: requiredText(row, 'section_id'),
+      position: requiredNumber(row, 'position'),
+      status: requiredText(row, 'status') as KnowledgeBasicStatus,
+      revision: requiredNumber(row, 'revision'),
+      createdAt: requiredText(row, 'created_at'),
+      updatedAt: requiredText(row, 'updated_at'),
+      deletedAt: nullableText(row, 'deleted_at'),
+    };
+    const kind = requiredText(row, 'kind') as WritingBlock['kind'];
+    if (kind === 'text') {
+      return {
+        ...base,
+        kind,
+        text: requiredText(row, 'text_content'),
+        targetId: null,
+        targetLabel: null,
+        targetState: null,
+        targetUrl: null,
+        sourceState: null,
+      };
+    }
+    const targetId = requiredText(
+      row,
+      kind === 'note'
+        ? 'note_id'
+        : kind === 'evidence'
+          ? 'evidence_id'
+          : kind === 'claim'
+            ? 'claim_id'
+            : 'matrix_id',
+    );
+    const target = this.writingTarget(kind, targetId);
+    return {
+      ...base,
+      kind,
+      text: null,
+      targetId,
+      targetLabel: requiredText(row, 'target_label'),
+      targetState: target?.state ?? 'deleted',
+      targetUrl: target?.url ?? null,
+      sourceState: target?.sourceState ?? null,
+    } as WritingBlock;
+  }
+
+  private getWritingDocumentSync(
+    id: string,
+    includeDeletedStructure: boolean,
+  ): WritingDocumentDetail | null {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_writing_documents WHERE id = ?')
+      .get(id) as Row | undefined;
+    if (!row) return null;
+    const clause = includeDeletedStructure ? '' : "AND status = 'active'";
+    const sectionRows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_writing_sections WHERE document_id = ? ${clause}
+         ORDER BY position, id`,
+      )
+      .all(id) as Row[];
+    const sections: WritingSection[] = sectionRows.map((sectionRow) => {
+      const sectionId = requiredText(sectionRow, 'id');
+      const blockRows = this.sqlite
+        .prepare(
+          `SELECT id FROM research_writing_blocks WHERE section_id = ? ${clause}
+           ORDER BY position, id`,
+        )
+        .all(sectionId) as Array<{ id: string }>;
+      return {
+        id: sectionId,
+        documentId: requiredText(sectionRow, 'document_id'),
+        title: requiredText(sectionRow, 'title'),
+        position: requiredNumber(sectionRow, 'position'),
+        status: requiredText(sectionRow, 'status') as KnowledgeBasicStatus,
+        revision: requiredNumber(sectionRow, 'revision'),
+        createdAt: requiredText(sectionRow, 'created_at'),
+        updatedAt: requiredText(sectionRow, 'updated_at'),
+        deletedAt: nullableText(sectionRow, 'deleted_at'),
+        blocks: blockRows.flatMap((blockRow) => {
+          const block = this.getWritingBlockSync(blockRow.id);
+          return block ? [block] : [];
+        }),
+      };
+    });
+    return { ...toWritingDocument(row), sections };
   }
 
   private matrixReviewBaseline(
@@ -738,6 +949,251 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
         claim.status,
         claim.updatedAt,
       );
+  }
+
+  private syncWritingSearch(document: WritingDocumentDetail): void {
+    const body = document.sections
+      .filter((section) => section.status === 'active')
+      .sort((left, right) => left.position - right.position)
+      .flatMap((section) =>
+        section.blocks
+          .filter((block) => block.status === 'active' && block.kind === 'text')
+          .sort((left, right) => left.position - right.position)
+          .map((block) => block.text),
+      )
+      .join('\n');
+    this.sqlite
+      .prepare(
+        `INSERT INTO research_knowledge_search
+         (entity_type, entity_id, context_id, work_id, title, body, status, source_state, updated_at)
+         VALUES ('writing-document', ?, ?, NULL, ?, ?, ?, NULL, ?)
+         ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+           context_id = excluded.context_id, work_id = NULL, title = excluded.title,
+           body = excluded.body, status = excluded.status, source_state = NULL,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        document.id,
+        document.contextId,
+        document.title,
+        body,
+        document.status,
+        document.updatedAt,
+      );
+  }
+
+  async searchKnowledge(query: KnowledgeSearchQuery): Promise<KnowledgeSearchPage> {
+    const ftsQuery = knowledgeFtsExpression(query.query);
+    const seen = query.before?.seen ?? 0;
+    const remaining = Math.max(0, query.maxResults - seen);
+    const pageLimit = Math.min(query.limit, remaining);
+    if (!ftsQuery || pageLimit === 0) return { items: [], next: null };
+
+    const innerClauses = [
+      'research_knowledge_search_fts MATCH ?',
+      `search.entity_type IN (${query.entityTypes.map(() => '?').join(', ')})`,
+      `search.status IN (${query.statuses.map(() => '?').join(', ')})`,
+    ];
+    const params: unknown[] = [ftsQuery, ...query.entityTypes, ...query.statuses];
+    if ('contextId' in query) {
+      if (query.contextId === null) innerClauses.push('search.context_id IS NULL');
+      else {
+        innerClauses.push('search.context_id = ?');
+        params.push(query.contextId);
+      }
+    }
+    if (query.workId) {
+      innerClauses.push('search.work_id = ?');
+      params.push(query.workId);
+    }
+
+    const outerClauses: string[] = [];
+    if (query.sourceStates) {
+      outerClauses.push(
+        `current_source_state IN (${query.sourceStates.map(() => '?').join(', ')})`,
+      );
+      params.push(...query.sourceStates);
+    }
+    if (query.before) {
+      outerClauses.push(
+        `(updated_at < ? OR (updated_at = ? AND
+          (entity_type > ? OR (entity_type = ? AND entity_id > ?))))`,
+      );
+      params.push(
+        query.before.updatedAt,
+        query.before.updatedAt,
+        query.before.entityType,
+        query.before.entityType,
+        query.before.entityId,
+      );
+    }
+    params.push(pageLimit + 1);
+
+    const rows = this.sqlite
+      .prepare(
+        `WITH matched AS (
+           SELECT search.*,
+                  CASE WHEN search.entity_type = 'evidence'
+                    THEN ${evidenceStateSql} ELSE NULL END AS current_source_state,
+                  e.asset_id AS source_asset_id,
+                  e.annotation_id AS source_annotation_id,
+                  json_extract(e.source_snapshot_json, '$.pageNumber') AS source_page_number,
+                  json_extract(e.source_snapshot_json, '$.contextId') AS source_context_id,
+                  highlight(research_knowledge_search_fts, 0, char(1), char(2)) AS marked_title,
+                  snippet(research_knowledge_search_fts, 1, char(1), char(2), '…', 32)
+                    AS marked_body
+           FROM research_knowledge_search_fts
+           JOIN research_knowledge_search search
+             ON search.rowid = research_knowledge_search_fts.rowid
+           LEFT JOIN research_evidence e
+             ON search.entity_type = 'evidence' AND e.id = search.entity_id
+           LEFT JOIN research_annotations annotation ON annotation.id = e.annotation_id
+           LEFT JOIN research_assets asset ON asset.id = e.asset_id
+           WHERE ${innerClauses.join(' AND ')}
+         )
+         SELECT * FROM matched
+         ${outerClauses.length > 0 ? `WHERE ${outerClauses.join(' AND ')}` : ''}
+         ORDER BY updated_at DESC, entity_type, entity_id
+         LIMIT ?`,
+      )
+      .all(...params) as Row[];
+
+    const pageRows = rows.slice(0, pageLimit);
+    const items = pageRows.map((row): KnowledgeSearchResult => {
+      const entityType = requiredText(row, 'entity_type') as KnowledgeSearchEntityType;
+      const entityId = requiredText(row, 'entity_id');
+      const status = requiredText(row, 'status') as KnowledgeSearchResult['status'];
+      const markedTitle = requiredText(row, 'marked_title');
+      const markedBody = requiredText(row, 'marked_body');
+      const matchedFields: KnowledgeSearchResult['matchedFields'] = [];
+      if (markedTitle.includes('\u0001')) matchedFields.push('title');
+      if (markedBody.includes('\u0001')) matchedFields.push('body');
+      const contextId = nullableText(row, 'context_id');
+      let targetUrl: string;
+      if (entityType === 'evidence') {
+        const targetParams = new URLSearchParams({
+          page: String(requiredNumber(row, 'source_page_number')),
+          context: nullableText(row, 'source_context_id') ?? 'general',
+          annotation: requiredText(row, 'source_annotation_id'),
+        });
+        targetUrl = `/research/read/${encodeURIComponent(requiredText(row, 'source_asset_id'))}?${targetParams.toString()}`;
+      } else {
+        const targetParams = new URLSearchParams({
+          mode: entityType === 'note' ? 'sources' : entityType === 'claim' ? 'claims' : 'writing',
+          [entityType === 'note' ? 'note' : entityType === 'claim' ? 'claim' : 'document']:
+            entityId,
+          [entityType === 'note'
+            ? 'sourceStatus'
+            : entityType === 'claim'
+              ? 'claimStatus'
+              : 'writingStatus']: status,
+        });
+        targetUrl = `/research/knowledge?${targetParams.toString()}`;
+      }
+      return {
+        entityType,
+        entityId,
+        contextId,
+        workId: nullableText(row, 'work_id'),
+        title: stripFtsMarkers(markedTitle),
+        excerpt: stripFtsMarkers(markedBody).trim() || stripFtsMarkers(markedTitle),
+        matchedFields: matchedFields.length > 0 ? matchedFields : ['body'],
+        status,
+        sourceState:
+          entityType === 'evidence'
+            ? (requiredText(row, 'current_source_state') as EvidenceSourceState)
+            : null,
+        targetUrl,
+        updatedAt: requiredText(row, 'updated_at'),
+      };
+    });
+    const last = items.at(-1);
+    return {
+      items,
+      next:
+        rows.length > pageLimit && last && seen + items.length < query.maxResults
+          ? {
+              updatedAt: last.updatedAt,
+              entityType: last.entityType,
+              entityId: last.entityId,
+              seen: seen + items.length,
+            }
+          : null,
+    };
+  }
+
+  async rebuildKnowledgeSearch(): Promise<KnowledgeSearchRebuildResult> {
+    return this.sqlite.transaction((): KnowledgeSearchRebuildResult => {
+      this.sqlite.prepare('DELETE FROM research_knowledge_search').run();
+      const notes = this.sqlite
+        .prepare(
+          `INSERT INTO research_knowledge_search
+           (entity_type, entity_id, context_id, work_id, title, body, status, source_state,
+            updated_at)
+           SELECT 'note', id, context_id, NULL, title, body, status, NULL, updated_at
+           FROM research_notes`,
+        )
+        .run().changes;
+      const evidence = this.sqlite
+        .prepare(
+          `INSERT INTO research_knowledge_search
+           (entity_type, entity_id, context_id, work_id, title, body, status, source_state,
+            updated_at)
+           SELECT 'evidence', e.id, e.context_id, e.work_id,
+                  COALESCE(e.title, json_extract(e.source_snapshot_json, '$.workTitle')),
+                  e.summary || char(10) || COALESCE(e.notes, '') || char(10) ||
+                    COALESCE(json_extract(e.source_snapshot_json, '$.anchor.textQuote.exact'), ''),
+                  e.status, ${evidenceStateSql}, e.updated_at
+           FROM research_evidence e
+           JOIN research_annotations annotation ON annotation.id = e.annotation_id
+           JOIN research_assets asset ON asset.id = e.asset_id`,
+        )
+        .run().changes;
+      const claims = this.sqlite
+        .prepare(
+          `INSERT INTO research_knowledge_search
+           (entity_type, entity_id, context_id, work_id, title, body, status, source_state,
+            updated_at)
+           SELECT 'claim', id, context_id, NULL, statement, COALESCE(rationale, ''), status,
+                  NULL, updated_at
+           FROM research_claims`,
+        )
+        .run().changes;
+      const writingDocuments = this.sqlite
+        .prepare(
+          `INSERT INTO research_knowledge_search
+           (entity_type, entity_id, context_id, work_id, title, body, status, source_state,
+            updated_at)
+           SELECT 'writing-document', document.id, document.context_id, NULL, document.title,
+                  COALESCE((
+                    SELECT group_concat(ordered.text_content, char(10))
+                    FROM (
+                      SELECT block.text_content
+                      FROM research_writing_sections section
+                      JOIN research_writing_blocks block ON block.section_id = section.id
+                      WHERE section.document_id = document.id AND section.status = 'active'
+                        AND block.status = 'active' AND block.kind = 'text'
+                      ORDER BY section.position, section.id, block.position, block.id
+                    ) ordered
+                  ), ''),
+                  document.status, NULL, document.updated_at
+           FROM research_writing_documents document`,
+        )
+        .run().changes;
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_knowledge_search_fts(research_knowledge_search_fts)
+           VALUES ('rebuild')`,
+        )
+        .run();
+      return {
+        notes,
+        evidence,
+        claims,
+        writingDocuments,
+        total: notes + evidence + claims + writingDocuments,
+      };
+    })();
   }
 
   private sourceMatches(draft: EvidenceDraft): boolean {
@@ -2465,6 +2921,455 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
       }
       throw error;
     }
+  }
+
+  async getWritingDocument(
+    id: string,
+    includeDeletedStructure: boolean,
+  ): Promise<WritingDocumentDetail | null> {
+    return this.getWritingDocumentSync(id, includeDeletedStructure);
+  }
+
+  async listWritingDocuments(
+    query: WritingDocumentListQuery,
+  ): Promise<KnowledgePage<WritingDocument>> {
+    const clauses = ['status = ?'];
+    const params: unknown[] = [query.status];
+    if ('contextId' in query) {
+      if (query.contextId === null) clauses.push('context_id IS NULL');
+      else {
+        clauses.push('context_id = ?');
+        params.push(query.contextId);
+      }
+    }
+    if (query.before) {
+      clauses.push('(updated_at < ? OR (updated_at = ? AND id < ?))');
+      params.push(query.before.updatedAt, query.before.updatedAt, query.before.id);
+    }
+    params.push(query.limit + 1);
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_writing_documents WHERE ${clauses.join(' AND ')}
+         ORDER BY updated_at DESC, id DESC LIMIT ?`,
+      )
+      .all(...params) as Row[];
+    const items = rows.slice(0, query.limit).map(toWritingDocument);
+    const last = items.at(-1);
+    return {
+      items,
+      next: rows.length > query.limit && last ? { updatedAt: last.updatedAt, id: last.id } : null,
+    };
+  }
+
+  async createWritingDocument(
+    draft: WritingDocumentDraft,
+  ): Promise<KnowledgeCreateResult<WritingDocumentDetail>> {
+    const failure = this.contextFailure<WritingDocumentDetail>(this.contextState(draft.contextId));
+    if (failure) return failure;
+    try {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_writing_documents
+           (id, context_id, title, status, status_before_delete, structure_revision, revision,
+            created_at, updated_at, archived_at, deleted_at)
+           VALUES (?, ?, ?, 'active', NULL, 1, 1, ?, ?, NULL, NULL)`,
+        )
+        .run(draft.id, draft.contextId, draft.title, timestamp, timestamp);
+      const document = this.getWritingDocumentSync(draft.id, false);
+      if (!document) throw new Error('Inserted writing document could not be read');
+      this.syncWritingSearch(document);
+      return { kind: 'created', value: document };
+    } catch (error) {
+      if (isConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async updateWritingDocument(
+    id: string,
+    changes: WritingDocumentChanges,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<WritingDocumentDetail> => {
+      const current = this.getWritingDocumentSync(id, false);
+      if (!current) return { kind: 'not-found' };
+      if (current.revision !== changes.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const currentFailure = this.contextChangeFailure<WritingDocumentDetail>(
+        this.contextState(current.contextId),
+      );
+      if (currentFailure) return currentFailure;
+      const targetFailure = this.contextChangeFailure<WritingDocumentDetail>(
+        this.contextState(changes.contextId),
+      );
+      if (targetFailure) return targetFailure;
+      const timestamp = this.clock();
+      const reason =
+        changes.status === current.status
+          ? 'update'
+          : changes.status === 'archived'
+            ? 'archive'
+            : 'restore';
+      this.insertRevision(
+        'writing-document',
+        id,
+        current.revision,
+        current,
+        reason,
+        changes.revisionId,
+        timestamp,
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_writing_documents SET context_id = ?, title = ?, status = ?,
+             archived_at = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND revision = ?`,
+        )
+        .run(
+          changes.contextId,
+          changes.title,
+          changes.status,
+          changes.status === 'archived' ? (current.archivedAt ?? timestamp) : null,
+          timestamp,
+          id,
+          changes.expectedRevision,
+        );
+      const saved = this.getWritingDocumentSync(id, false);
+      if (!saved) throw new Error('Updated writing document could not be read');
+      this.syncWritingSearch(saved);
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async deleteWritingDocument(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>> {
+    return this.changeWritingDocumentDeletedState(id, draft, true);
+  }
+
+  async restoreWritingDocument(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>> {
+    return this.changeWritingDocumentDeletedState(id, draft, false);
+  }
+
+  private changeWritingDocumentDeletedState(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+    deleting: boolean,
+  ): KnowledgeChangeResult<WritingDocumentDetail> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<WritingDocumentDetail> => {
+      const current = this.getWritingDocumentSync(id, false);
+      if (!current) return { kind: 'not-found' };
+      const wrongState = deleting ? current.status === 'deleted' : current.status !== 'deleted';
+      if (current.revision !== draft.expectedRevision || wrongState) {
+        return { kind: 'conflict', current };
+      }
+      const contextFailure = this.contextChangeFailure<WritingDocumentDetail>(
+        this.contextState(current.contextId),
+      );
+      if (contextFailure) return contextFailure;
+      const timestamp = this.clock();
+      this.insertRevision(
+        'writing-document',
+        id,
+        current.revision,
+        current,
+        deleting ? 'delete' : 'restore',
+        draft.revisionId,
+        timestamp,
+      );
+      if (deleting) {
+        this.sqlite
+          .prepare(
+            `UPDATE research_writing_documents SET status_before_delete = status,
+               status = 'deleted', deleted_at = ?, revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ?`,
+          )
+          .run(timestamp, timestamp, id, draft.expectedRevision);
+      } else {
+        this.sqlite
+          .prepare(
+            `UPDATE research_writing_documents SET status = status_before_delete,
+               status_before_delete = NULL, deleted_at = NULL, revision = revision + 1,
+               updated_at = ? WHERE id = ? AND revision = ?`,
+          )
+          .run(timestamp, id, draft.expectedRevision);
+      }
+      const saved = this.getWritingDocumentSync(id, false);
+      if (!saved) throw new Error('Changed writing document could not be read');
+      this.syncWritingSearch(saved);
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async updateWritingStructure(
+    id: string,
+    draft: WritingStructureDraft,
+  ): Promise<KnowledgeChangeResult<WritingDocumentDetail>> {
+    try {
+      return this.sqlite.transaction((): KnowledgeChangeResult<WritingDocumentDetail> => {
+        const current = this.getWritingDocumentSync(id, false);
+        if (!current) return { kind: 'not-found' };
+        if (
+          current.structureRevision !== draft.expectedStructureRevision ||
+          current.status !== 'active'
+        ) {
+          return { kind: 'conflict', current };
+        }
+        const contextFailure = this.contextChangeFailure<WritingDocumentDetail>(
+          this.contextState(current.contextId),
+        );
+        if (contextFailure) return contextFailure;
+        const contiguous = (positions: number[]) =>
+          [...positions]
+            .sort((left, right) => left - right)
+            .every((position, index) => position === index);
+        const blocks = draft.sections.flatMap((section) => section.blocks);
+        if (
+          !contiguous(draft.sections.map((section) => section.position)) ||
+          draft.sections.some(
+            (section) => !contiguous(section.blocks.map((block) => block.position)),
+          ) ||
+          new Set(draft.sections.map((section) => section.id)).size !== draft.sections.length ||
+          new Set(blocks.map((block) => block.id)).size !== blocks.length
+        ) {
+          return { kind: 'source-not-found' };
+        }
+        const full = this.getWritingDocumentSync(id, true);
+        if (!full) return { kind: 'not-found' };
+        const currentSections = new Map(full.sections.map((section) => [section.id, section]));
+        const currentBlocks = new Map(
+          full.sections.flatMap((section) => section.blocks).map((block) => [block.id, block]),
+        );
+        for (const section of draft.sections) {
+          const existing = currentSections.get(section.id);
+          if (section.existing !== Boolean(existing)) return { kind: 'source-not-found' };
+          if (
+            !existing &&
+            this.sqlite
+              .prepare('SELECT 1 FROM research_writing_sections WHERE id = ?')
+              .get(section.id)
+          ) {
+            return { kind: 'source-not-found' };
+          }
+          for (const block of section.blocks) {
+            const existingBlock = currentBlocks.get(block.id);
+            if (block.existing !== Boolean(existingBlock)) return { kind: 'source-not-found' };
+            if (
+              !existingBlock &&
+              this.sqlite
+                .prepare('SELECT 1 FROM research_writing_blocks WHERE id = ?')
+                .get(block.id)
+            ) {
+              return { kind: 'source-not-found' };
+            }
+            if (existingBlock) {
+              if (
+                existingBlock.kind !== block.kind ||
+                existingBlock.text !== block.text ||
+                existingBlock.targetId !== block.targetId
+              ) {
+                return { kind: 'source-not-found' };
+              }
+            } else if (block.kind !== 'text') {
+              const target = block.targetId ? this.writingTarget(block.kind, block.targetId) : null;
+              if (!target || target.state === 'deleted') return { kind: 'source-not-found' };
+            }
+          }
+        }
+        const timestamp = this.clock();
+        const desiredSectionIds = new Set(draft.sections.map((section) => section.id));
+        const desiredBlockIds = new Set(blocks.map((block) => block.id));
+        const revise = (
+          entityType: 'writing-section' | 'writing-block',
+          item: WritingSection | WritingBlock,
+          reason: KnowledgeRevisionReason,
+        ) =>
+          this.insertRevision(
+            entityType,
+            item.id,
+            item.revision,
+            item,
+            reason,
+            `${draft.revisionId}:${entityType}:${item.id}:${item.revision}`,
+            timestamp,
+          );
+        for (const existing of currentBlocks.values()) {
+          if (existing.status === 'active' && !desiredBlockIds.has(existing.id)) {
+            revise('writing-block', existing, 'unlink');
+            this.sqlite
+              .prepare(
+                `UPDATE research_writing_blocks SET status = 'deleted', deleted_at = ?,
+                   revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(timestamp, timestamp, existing.id);
+          }
+        }
+        for (const existing of currentSections.values()) {
+          if (existing.status === 'active' && !desiredSectionIds.has(existing.id)) {
+            revise('writing-section', existing, 'delete');
+            this.sqlite
+              .prepare(
+                `UPDATE research_writing_sections SET status = 'deleted', deleted_at = ?,
+                   revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(timestamp, timestamp, existing.id);
+          }
+        }
+        for (const section of draft.sections) {
+          const existing = currentSections.get(section.id);
+          if (!existing) {
+            this.sqlite
+              .prepare(
+                `INSERT INTO research_writing_sections
+                 (id, document_id, title, position, status, revision, created_at, updated_at,
+                  deleted_at) VALUES (?, ?, ?, ?, 'active', 1, ?, ?, NULL)`,
+              )
+              .run(section.id, id, section.title, section.position, timestamp, timestamp);
+          } else if (
+            existing.status === 'deleted' ||
+            existing.title !== section.title ||
+            existing.position !== section.position
+          ) {
+            revise(
+              'writing-section',
+              existing,
+              existing.status === 'deleted'
+                ? 'restore'
+                : existing.title !== section.title
+                  ? 'update'
+                  : 'reorder',
+            );
+            this.sqlite
+              .prepare(
+                `UPDATE research_writing_sections SET title = ?, position = ?, status = 'active',
+                   deleted_at = NULL, revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(section.title, section.position, timestamp, section.id);
+          }
+        }
+        for (const section of draft.sections) {
+          for (const block of section.blocks) {
+            const existing = currentBlocks.get(block.id);
+            if (!existing) {
+              const targetColumns = {
+                noteId: block.kind === 'note' ? block.targetId : null,
+                evidenceId: block.kind === 'evidence' ? block.targetId : null,
+                claimId: block.kind === 'claim' ? block.targetId : null,
+                matrixId: block.kind === 'matrix' ? block.targetId : null,
+              };
+              this.sqlite
+                .prepare(
+                  `INSERT INTO research_writing_blocks
+                   (id, document_id, section_id, kind, text_content, note_id, evidence_id,
+                    claim_id, matrix_id, target_label, position, status, revision, created_at,
+                    updated_at, deleted_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, NULL)`,
+                )
+                .run(
+                  block.id,
+                  id,
+                  section.id,
+                  block.kind,
+                  block.text,
+                  targetColumns.noteId,
+                  targetColumns.evidenceId,
+                  targetColumns.claimId,
+                  targetColumns.matrixId,
+                  block.targetLabel,
+                  block.position,
+                  timestamp,
+                  timestamp,
+                );
+            } else if (
+              existing.status === 'deleted' ||
+              existing.sectionId !== section.id ||
+              existing.position !== block.position
+            ) {
+              revise('writing-block', existing, existing.status === 'deleted' ? 'link' : 'reorder');
+              this.sqlite
+                .prepare(
+                  `UPDATE research_writing_blocks SET section_id = ?, position = ?,
+                     status = 'active', deleted_at = NULL, revision = revision + 1,
+                     updated_at = ? WHERE id = ?`,
+                )
+                .run(section.id, block.position, timestamp, block.id);
+            }
+          }
+        }
+        this.sqlite
+          .prepare(
+            `UPDATE research_writing_documents SET structure_revision = structure_revision + 1,
+               updated_at = ? WHERE id = ? AND structure_revision = ?`,
+          )
+          .run(timestamp, id, draft.expectedStructureRevision);
+        const saved = this.getWritingDocumentSync(id, false);
+        if (!saved) throw new Error('Updated writing structure could not be read');
+        this.syncWritingSearch(saved);
+        return { kind: 'saved', value: saved };
+      })();
+    } catch (error) {
+      if (isConstraintError(error)) {
+        const current = this.getWritingDocumentSync(id, false);
+        return current ? { kind: 'conflict', current } : { kind: 'not-found' };
+      }
+      throw error;
+    }
+  }
+
+  async getWritingBlock(id: string): Promise<WritingBlock | null> {
+    return this.getWritingBlockSync(id);
+  }
+
+  async updateWritingBlock(
+    id: string,
+    changes: WritingBlockChanges,
+  ): Promise<KnowledgeChangeResult<WritingBlock>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<WritingBlock> => {
+      const current = this.getWritingBlockSync(id);
+      if (!current) return { kind: 'not-found' };
+      if (
+        current.kind !== 'text' ||
+        current.status === 'deleted' ||
+        current.revision !== changes.expectedRevision
+      ) {
+        return { kind: 'conflict', current };
+      }
+      const document = this.getWritingDocumentSync(current.documentId, false);
+      if (!document || document.status !== 'active') return { kind: 'source-not-found' };
+      const section = document.sections.find((item) => item.id === current.sectionId);
+      if (!section) return { kind: 'source-not-found' };
+      const contextFailure = this.contextChangeFailure<WritingBlock>(
+        this.contextState(document.contextId),
+      );
+      if (contextFailure) return contextFailure;
+      const timestamp = this.clock();
+      this.insertRevision(
+        'writing-block',
+        id,
+        current.revision,
+        current,
+        'update',
+        changes.revisionId,
+        timestamp,
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_writing_blocks SET text_content = ?, revision = revision + 1,
+             updated_at = ? WHERE id = ? AND revision = ?`,
+        )
+        .run(changes.text, timestamp, id, changes.expectedRevision);
+      const saved = this.getWritingBlockSync(id);
+      if (!saved) throw new Error('Updated writing block could not be read');
+      const savedDocument = this.getWritingDocumentSync(current.documentId, false);
+      if (!savedDocument) throw new Error('Updated writing document could not be read');
+      this.syncWritingSearch(savedDocument);
+      return { kind: 'saved', value: saved };
+    })();
   }
 
   async listNoteLinks(noteId: string, includeDeleted: boolean): Promise<NoteLink[] | null> {

@@ -11,10 +11,14 @@ import {
   fetchAnnotatedExport,
   fetchKnowledgeEvidence,
   fetchKnowledgeNotes,
+  fetchKnowledgeSearch,
   fetchNoteLinks,
   fetchReadingContexts,
   fetchReaderManifest,
   fetchWorks,
+  fetchWritingDocument,
+  fetchWritingDocuments,
+  patchWritingBlock,
   patchWorkMetadata,
   patchAnnotation,
   postCheckLocation,
@@ -26,6 +30,7 @@ import {
   postKnowledgeEvidence,
   postKnowledgeNote,
   postNoteLink,
+  postRebuildKnowledgeSearch,
   postOpenAnnotatedExportLocation,
   postPickAnnotatedExportTarget,
   postPermanentDeleteAttachment,
@@ -39,6 +44,8 @@ import {
   postRetryAnnotatedExport,
   postRetryManagedRootMigration,
   postUploadPdf,
+  postWritingDocument,
+  putWritingStructure,
   putWorkCollections,
   putReaderState,
   deleteResearchAnnotation,
@@ -389,6 +396,133 @@ describe('research ui api', () => {
       notes: null,
     });
     expect(parsedBody(calls[6]!)).toMatchObject({ mode: 'direct', assetId: 'asset-1' });
+  });
+
+  it('写作板客户端保留结构与文本的独立 revision', async () => {
+    const document = {
+      id: 'document-1',
+      contextId: null,
+      title: 'Research draft',
+      status: 'active',
+      structureRevision: 2,
+      revision: 1,
+      createdAt: instant,
+      updatedAt: instant,
+      archivedAt: null,
+      deletedAt: null,
+      sections: [
+        {
+          id: 'section-1',
+          documentId: 'document-1',
+          title: 'Introduction',
+          position: 0,
+          status: 'active',
+          revision: 1,
+          createdAt: instant,
+          updatedAt: instant,
+          deletedAt: null,
+          blocks: [
+            {
+              id: 'block-1',
+              documentId: 'document-1',
+              sectionId: 'section-1',
+              kind: 'text',
+              text: 'Draft paragraph.',
+              targetId: null,
+              targetLabel: null,
+              targetState: null,
+              targetUrl: null,
+              sourceState: null,
+              position: 0,
+              status: 'active',
+              revision: 1,
+              createdAt: instant,
+              updatedAt: instant,
+              deletedAt: null,
+            },
+          ],
+        },
+      ],
+    } as const;
+
+    respondWith({ documents: [document], nextCursor: null });
+    await fetchWritingDocuments({ contextId: null, status: 'active', limit: 20 });
+    expect(calls[0]?.url).toBe(
+      `${RESEARCH_API_V1.writingDocuments}?contextId=general&status=active&limit=20`,
+    );
+
+    respondWith(document);
+    await fetchWritingDocument(document.id, true);
+    expect(calls[1]?.url).toBe(
+      `${RESEARCH_API_V1.writingDocument(document.id)}?includeDeletedStructure=true`,
+    );
+
+    respondWith({ ...document, sections: [], structureRevision: 1 });
+    await postWritingDocument({ contextId: null, title: document.title });
+    expect(calls[2]).toMatchObject({
+      url: RESEARCH_API_V1.writingDocuments,
+      init: { method: 'POST' },
+    });
+
+    respondWith(document);
+    await putWritingStructure(document.id, {
+      expectedStructureRevision: 1,
+      sections: [
+        {
+          title: 'Introduction',
+          position: 0,
+          blocks: [{ kind: 'text', text: 'Draft paragraph.', position: 0 }],
+        },
+      ],
+    });
+    expect(parsedBody(calls[3]!)).toMatchObject({ expectedStructureRevision: 1 });
+
+    respondWith({ ...document.sections[0]!.blocks[0], text: 'Revised.', revision: 2 });
+    await patchWritingBlock('block-1', { text: 'Revised.', expectedRevision: 1 });
+    expect(calls[4]?.url).toBe(RESEARCH_API_V1.writingBlock('block-1'));
+    expect(parsedBody(calls[4]!)).toEqual({ text: 'Revised.', expectedRevision: 1 });
+  });
+
+  it('统一检索客户端编码多值筛选并显式调用重建', async () => {
+    respondWith({
+      results: [
+        {
+          entityType: 'evidence',
+          entityId: 'evidence-1',
+          contextId: null,
+          workId: 'work-1',
+          title: 'Search result',
+          excerpt: 'Matched body',
+          matchedFields: ['body'],
+          status: 'active',
+          sourceState: 'current',
+          targetUrl: '/research/read/asset-1?page=1&context=general&annotation=annotation-1',
+          updatedAt: instant,
+        },
+      ],
+      nextCursor: null,
+      maxResults: 500,
+    });
+    await fetchKnowledgeSearch({
+      query: 'matched',
+      contextId: null,
+      workId: 'work-1',
+      entityTypes: ['evidence', 'claim'],
+      statuses: ['active', 'archived'],
+      sourceStates: ['current', 'source-unavailable'],
+      cursor: null,
+      limit: 20,
+    });
+    expect(calls[0]?.url).toBe(
+      `${RESEARCH_API_V1.knowledgeSearch}?contextId=general&limit=20&query=matched&workId=work-1&entityTypes=evidence%2Cclaim&statuses=active%2Carchived&sourceStates=current%2Csource-unavailable`,
+    );
+
+    respondWith({ notes: 1, evidence: 2, claims: 3, writingDocuments: 4, total: 10 });
+    await postRebuildKnowledgeSearch();
+    expect(calls[1]).toMatchObject({
+      url: RESEARCH_API_V1.knowledgeSearchRebuild,
+      init: { method: 'POST' },
+    });
   });
 
   it('带批注副本客户端完整保留选择、预览、任务控制与位置操作', async () => {

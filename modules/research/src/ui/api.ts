@@ -23,6 +23,8 @@ import {
   importCommitResultSchema,
   importInspectionResponseSchema,
   importSessionViewSchema,
+  knowledgeSearchRebuildResponseSchema,
+  knowledgeSearchResponseSchema,
   managedRootMigrationJobSchema,
   managedStorageStatusSchema,
   matricesPageSchema,
@@ -57,6 +59,9 @@ import {
   workDetailViewSchema,
   workMergePreviewSchema,
   worksPageResponseSchema,
+  writingBlockSchema,
+  writingDocumentDetailSchema,
+  writingDocumentsPageSchema,
   type AddLocalAttachmentInput,
   type AnnotatedExportJob,
   type AnnotatedExportPreview,
@@ -77,7 +82,11 @@ import {
   type CreateSavedQueryInput,
   type CreateTagInput,
   type CreateWorkRelationInput,
+  type CreateWritingDocumentInput,
   type ImportSessionStatus,
+  type KnowledgeSearchInput,
+  type KnowledgeSearchRebuildResponse,
+  type KnowledgeSearchResponse,
   type ConfirmEvidenceRebindInput,
   type InspectImportInput,
   type MergeTagsInput,
@@ -120,6 +129,9 @@ import {
   type UpdateCollectionInput,
   type UpdateTagInput,
   type UpdateWorkMetadataInput,
+  type UpdateWritingBlockInput,
+  type UpdateWritingDocumentInput,
+  type UpdateWritingStructureInput,
   type WorkStatus,
   type NoteLink,
   type Claim,
@@ -131,6 +143,9 @@ import {
   type MatrixCellWindow,
   type MatrixDetail,
   type MatrixStatus,
+  type WritingBlock,
+  type WritingDocumentDetail,
+  type WritingDocumentStatus,
 } from '../contract.js';
 
 export type WorksPage = z.infer<typeof worksPageResponseSchema>;
@@ -159,6 +174,27 @@ export type EvidenceDetail = z.infer<typeof evidenceDetailSchema>;
 export type EvidenceRebindPreview = z.infer<typeof evidenceRebindPreviewSchema>;
 export type KnowledgeClaimsPage = z.infer<typeof claimsPageSchema>;
 export type KnowledgeMatricesPage = z.infer<typeof matricesPageSchema>;
+export type KnowledgeWritingDocumentsPage = z.infer<typeof writingDocumentsPageSchema>;
+
+export async function fetchKnowledgeSearch(
+  input: KnowledgeSearchInput,
+): Promise<KnowledgeSearchResponse> {
+  const params = knowledgeListParams(input);
+  params.set('query', input.query);
+  if (input.workId) params.set('workId', input.workId);
+  if (input.entityTypes.length > 0) params.set('entityTypes', input.entityTypes.join(','));
+  if (input.statuses.length > 0) params.set('statuses', input.statuses.join(','));
+  if (input.sourceStates) params.set('sourceStates', input.sourceStates.join(','));
+  return knowledgeSearchResponseSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.knowledgeSearch}?${params.toString()}`),
+  );
+}
+
+export async function postRebuildKnowledgeSearch(): Promise<KnowledgeSearchRebuildResponse> {
+  return knowledgeSearchRebuildResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.knowledgeSearchRebuild, { method: 'POST' }),
+  );
+}
 
 export async function fetchReaderManifest(assetId: string): Promise<ReaderManifest> {
   return readerManifestSchema.parse(await apiRequest(RESEARCH_API_V1.readerManifest(assetId)));
@@ -663,6 +699,89 @@ export async function putKnowledgeMatrixStructure(
 ): Promise<MatrixDetail> {
   return matrixDetailSchema.parse(
     await apiRequest(RESEARCH_API_V1.matrixStructure(id), jsonBody('PUT', input)),
+  );
+}
+
+export async function fetchWritingDocuments(
+  options: {
+    contextId?: string | null;
+    status?: WritingDocumentStatus;
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<KnowledgeWritingDocumentsPage> {
+  const params = knowledgeListParams(options);
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  return writingDocumentsPageSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.writingDocuments}${suffix}`),
+  );
+}
+
+export async function fetchWritingDocument(
+  id: string,
+  includeDeletedStructure = false,
+): Promise<WritingDocumentDetail> {
+  const params = new URLSearchParams({
+    includeDeletedStructure: String(includeDeletedStructure),
+  });
+  return writingDocumentDetailSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.writingDocument(id)}?${params.toString()}`),
+  );
+}
+
+export async function postWritingDocument(
+  input: CreateWritingDocumentInput,
+): Promise<WritingDocumentDetail> {
+  return writingDocumentDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.writingDocuments, jsonBody('POST', input)),
+  );
+}
+
+export async function patchWritingDocument(
+  id: string,
+  input: UpdateWritingDocumentInput,
+): Promise<WritingDocumentDetail> {
+  return writingDocumentDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.writingDocument(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function deleteWritingDocument(
+  id: string,
+  expectedRevision: number,
+): Promise<WritingDocumentDetail> {
+  return writingDocumentDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.writingDocument(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreWritingDocument(
+  id: string,
+  expectedRevision: number,
+): Promise<WritingDocumentDetail> {
+  return writingDocumentDetailSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.writingDocumentRestore(id),
+      jsonBody('POST', { expectedRevision }),
+    ),
+  );
+}
+
+export async function putWritingStructure(
+  id: string,
+  input: UpdateWritingStructureInput,
+): Promise<WritingDocumentDetail> {
+  return writingDocumentDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.writingDocumentStructure(id), jsonBody('PUT', input)),
+  );
+}
+
+export async function patchWritingBlock(
+  id: string,
+  input: UpdateWritingBlockInput,
+): Promise<WritingBlock> {
+  return writingBlockSchema.parse(
+    await apiRequest(RESEARCH_API_V1.writingBlock(id), jsonBody('PATCH', input)),
   );
 }
 
