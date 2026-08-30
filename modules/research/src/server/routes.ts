@@ -5,6 +5,7 @@ import {
   RESEARCH_API_V1,
   addLocalAttachmentInputSchema,
   bulkWorkActionInputSchema,
+  canonicalImportPreviewInputSchema,
   createTagInputSchema,
   confirmImportInputSchema,
   createWorkRelationInputSchema,
@@ -19,6 +20,7 @@ import {
   mergeTagsInputSchema,
   mergeWorksInputSchema,
   permanentDeleteInputSchema,
+  pickCanonicalImportSourceInputSchema,
   pickPdfInputSchema,
   portableExportPreviewInputSchema,
   prepareImportInputSchema,
@@ -30,6 +32,7 @@ import {
   tagVersionInputSchema,
   structuredSearchInputSchema,
   startManagedRootMigrationInputSchema,
+  startCanonicalImportInputSchema,
   startPortableExportInputSchema,
   uploadPdfQuerySchema,
   updateCollectionInputSchema,
@@ -361,6 +364,24 @@ export function registerResearchRoutes(app: FastifyInstance, service: ResearchSe
     RESEARCH_API_V1.exports,
     defineRoute({ body: startPortableExportInputSchema, status: 202 }, ({ body }) =>
       service.startPortableExport(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.canonicalImportPickSource,
+    defineRoute({ body: pickCanonicalImportSourceInputSchema }, ({ body }) =>
+      service.pickCanonicalImportSource(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.canonicalImportPreview,
+    defineRoute({ body: canonicalImportPreviewInputSchema }, ({ body }) =>
+      service.previewCanonicalImport(body),
+    ),
+  );
+  app.post(
+    RESEARCH_API_V1.canonicalImports,
+    defineRoute({ body: startCanonicalImportInputSchema }, ({ body }) =>
+      service.startCanonicalImport(body),
     ),
   );
   app.get(

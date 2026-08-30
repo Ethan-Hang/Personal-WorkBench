@@ -12,6 +12,9 @@ import {
   matricesPageSchema,
   knowledgeSearchRebuildResponseSchema,
   knowledgeSearchResponseSchema,
+  knowledgeExportPreviewSchema,
+  knowledgeExportReportSchema,
+  pickDocumentPathResponseSchema,
   matrixCandidatesSchema,
   matrixCellEvidenceSchema,
   matrixCellSchema,
@@ -44,6 +47,11 @@ import {
   type KnowledgeSearchInput,
   type KnowledgeSearchRebuildResponse,
   type KnowledgeSearchResponse,
+  type KnowledgeExportPreview,
+  type KnowledgeExportPreviewInput,
+  type KnowledgeExportReport,
+  type PickKnowledgeExportTargetInput,
+  type StartKnowledgeExportInput,
   type ListMatricesQuery,
   type ListEvidenceQuery,
   type ListClaimsQuery,
@@ -78,6 +86,11 @@ import {
   type WritingDocumentDetail,
   type WritingDocumentsPage,
 } from '../contract.js';
+import {
+  KnowledgeExportBuildError,
+  previewKnowledgeExport,
+  writeKnowledgeExport,
+} from '../interop/knowledge-export.js';
 import { KnowledgeError } from './errors.js';
 import type {
   KnowledgeChangeResult,
@@ -90,6 +103,13 @@ import type {
 interface ResearchKnowledgeServiceOptions {
   createId?: () => string;
   now?: () => Date;
+  documentDialog?: {
+    saveDocument(options: {
+      initialDir?: string;
+      suggestedName: string;
+      format: 'markdown' | 'csv' | 'json';
+    }): Promise<string | null>;
+  };
 }
 
 function encodeCursor(cursor: KnowledgeCursor | null): string | null {
@@ -253,6 +273,7 @@ function sourceDifferences(
 export class ResearchKnowledgeService {
   private readonly createId: () => string;
   private readonly now: () => Date;
+  private readonly documentDialog: ResearchKnowledgeServiceOptions['documentDialog'];
 
   constructor(
     private readonly repository: KnowledgeRepository,
@@ -260,6 +281,60 @@ export class ResearchKnowledgeService {
   ) {
     this.createId = options.createId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
+    this.documentDialog = options.documentDialog;
+  }
+
+  private exportFailure(error: unknown): never {
+    if (error instanceof KnowledgeExportBuildError) {
+      if (error.kind === 'not-found') {
+        throw new KnowledgeError('KNOWLEDGE_INVALID', error.message, 404);
+      }
+      if (error.kind === 'conflict') {
+        throw new KnowledgeError('KNOWLEDGE_CONFLICT', error.message, 409);
+      }
+      throw new KnowledgeError('KNOWLEDGE_INVALID', error.message, 400);
+    }
+    throw error;
+  }
+
+  async previewKnowledgeExport(
+    input: KnowledgeExportPreviewInput,
+  ): Promise<KnowledgeExportPreview> {
+    try {
+      return knowledgeExportPreviewSchema.parse(
+        await previewKnowledgeExport(this.repository, input, input.targetPath),
+      );
+    } catch (error) {
+      return this.exportFailure(error);
+    }
+  }
+
+  async pickKnowledgeExportTarget(input: PickKnowledgeExportTargetInput) {
+    if (!this.documentDialog) {
+      throw new KnowledgeError('KNOWLEDGE_INVALID', '当前环境不支持系统文件选择器', 501);
+    }
+    const path = await this.documentDialog.saveDocument({
+      ...(input.initialDir ? { initialDir: input.initialDir } : {}),
+      suggestedName: input.suggestedName,
+      format: input.format,
+    });
+    return pickDocumentPathResponseSchema.parse({ path, cancelled: path === null });
+  }
+
+  async startKnowledgeExport(input: StartKnowledgeExportInput): Promise<KnowledgeExportReport> {
+    try {
+      return knowledgeExportReportSchema.parse(
+        await writeKnowledgeExport({
+          repository: this.repository,
+          selection: input,
+          targetPath: input.targetPath,
+          overwriteConfirmed: input.overwriteConfirmed,
+          completedAt: () => this.now().toISOString(),
+        }),
+      );
+    } catch (error) {
+      return this.exportFailure(error);
+    }
   }
 
   async searchKnowledge(input: KnowledgeSearchInput): Promise<KnowledgeSearchResponse> {

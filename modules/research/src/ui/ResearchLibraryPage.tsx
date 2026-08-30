@@ -56,6 +56,7 @@ import type {
 import { CompactLibraryView } from './components/CompactLibraryView.js';
 import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
 import { CollectionManagerDialog } from './components/CollectionManagerDialog.js';
+import { CanonicalImportDialog } from './components/CanonicalImportDialog.js';
 import { DuplicateMergeDialog } from './components/DuplicateMergeDialog.js';
 import { ExportDialog } from './components/ExportDialog.js';
 import { ImportInboxPanel } from './components/ImportInboxPanel.js';
@@ -116,6 +117,7 @@ export function ResearchLibraryPage() {
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [duplicateMergeOpen, setDuplicateMergeOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [canonicalImportOpen, setCanonicalImportOpen] = useState(false);
   const [managedStorageOpen, setManagedStorageOpen] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -516,6 +518,7 @@ export function ResearchLibraryPage() {
     onManageTags: () => setTagManagerOpen(true),
     onReviewDuplicates: () => setDuplicateMergeOpen(true),
     onExport: () => setExportOpen(true),
+    onRestoreBundle: () => setCanonicalImportOpen(true),
     onManageStorage: () => setManagedStorageOpen(true),
     onSelectCollection: selectCollection,
     onSelectWork: setSelectedWorkId,
@@ -663,6 +666,15 @@ export function ResearchLibraryPage() {
       />
 
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+
+      <CanonicalImportDialog
+        open={canonicalImportOpen}
+        onClose={() => setCanonicalImportOpen(false)}
+        onRestored={async () => {
+          setMessage('研究资料包已恢复');
+          await invalidate();
+        }}
+      />
 
       <ManagedStorageDialog
         open={managedStorageOpen}

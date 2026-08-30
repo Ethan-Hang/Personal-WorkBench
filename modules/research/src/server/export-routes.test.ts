@@ -1,10 +1,12 @@
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@workbench/server';
 import {
   RESEARCH_API_V1,
+  canonicalImportPreviewSchema,
+  canonicalImportReportSchema,
   portableExportJobSchema,
   portableExportPreviewSchema,
 } from '../contract.js';
@@ -29,12 +31,71 @@ async function fixture() {
     contentStore: new ResearchContentStore(() => join(root, 'managed')),
     metadata: { resolve: async () => undefined } as unknown as MetadataCoordinator,
     filePicker: { pick: async () => [] },
+    documentDialog: {
+      saveDocument: async () => null,
+      pickDocument: async () => join(root, 'library.json'),
+    },
   });
   const app = await buildApp({ getSqlite: () => database.sqlite, modules: [module] });
   return { ...database, root, app };
 }
 
 describe('research portable export routes', () => {
+  it('canonical 恢复 API 选择来源、预览空库并提交事务导入', async () => {
+    const { app, sqlite, root } = await fixture();
+    const source = makeResearchDatabase(() => '2026-08-30T18:00:00.000Z');
+    try {
+      source.sqlite
+        .prepare(
+          `INSERT INTO research_works
+           (id, type, title, title_sort, status, revision, created_at, updated_at)
+           VALUES ('restored-work', 'article', 'Restored through API', 'restored through api',
+                   'active', 1, ?, ?)`,
+        )
+        .run('2026-08-30T18:00:00.000Z', '2026-08-30T18:00:00.000Z');
+      const canonical = await source.repo.exportCanonicalSnapshot('2026-08-30T18:00:00.000Z');
+      const sourcePath = join(root, 'library.json');
+      await writeFile(sourcePath, JSON.stringify(canonical));
+
+      const picked = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.canonicalImportPickSource,
+        payload: {},
+      });
+      expect(picked.statusCode).toBe(200);
+      expect(picked.json()).toEqual({ path: sourcePath, cancelled: false });
+      const preview = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.canonicalImportPreview,
+        payload: { sourcePath },
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(canonicalImportPreviewSchema.parse(preview.json())).toMatchObject({
+        schemaVersion: 2,
+        targetEmpty: true,
+        workCount: 1,
+      });
+      const restored = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.canonicalImports,
+        payload: { sourcePath, confirmed: true },
+      });
+      expect(restored.statusCode).toBe(200);
+      expect(canonicalImportReportSchema.parse(restored.json())).toMatchObject({
+        importedWorks: 1,
+        foreignKeysValid: true,
+        roundTripValid: true,
+      });
+      expect(
+        sqlite.prepare("SELECT title FROM research_works WHERE id = 'restored-work'").get(),
+      ).toEqual({ title: 'Restored through API' });
+    } finally {
+      source.sqlite.close();
+      await app.close();
+      sqlite.close();
+    }
+  });
+
   it('预检、启动、轮询并原子发布 JSON-only 资料包', async () => {
     const { app, sqlite, root } = await fixture();
     try {

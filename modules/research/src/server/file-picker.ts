@@ -24,6 +24,19 @@ export interface PdfOutputDialog {
   reveal(filePath: string): Promise<boolean>;
 }
 
+export type DocumentFormat = 'markdown' | 'csv' | 'json';
+
+export interface SaveDocumentOptions {
+  initialDir?: string;
+  suggestedName: string;
+  format: DocumentFormat;
+}
+
+export interface DocumentFileDialog {
+  saveDocument(options: SaveDocumentOptions): Promise<string | null>;
+  pickDocument(options: { initialDir?: string; format: 'json' }): Promise<string | null>;
+}
+
 export type FilePickerExec = (
   file: string,
   args: readonly string[],
@@ -48,7 +61,7 @@ function splitOutput(stdout: string): string[] {
     .filter(Boolean);
 }
 
-function safeSuggestedName(value: string): string {
+function safeSuggestedName(value: string, fallback = 'annotated.pdf'): string {
   const invalid = '<>:"/\\|?*';
   return (
     Array.from(value, (character) =>
@@ -56,9 +69,15 @@ function safeSuggestedName(value: string): string {
     )
       .join('')
       .replace(/[. ]+$/g, '')
-      .trim() || 'annotated.pdf'
+      .trim() || fallback
   );
 }
+
+const documentFormat = {
+  markdown: { extension: 'md', label: 'Markdown 文件', pattern: '*.md' },
+  csv: { extension: 'csv', label: 'CSV 文件', pattern: '*.csv' },
+  json: { extension: 'json', label: 'JSON 文件', pattern: '*.json' },
+} as const;
 
 function run(
   execute: FilePickerExec,
@@ -75,7 +94,7 @@ function run(
 export function createSystemPdfFilePicker(
   platform: FilePickerPlatform = currentPlatform(),
   execute: FilePickerExec = execFile as FilePickerExec,
-): PdfFilePicker & PdfOutputDialog {
+): PdfFilePicker & PdfOutputDialog & DocumentFileDialog {
   return {
     async pick(options = {}) {
       const initialDir = usableInitialDir(options.initialDir);
@@ -186,6 +205,127 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         );
       }
 
+      return null;
+    },
+
+    async saveDocument(options) {
+      const initialDir = usableInitialDir(options.initialDir);
+      const format = documentFormat[options.format];
+      const sanitizedName = safeSuggestedName(
+        options.suggestedName,
+        `research-export.${format.extension}`,
+      );
+      const suggestedName = sanitizedName.toLocaleLowerCase().endsWith(`.${format.extension}`)
+        ? sanitizedName
+        : `${sanitizedName}.${format.extension}`;
+
+      if (platform === 'darwin') {
+        const escape = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const defaultLocation = initialDir
+          ? ` default location POSIX file "${escape(initialDir)}"`
+          : '';
+        const script = `POSIX path of (choose file name with prompt "导出研究内容" default name "${escape(suggestedName)}"${defaultLocation})`;
+        return (await run(execute, 'osascript', ['-e', script]))?.[0] ?? null;
+      }
+
+      if (platform === 'win32') {
+        const escapedDir = initialDir.replace(/'/g, "''");
+        const escapedName = suggestedName.replace(/'/g, "''");
+        const script = `
+[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.Title = '导出研究内容'
+$dialog.Filter = '${format.label} (${format.pattern})|${format.pattern}'
+$dialog.FileName = '${escapedName}'
+$dialog.AddExtension = $true
+$dialog.DefaultExt = '${format.extension}'
+$dialog.OverwritePrompt = $true
+if ('${escapedDir}' -ne '') { $dialog.InitialDirectory = '${escapedDir}' }
+$dialog.RestoreDirectory = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  [Console]::WriteLine($dialog.FileName)
+}
+`.trim();
+        return (
+          (await run(execute, 'powershell', ['-NoProfile', '-STA', '-Command', script]))?.[0] ??
+          null
+        );
+      }
+
+      if (platform === 'linux') {
+        const initialPath = initialDir ? resolve(initialDir, suggestedName) : suggestedName;
+        const zenity = await run(execute, 'zenity', [
+          '--file-selection',
+          '--save',
+          '--confirm-overwrite',
+          '--title=导出研究内容',
+          `--file-filter=${format.label} | ${format.pattern}`,
+          `--filename=${initialPath}`,
+        ]);
+        if (zenity !== null) return zenity[0] ?? null;
+        return (
+          (
+            await run(execute, 'kdialog', [
+              '--getsavefilename',
+              initialPath,
+              `${format.pattern}|${format.label}`,
+            ])
+          )?.[0] ?? null
+        );
+      }
+      return null;
+    },
+
+    async pickDocument(options) {
+      const initialDir = usableInitialDir(options.initialDir);
+      const format = documentFormat[options.format];
+      if (platform === 'darwin') {
+        const defaultLocation = initialDir
+          ? ` default location POSIX file "${initialDir.replace(/"/g, '\\"')}"`
+          : '';
+        const script = `POSIX path of (choose file with prompt "选择规范 JSON" of type {"public.json"}${defaultLocation})`;
+        return (await run(execute, 'osascript', ['-e', script]))?.[0] ?? null;
+      }
+      if (platform === 'win32') {
+        const escapedDir = initialDir.replace(/'/g, "''");
+        const script = `
+[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = '选择规范 JSON'
+$dialog.Filter = '${format.label} (${format.pattern})|${format.pattern}'
+$dialog.Multiselect = $false
+if ('${escapedDir}' -ne '') { $dialog.InitialDirectory = '${escapedDir}' }
+$dialog.RestoreDirectory = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  [Console]::WriteLine($dialog.FileName)
+}
+`.trim();
+        return (
+          (await run(execute, 'powershell', ['-NoProfile', '-STA', '-Command', script]))?.[0] ??
+          null
+        );
+      }
+      if (platform === 'linux') {
+        const zenityArgs = [
+          '--file-selection',
+          '--title=选择规范 JSON',
+          `--file-filter=${format.label} | ${format.pattern}`,
+        ];
+        if (initialDir) zenityArgs.push(`--filename=${initialDir}/`);
+        const zenity = await run(execute, 'zenity', zenityArgs);
+        if (zenity !== null) return zenity[0] ?? null;
+        return (
+          (
+            await run(execute, 'kdialog', [
+              '--getopenfilename',
+              initialDir || '.',
+              `${format.pattern}|${format.label}`,
+            ])
+          )?.[0] ?? null
+        );
+      }
       return null;
     },
 

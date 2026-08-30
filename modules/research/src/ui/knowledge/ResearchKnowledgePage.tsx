@@ -21,6 +21,7 @@ import {
 import { ResearchSectionNav } from '../components/ResearchSectionNav.js';
 import { ClaimBoard } from './ClaimBoard.js';
 import { KnowledgeSearch } from './KnowledgeSearch.js';
+import { KnowledgeExportDialog } from './KnowledgeExportDialog.js';
 import { MatrixEditor } from './MatrixEditor.js';
 import { NoteEditor } from './NoteEditor.js';
 import { SourceStatus, sourceStateDescription } from './SourceStatus.js';
@@ -243,6 +244,7 @@ export function ResearchKnowledgePage() {
   const [selectionKind, setSelectionKind] = useState<'note' | 'evidence'>('evidence');
   const [mobilePane, setMobilePane] = useState<MobilePane>('evidence');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const contextsQuery = useQuery({
@@ -451,6 +453,9 @@ export function ResearchKnowledgePage() {
           </p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={() => setExportOpen(true)}>
+            导出研究内容
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => setSearchOpen((open) => !open)}>
             {searchOpen ? '关闭搜索' : '搜索知识'}
           </Button>
@@ -756,6 +761,7 @@ export function ResearchKnowledgePage() {
           {message}
         </div>
       )}
+      <KnowledgeExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
     </section>
   );
 }

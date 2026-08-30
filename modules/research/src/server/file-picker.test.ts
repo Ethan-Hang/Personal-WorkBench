@@ -91,4 +91,34 @@ describe('PDF 系统文件选择器', () => {
     expect(fake.calls[0]?.args.join(' ')).toContain("$dialog.FileName = 'paper-annotated-.pdf'");
     expect(fake.calls[1]?.command).toBe('explorer.exe');
   });
+
+  it('macOS 文档选择器补齐扩展名并只选择 canonical JSON', async () => {
+    const fake = fakeExec([
+      { stdout: '/Users/me/Research draft.md\n' },
+      { stdout: '/Users/me/library.json\n' },
+    ]);
+    const picker = createSystemPdfFilePicker('darwin', fake.execute);
+    await expect(
+      picker.saveDocument({ suggestedName: 'Research draft', format: 'markdown' }),
+    ).resolves.toBe('/Users/me/Research draft.md');
+    await expect(picker.pickDocument({ format: 'json' })).resolves.toBe('/Users/me/library.json');
+    expect(fake.calls[0]?.args.join(' ')).toContain('default name "Research draft.md"');
+    expect(fake.calls[1]?.args.join(' ')).toContain('public.json');
+  });
+
+  it('Windows 文档选择器使用对应过滤器、扩展名和单选 JSON', async () => {
+    const fake = fakeExec([
+      { stdout: 'C:\\Exports\\matrix.csv\r\n' },
+      { stdout: 'C:\\Bundle\\library.json\r\n' },
+    ]);
+    const picker = createSystemPdfFilePicker('win32', fake.execute);
+    await expect(picker.saveDocument({ suggestedName: 'matrix', format: 'csv' })).resolves.toBe(
+      'C:\\Exports\\matrix.csv',
+    );
+    await expect(picker.pickDocument({ format: 'json' })).resolves.toBe('C:\\Bundle\\library.json');
+    expect(fake.calls[0]?.args.join(' ')).toContain("$dialog.DefaultExt = 'csv'");
+    expect(fake.calls[0]?.args.join(' ')).toContain("$dialog.FileName = 'matrix.csv'");
+    expect(fake.calls[1]?.args.join(' ')).toContain('$dialog.Multiselect = $false');
+    expect(fake.calls[1]?.args.join(' ')).toContain('*.json');
+  });
 });

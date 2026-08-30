@@ -8,12 +8,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §11.2、§16“切片 C”、§17.8–§17.9。
 
-**Status:** 已确认，实施中。C1、C2 和 C3 Task 9 已完成，下一步进入 C3 统一检索。
+**Status:** 已确认，实施中。C1、C2 和 C3 Task 9–11 已完成，下一步进行切片 C 最终验收。
 
 ## 执行方式
 
 - 本文件是完整切片 C 的唯一实施计划，按 C1 → C2 → C3 连续实施，不再为阶段拆分计划文件。
-- 每个 Task 形成一个可运行、可验证的本地提交；不 push。提交前只暂存当前 Task 的文件，不混入用户已有改动。
+- 按可验收里程碑形成少量本地提交；相邻的小 Task 在验证通过后合并提交，不为每个实现步骤单独留提交。不 push，提交前只暂存本里程碑的文件，不混入用户已有改动。
 - 每个提交后检查周额度。剩余低于 33% 时只完成当前检查点和必要文档，不开启新 Task；到 30% 时停止推进并保留可继续状态。运行环境无法读取额度百分比时明确记录，不用 token 数量推算周额度。
 - 开工前、C1 完成后、C2 完成后和最终验收前执行 `git fetch origin --prune`。发现远端领先时先报告，不自动合并、变基或推送。
 - 每个阶段采用后端主导的垂直闭环：先稳定契约、迁移、Repository、Service 和路由，随即接入该能力的最小 UI，不长期积压只有后端可用的功能。
@@ -153,12 +153,11 @@ source-unavailable
 - Create: `modules/research/src/knowledge/errors.ts`
 - Create: `modules/research/src/storage/sqlite-knowledge-repository.ts`
 - Create: `modules/research/src/interop/knowledge-export.ts`
-- Create: `modules/research/src/interop/canonical-import.ts`
+- Create: `modules/research/src/storage/canonical-import.ts`
+- Create: `modules/research/src/interop/canonical-restore.ts`
 - Modify: `modules/research/src/interop/canonical.ts`
 - Modify: `modules/research/src/interop/portable-export.ts`
 - Create: `modules/research/src/server/knowledge-routes.ts`
-- Create: `modules/research/src/server/knowledge-export-routes.ts`
-- Create: `modules/research/src/server/canonical-import-routes.ts`
 - Modify: `modules/research/src/server/file-picker.ts`
 - Modify: `modules/research/src/server/service.ts`
 - Modify: `modules/research/src/server/repository.ts`
@@ -191,6 +190,7 @@ source-unavailable
 - Create: `modules/research/src/ui/knowledge/WritingBoard.tsx`
 - Create: `modules/research/src/ui/knowledge/KnowledgeSearch.tsx`
 - Create: `modules/research/src/ui/knowledge/KnowledgeExportDialog.tsx`
+- Create: `modules/research/src/ui/components/CanonicalImportDialog.tsx`
 
 组件文件可根据实现后的真实职责小幅合并；不能把矩阵和写作板塞进单篇阅读器侧栏，也不能把 C 变成新的顶层业务模块。
 
@@ -202,9 +202,8 @@ source-unavailable
 - Create: `modules/research/src/knowledge/service.test.ts`
 - Create: `modules/research/src/knowledge/source-state.test.ts`
 - Create: `modules/research/src/server/knowledge-routes.test.ts`
-- Create: `modules/research/src/server/knowledge-export-routes.test.ts`
-- Create: `modules/research/src/server/canonical-import-routes.test.ts`
 - Create: `modules/research/src/interop/knowledge-export.test.ts`
+- Create: `modules/research/src/interop/canonical-restore.test.ts`
 - Modify: `modules/research/src/interop/canonical.test.ts`
 - Modify: `modules/research/src/interop/portable-export.test.ts`
 - Create: `modules/research/src/acceptance/slice-c-workflow.test.ts`
@@ -442,20 +441,34 @@ node .\scripts\research-knowledge-compat.mjs --phase c3 --browser --target-scale
 
 **提交：** `feat(research): export knowledge with sources`
 
-- [ ] `knowledge-export.ts` 以确定性顺序生成矩阵 Markdown/CSV 和写作板 Markdown，引用包含作品标题、页码、稳定 ID 和内部链接。
-- [ ] 输出预览显示格式、对象数量、来源异常、目标路径和覆盖影响；系统选择器支持 `.md`、`.csv` 和 `.json`。
-- [ ] 同目录临时写入、摘要检查、原子发布、覆盖备份恢复、请求取消和异常清理有独立测试；绝不覆盖 PDF Asset。
-- [ ] canonical schema 升级 v2，包含 B/C 真源与 revisions；v1 解析兼容，FTS/OCR/导出任务等派生数据排除。
-- [ ] `canonical-import.ts` 先预览 schema、数量、ID 冲突、附件可用性和预计复制量；只向空 Research 数据库提交。
-- [ ] 导入包在 staging 校验可用附件 hash，再用事务写入依赖有序的数据；失败不留下半个知识图或半提交托管文件。
-- [ ] 缺失附件恢复为明确不可用位置，证据快照与知识关系仍完整；导入后运行外键、规范 round-trip 和 FTS 重建。
-- [ ] UI 提供导出预览、目标选择、覆盖确认、结果和导入预览；正式引用样式不进入本 Task。
-- [ ] 自动覆盖设计 C-09、C-13：Markdown/CSV 保持结构与来源，canonical v2 在空 Research 数据库无损恢复 C 真源与历史。
+- [x] `knowledge-export.ts` 以确定性顺序生成矩阵 Markdown/CSV 和写作板 Markdown，引用包含作品标题、页码、稳定 ID 和内部链接。
+- [x] 输出预览显示格式、对象数量、来源异常、目标路径和覆盖影响；系统选择器支持 `.md`、`.csv` 和 `.json`。
+- [x] 同目录临时写入、摘要检查、原子发布、覆盖备份恢复、请求取消和异常清理有独立测试；绝不覆盖 PDF Asset。
+- [x] canonical schema 升级 v2，包含 B/C 真源与 revisions；v1 解析兼容，FTS/OCR/导出任务等派生数据排除。
+- [x] `canonical-import.ts` 先预览 schema、数量、ID 冲突、附件可用性和预计复制量；只向空 Research 数据库提交。
+- [x] 导入包在 staging 校验可用附件 hash，再用事务写入依赖有序的数据；失败不留下半个知识图或半提交托管文件。
+- [x] 缺失附件恢复为明确不可用位置，证据快照与知识关系仍完整；导入后运行外键、规范 round-trip 和 FTS 重建。
+- [x] UI 提供导出预览、目标选择、覆盖确认、结果和导入预览；正式引用样式不进入本 Task。
+- [x] 自动覆盖设计 C-09、C-13：Markdown/CSV 保持结构与来源，canonical v2 在空 Research 数据库无损恢复 C 真源与历史。
 
 **验证：**
 
 ```bash
-npx vitest run modules/research/src/interop/knowledge-export.test.ts modules/research/src/interop/canonical.test.ts modules/research/src/interop/portable-export.test.ts modules/research/src/server/knowledge-export-routes.test.ts modules/research/src/server/canonical-import-routes.test.ts
+npx vitest run modules/research/src/interop/knowledge-export.test.ts modules/research/src/interop/canonical.test.ts modules/research/src/interop/canonical-restore.test.ts modules/research/src/interop/portable-export.test.ts modules/research/src/server/knowledge-routes.test.ts modules/research/src/server/export-routes.test.ts modules/research/src/server/file-picker.test.ts modules/research/src/ui/api.test.ts
+```
+
+**阶段记录（2026-08-30，macOS arm64）：** 定向验证共 8 个文件、43 项测试通过；C3
+兼容入口扩展后共 14 个文件、67 项测试通过。canonical v1 兼容、v2 全量 A/B/C 真源与 revision、
+附件可用/缺失、空库限制、外键失败回滚和恢复后 FTS 重建均通过；Markdown/CSV 确定性输出、来源标记、
+覆盖恢复与临时文件清理通过。`npm run check` 的 189 个测试文件、1554 项测试通过，4 个文件、4 项按原条件跳过；
+生产 Vite 构建通过，构建仍保留现有的大 chunk 提示。
+Microsoft Edge 152.0.4191.53 使用全新 profile 在 1440、1024、768 和 390 像素完成写作、检索、
+研究内容导出和资料包恢复预览；移动端下拉框溢出在本 Task 修复后重跑通过，页面无水平溢出或浏览器/API 异常。
+Windows 11 x64 的 C3 文件输出、系统选择器和浏览器模块保持 `not-run`，补测命令为：
+
+```powershell
+npm run setup
+node .\scripts\research-knowledge-compat.mjs --phase c3 --browser
 ```
 
 ### Task 12：完成切片 C 最终验收

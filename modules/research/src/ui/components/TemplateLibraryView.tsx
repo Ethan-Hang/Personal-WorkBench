@@ -55,6 +55,7 @@ export interface TemplateLibraryViewProps {
   onManageTags: () => void;
   onReviewDuplicates: () => void;
   onExport: () => void;
+  onRestoreBundle: () => void;
   onManageStorage: () => void;
   onCreateCollection: (name: string) => Promise<void>;
   onSelectCollection: (id: string | null) => void;
@@ -125,6 +126,7 @@ export function TemplateLibraryView({
   onManageTags,
   onReviewDuplicates,
   onExport,
+  onRestoreBundle,
   onManageStorage,
   onCreateCollection,
   onSelectCollection,
@@ -192,6 +194,9 @@ export function TemplateLibraryView({
             </Button>
             <Button size="sm" onClick={onExport}>
               导出
+            </Button>
+            <Button size="sm" onClick={onRestoreBundle}>
+              恢复资料包
             </Button>
             <Button size="sm" onClick={onManageStorage}>
               附件存储

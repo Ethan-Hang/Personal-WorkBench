@@ -18,6 +18,9 @@ import {
   createWritingDocumentInputSchema,
   evidenceRebindRequestSchema,
   knowledgeRevisionInputSchema,
+  knowledgeExportPreviewInputSchema,
+  pickKnowledgeExportTargetInputSchema,
+  startKnowledgeExportInputSchema,
   knowledgeSearchInputSchema,
   matrixCandidatesQuerySchema,
   matrixCellWindowQuerySchema,
@@ -164,6 +167,24 @@ export function registerResearchKnowledgeRoutes(
   app.post(RESEARCH_API_V1.knowledgeSearchRebuild, async (_request, reply) =>
     knowledgeRequest(reply, () => service.rebuildKnowledgeSearch()),
   );
+
+  app.post(RESEARCH_API_V1.knowledgeExportPreview, async (request, reply) => {
+    const input = parseBody(knowledgeExportPreviewInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.previewKnowledgeExport(input));
+  });
+
+  app.post(RESEARCH_API_V1.knowledgeExportPickTarget, async (request, reply) => {
+    const input = parseBody(pickKnowledgeExportTargetInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.pickKnowledgeExportTarget(input));
+  });
+
+  app.post(RESEARCH_API_V1.knowledgeExports, async (request, reply) => {
+    const input = parseBody(startKnowledgeExportInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.startKnowledgeExport(input));
+  });
 
   app.get(RESEARCH_API_V1.notes, async (request, reply) => {
     const parsed = listQuery.safeParse(request.query ?? {});

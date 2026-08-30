@@ -28,7 +28,13 @@ import {
   postCancelAnnotatedExport,
   postReadingContext,
   postKnowledgeEvidence,
+  postKnowledgeExport,
+  postKnowledgeExportPreview,
   postKnowledgeNote,
+  postPickKnowledgeExportTarget,
+  postCanonicalImport,
+  postCanonicalImportPreview,
+  postPickCanonicalImportSource,
   postNoteLink,
   postRebuildKnowledgeSearch,
   postOpenAnnotatedExportLocation,
@@ -522,6 +528,98 @@ describe('research ui api', () => {
     expect(calls[1]).toMatchObject({
       url: RESEARCH_API_V1.knowledgeSearchRebuild,
       init: { method: 'POST' },
+    });
+  });
+
+  it('研究内容导出与 canonical 恢复保留预览、系统选择和显式确认', async () => {
+    const knowledgeSelection = {
+      objectType: 'writing-document' as const,
+      objectId: 'writing-1',
+      format: 'markdown' as const,
+    };
+    respondWith({ path: '/exports/draft.md', cancelled: false });
+    await postPickKnowledgeExportTarget({
+      format: 'markdown',
+      suggestedName: 'draft.md',
+    });
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.knowledgeExportPickTarget);
+
+    respondWith({
+      ...knowledgeSelection,
+      title: 'Draft',
+      fileExtension: '.md',
+      objectCount: 4,
+      referenceCount: 2,
+      sourceIssueCount: 0,
+      estimatedBytes: 512,
+      targetPath: '/exports/draft.md',
+      targetExists: true,
+      warnings: [],
+    });
+    await postKnowledgeExportPreview({
+      ...knowledgeSelection,
+      targetPath: '/exports/draft.md',
+    });
+    expect(parsedBody(calls[1]!)).toMatchObject({ targetPath: '/exports/draft.md' });
+
+    respondWith({
+      ...knowledgeSelection,
+      targetPath: '/exports/draft.md',
+      bytes: 512,
+      sha256: 'a'.repeat(64),
+      objectCount: 4,
+      referenceCount: 2,
+      sourceIssueCount: 0,
+      outputValidated: true,
+      overwritten: true,
+      completedAt: instant,
+      warnings: [],
+    });
+    await postKnowledgeExport({
+      ...knowledgeSelection,
+      targetPath: '/exports/draft.md',
+      overwriteConfirmed: true,
+    });
+    expect(parsedBody(calls[2]!)).toMatchObject({ overwriteConfirmed: true });
+
+    respondWith({ path: '/bundle/library.json', cancelled: false });
+    await postPickCanonicalImportSource({});
+    expect(calls[3]?.url).toBe(RESEARCH_API_V1.canonicalImportPickSource);
+
+    respondWith({
+      sourcePath: '/bundle/library.json',
+      schemaVersion: 2,
+      targetEmpty: true,
+      recordCount: 100,
+      workCount: 8,
+      attachmentCount: 10,
+      availableAssetCount: 9,
+      missingAssetCount: 1,
+      estimatedCopyBytes: 4096,
+      conflictIds: [],
+      warnings: ['1 个附件文件缺失'],
+    });
+    await postCanonicalImportPreview({ sourcePath: '/bundle/library.json' });
+    expect(calls[4]?.url).toBe(RESEARCH_API_V1.canonicalImportPreview);
+
+    respondWith({
+      schemaVersion: 2,
+      importedRecords: 101,
+      importedWorks: 8,
+      importedAttachments: 10,
+      copiedAssets: 9,
+      copiedBytes: 4096,
+      missingAssets: 1,
+      foreignKeysValid: true,
+      roundTripValid: true,
+      searchIndexed: 20,
+      completedAt: instant,
+      warnings: [],
+    });
+    await postCanonicalImport({ sourcePath: '/bundle/library.json', confirmed: true });
+    expect(parsedBody(calls[5]!)).toEqual({
+      sourcePath: '/bundle/library.json',
+      confirmed: true,
     });
   });
 

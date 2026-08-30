@@ -20,10 +20,16 @@ import {
   type MergeTagsInput,
   type MergeWorksInput,
   portableExportJobSchema,
+  pickDocumentPathResponseSchema,
   startPortableExportInputSchema,
+  type CanonicalImportPreview,
+  type CanonicalImportPreviewInput,
+  type CanonicalImportReport,
+  type PickCanonicalImportSourceInput,
   type PortableExportJob,
   type PortableExportPreviewInput,
   type StartPortableExportInput,
+  type StartCanonicalImportInput,
   type StartManagedRootMigrationInput,
   type ResearchErrorCode,
   type ResearchSearchAst,
@@ -43,9 +49,14 @@ import { buildLocalMetadata } from '../ingest/metadata.js';
 import { normalizeArxivId, normalizeDoi } from '../ingest/identifiers.js';
 import { PdfExtractionError, extractPdfMetadata } from '../ingest/pdf-extractor.js';
 import { previewPortableExport, writePortableExport } from '../interop/portable-export.js';
+import {
+  CanonicalRestoreError,
+  previewCanonicalRestore,
+  restoreCanonicalIntoEmptyLibrary,
+} from '../interop/canonical-restore.js';
 import type { MetadataCoordinator } from '../metadata/coordinator.js';
 import type { MetadataLookupResult, ProviderResult } from '../metadata/types.js';
-import type { PdfFilePicker } from './file-picker.js';
+import type { DocumentFileDialog, PdfFilePicker } from './file-picker.js';
 import type {
   CollectionRecord,
   CommitImportResult,
@@ -139,6 +150,7 @@ export interface ResearchServiceDependencies {
   contentStore: ResearchContentStore;
   metadata: MetadataCoordinator;
   filePicker: PdfFilePicker;
+  documentDialog?: DocumentFileDialog;
   managedRootController?: ManagedRootController;
   clock?: () => Date;
   createId?: () => string;
@@ -411,6 +423,7 @@ export class ResearchService {
   private readonly contentStore: ResearchContentStore;
   private readonly metadata: MetadataCoordinator;
   private readonly filePicker: PdfFilePicker;
+  private readonly documentDialog: DocumentFileDialog | null;
   private readonly managedRootController: ManagedRootController | null;
   private readonly clock: () => Date;
   private readonly createId: () => string;
@@ -434,6 +447,7 @@ export class ResearchService {
     this.contentStore = dependencies.contentStore;
     this.metadata = dependencies.metadata;
     this.filePicker = dependencies.filePicker;
+    this.documentDialog = dependencies.documentDialog ?? null;
     this.managedRootController = dependencies.managedRootController ?? null;
     this.clock = dependencies.clock ?? (() => new Date());
     this.createId = dependencies.createId ?? randomUUID;
@@ -2725,6 +2739,49 @@ export class ResearchService {
       },
       input.targetPath,
     );
+  }
+
+  private canonicalRestoreFailure(error: unknown): never {
+    if (error instanceof CanonicalRestoreError) {
+      if (error.kind === 'conflict') throw conflict(error.message);
+      if (error.kind === 'not-found') throw notFound(error.message);
+      throw invalid(error.message);
+    }
+    if (error instanceof FileLifecycleError) throw invalid(error.message);
+    throw error;
+  }
+
+  async pickCanonicalImportSource(input: PickCanonicalImportSourceInput) {
+    if (!this.documentDialog) throw invalid('当前环境不支持系统文件选择器');
+    const path = await this.documentDialog.pickDocument({
+      ...(input.initialDir ? { initialDir: input.initialDir } : {}),
+      format: 'json',
+    });
+    return pickDocumentPathResponseSchema.parse({ path, cancelled: path === null });
+  }
+
+  async previewCanonicalImport(
+    input: CanonicalImportPreviewInput,
+  ): Promise<CanonicalImportPreview> {
+    try {
+      return await previewCanonicalRestore(this.repository, this.contentStore, input.sourcePath);
+    } catch (error) {
+      return this.canonicalRestoreFailure(error);
+    }
+  }
+
+  async startCanonicalImport(input: StartCanonicalImportInput): Promise<CanonicalImportReport> {
+    try {
+      return await this.exclusive(() =>
+        this.withManagedStorageOperation(() =>
+          restoreCanonicalIntoEmptyLibrary(this.repository, this.contentStore, input.sourcePath, {
+            completedAt: () => this.instant(),
+          }),
+        ),
+      );
+    } catch (error) {
+      return this.canonicalRestoreFailure(error);
+    }
   }
 
   async startPortableExport(input: StartPortableExportInput): Promise<PortableExportJob> {

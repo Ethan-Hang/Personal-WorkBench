@@ -164,6 +164,32 @@ async function requestJson(url, init) {
   return body;
 }
 
+async function createCanonicalBundle(apiBase, targetPath) {
+  const options = {
+    targetPath,
+    includeManagedFiles: false,
+    includeLinkedFiles: false,
+  };
+  await requestJson(`${apiBase}/api/research/v1/exports/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  let job = await requestJson(`${apiBase}/api/research/v1/exports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+  for (let attempt = 0; attempt < 200 && ['draft', 'running'].includes(job.status); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    job = await requestJson(`${apiBase}/api/research/v1/exports/${job.id}`);
+  }
+  if (job.status !== 'completed') {
+    throw new Error(`canonical QA bundle failed: ${job.status} ${job.errorCode ?? ''}`);
+  }
+  return path.join(targetPath, 'library.json');
+}
+
 async function seedPdf(apiBase, bytes, fileName, title) {
   const requestId = `knowledge-visual-${randomUUID()}`;
   const params = new globalThis.URLSearchParams({ fileName, requestId });
@@ -1023,6 +1049,39 @@ async function captureKnowledgeState({
         );
         throw new Error(`${error.message}: ${JSON.stringify(state)}`);
       }
+    } else if (mode === 'export') {
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('导出研究内容')))) {
+        throw new Error('knowledge export dialog could not be opened');
+      }
+      await waitForExpression(
+        session.cdp,
+        `document.querySelector('[role="dialog"]')?.textContent?.includes('导出研究内容') === true &&
+         document.querySelector('[role="dialog"] select') !== null &&
+         Array.from(document.querySelectorAll('[role="dialog"] button')).some((node) =>
+           node.textContent?.trim() === '预览' && !node.disabled)`,
+        `knowledge export dialog did not render at ${width}px`,
+      );
+      const targetPath = path.join(outputRoot, `knowledge-export-preview-${width}.md`);
+      await evaluateValue(
+        session.cdp,
+        `(() => {
+          const input = document.querySelector('input[placeholder*=".md / .csv"]');
+          if (!input) return false;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+          setter.call(input, ${JSON.stringify(targetPath)});
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          return true;
+        })()`,
+      );
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('预览')))) {
+        throw new Error('knowledge export preview could not be submitted');
+      }
+      await waitForExpression(
+        session.cdp,
+        `document.querySelector('[role="dialog"]')?.textContent?.includes('来源引用') === true &&
+         document.querySelector('[role="dialog"]')?.textContent?.includes('预计大小') === true`,
+        `knowledge export preview did not render at ${width}px`,
+      );
     } else if (mode === 'search') {
       if (!(await evaluateValue(session.cdp, clickButtonExpression('搜索知识')))) {
         throw new Error('knowledge search could not be opened');
@@ -1092,6 +1151,83 @@ async function captureKnowledgeState({
     if (mode === 'sources' && width === 390 && responsive.tabs !== 3) {
       throw new Error('390px knowledge workspace did not switch to single-pane tabs');
     }
+    const outputPath = path.join(outputRoot, `${id}-${width}.png`);
+    const png = await screenshot(session, outputPath);
+    const browserErrors = session.cdp.events.filter(
+      (event) =>
+        event.method === 'Runtime.exceptionThrown' ||
+        (event.params?.entry?.level === 'error' &&
+          String(event.params.entry.url ?? '').includes('/api/research/')),
+    );
+    if (browserErrors.length > 0) {
+      throw new Error(`${id} browser emitted errors: ${JSON.stringify(browserErrors)}`);
+    }
+    return { id, width, height: 900, ...png, screenshotPath: outputPath };
+  } finally {
+    await closeBrowserSession(session);
+  }
+}
+
+async function captureCanonicalRestorePreview({
+  browser,
+  outputRoot,
+  profileRoot,
+  webBase,
+  width,
+  sourcePath,
+}) {
+  const id = 'canonical-restore';
+  const session = await openBrowserSession({
+    browser,
+    profilePath: path.join(profileRoot, `${id}-${width}`),
+    url: `${webBase}/research`,
+    width,
+    height: 900,
+  });
+  try {
+    await waitForExpression(
+      session.cdp,
+      `document.body.innerText.includes('文献库') &&
+       Array.from(document.querySelectorAll('button')).some((node) =>
+         node.textContent?.trim() === '恢复资料包')`,
+      `research library did not render restore entry at ${width}px`,
+      30_000,
+    );
+    if (!(await evaluateValue(session.cdp, clickButtonExpression('恢复资料包')))) {
+      throw new Error('canonical restore dialog could not be opened');
+    }
+    await waitForExpression(
+      session.cdp,
+      `document.querySelector('[role="dialog"]')?.textContent?.includes('恢复研究资料包') === true`,
+      `canonical restore dialog did not render at ${width}px`,
+    );
+    await evaluateValue(
+      session.cdp,
+      `(() => {
+        const input = document.querySelector('input[placeholder*="library.json"]');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        setter.call(input, ${JSON.stringify(sourcePath)});
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`,
+    );
+    if (!(await evaluateValue(session.cdp, clickButtonExpression('预览')))) {
+      throw new Error('canonical restore preview could not be submitted');
+    }
+    await waitForExpression(
+      session.cdp,
+      `document.querySelector('[role="dialog"]')?.textContent?.includes('当前资料库有数据，不能恢复') === true &&
+       document.querySelector('[role="dialog"]')?.textContent?.includes('ID 冲突') === true &&
+       document.querySelector('[role="dialog"]')?.textContent?.includes('预计复制') === true`,
+      `canonical restore preview did not render at ${width}px`,
+      30_000,
+    );
+    const overflow = await evaluateValue(
+      session.cdp,
+      `document.documentElement.scrollWidth > document.documentElement.clientWidth`,
+    );
+    if (overflow) throw new Error(`canonical restore has horizontal overflow at ${width}px`);
     const outputPath = path.join(outputRoot, `${id}-${width}.png`);
     const png = await screenshot(session, outputPath);
     const browserErrors = session.cdp.events.filter(
@@ -1217,6 +1353,10 @@ async function main() {
     if (options.phase === 'c3' || options.phase === 'all') {
       await seedWritingBoard(apiBase, comparisonResources);
     }
+    const canonicalSourcePath =
+      options.phase === 'c3' || options.phase === 'all'
+        ? await createCanonicalBundle(apiBase, path.join(tempRoot, 'canonical-preview-bundle'))
+        : null;
 
     const captures = [];
     const modes =
@@ -1225,8 +1365,8 @@ async function main() {
         : options.phase === 'c2'
           ? ['claims', 'matrices']
           : options.phase === 'c3'
-            ? ['writing', 'search']
-            : ['sources', 'claims', 'matrices', 'writing', 'search'];
+            ? ['writing', 'search', 'export']
+            : ['sources', 'claims', 'matrices', 'writing', 'search', 'export'];
     for (const mode of modes) {
       for (const width of [1440, 1024, 768, 390]) {
         captures.push(
@@ -1252,6 +1392,20 @@ async function main() {
           empty: true,
         }),
       );
+    }
+    if (canonicalSourcePath) {
+      for (const width of [1440, 1024, 768, 390]) {
+        captures.push(
+          await captureCanonicalRestorePreview({
+            browser,
+            outputRoot,
+            profileRoot,
+            webBase,
+            width,
+            sourcePath: canonicalSourcePath,
+          }),
+        );
+      }
     }
 
     const result = {

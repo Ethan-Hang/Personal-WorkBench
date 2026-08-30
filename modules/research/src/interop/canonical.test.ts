@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeResearchDatabase } from '../testing/harness.js';
 import { validateCanonicalRoundTrip } from '../storage/canonical-roundtrip.js';
+import { normalizeCanonicalResearchLibrary } from './canonical.js';
 
 const NOW = '2026-08-24T08:00:00.000Z';
 const HASH = 'a'.repeat(64);
@@ -190,7 +191,7 @@ describe('research canonical JSON', () => {
     try {
       seedAllEntities(database.sqlite);
       const canonical = await database.repo.exportCanonicalSnapshot(NOW);
-      expect(canonical.schemaVersion).toBe(1);
+      expect(canonical.schemaVersion).toBe(2);
       expect(canonical.sourceRecords[0]).toMatchObject({
         provider: 'example-provider',
         rawPayload: JSON.stringify({ title: 'Canonical Work', unmapped: { nested: true } }),
@@ -224,7 +225,28 @@ describe('research canonical JSON', () => {
     const database = makeResearchDatabase(() => NOW);
     try {
       const canonical = await database.repo.exportCanonicalSnapshot(NOW);
-      expect(() => validateCanonicalRoundTrip({ ...canonical, schemaVersion: 2 })).toThrow();
+      expect(() => validateCanonicalRoundTrip({ ...canonical, schemaVersion: 3 })).toThrow();
+    } finally {
+      database.sqlite.close();
+    }
+  });
+
+  it('继续读取 schema v1，并在恢复前补为空的 reader 与 knowledge 数据组', async () => {
+    const database = makeResearchDatabase(() => NOW);
+    try {
+      seedAllEntities(database.sqlite);
+      const current = await database.repo.exportCanonicalSnapshot(NOW);
+      if (current.schemaVersion !== 2) throw new Error('expected canonical v2');
+      const legacy: Record<string, unknown> = { ...current, schemaVersion: 1 };
+      delete legacy.reader;
+      delete legacy.knowledge;
+      const report = validateCanonicalRoundTrip(legacy);
+      expect(report).toMatchObject({ valid: true, schemaVersion: 1, recordCount: 18 });
+      expect(normalizeCanonicalResearchLibrary(legacy)).toMatchObject({
+        schemaVersion: 2,
+        reader: { annotations: [], annotationRevisions: [] },
+        knowledge: { notes: [], evidence: [], claims: [], writingDocuments: [] },
+      });
     } finally {
       database.sqlite.close();
     }

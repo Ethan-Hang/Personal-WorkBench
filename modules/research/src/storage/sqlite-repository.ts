@@ -131,6 +131,11 @@ import {
   canonicalResearchLibrarySchema,
   type CanonicalResearchLibrary,
 } from '../interop/canonical.js';
+import {
+  canonicalConflictIds,
+  canonicalTargetIsEmpty,
+  importCanonicalIntoEmptyDatabase,
+} from './canonical-import.js';
 
 type Row = Record<string, unknown>;
 
@@ -5131,10 +5136,10 @@ export class SqliteResearchRepository
   }
 
   async exportCanonicalSnapshot(exportedAt: string): Promise<CanonicalResearchLibrary> {
-    const rows = (table: string) =>
-      this.sqlite.prepare(`SELECT * FROM ${table} ORDER BY id`).all() as Row[];
+    const rows = (table: string, order = 'id') =>
+      this.sqlite.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).all() as Row[];
     return canonicalResearchLibrarySchema.parse({
-      schemaVersion: 1,
+      schemaVersion: 2,
       exportedAt,
       generator: 'personal-workbench/research',
       works: rows('research_works').map((row) => ({
@@ -5312,7 +5317,261 @@ export class SqliteResearchRepository
         createdAt: text(row, 'created_at'),
         recycledAt: nullableText(row, 'recycled_at'),
       })),
+      reader: {
+        contexts: rows('research_reading_contexts').map((row) => ({
+          id: text(row, 'id'),
+          name: text(row, 'name'),
+          normalizedName: text(row, 'normalized_name'),
+          description: nullableText(row, 'description'),
+          color: nullableText(row, 'color'),
+          status: text(row, 'status'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          archivedAt: nullableText(row, 'archived_at'),
+        })),
+        collectionContexts: rows('research_collection_contexts', 'collection_id, context_id').map(
+          (row) => ({
+            collectionId: text(row, 'collection_id'),
+            contextId: text(row, 'context_id'),
+            createdAt: text(row, 'created_at'),
+            updatedAt: text(row, 'updated_at'),
+          }),
+        ),
+        states: rows('research_asset_reader_state', 'asset_id').map((row) => ({
+          assetId: text(row, 'asset_id'),
+          pageNumber: integer(row, 'page_number'),
+          pageOffsetRatio: Number(row.page_offset_ratio),
+          zoom: Number(row.zoom),
+          rotation: integer(row, 'rotation'),
+          layout: text(row, 'layout'),
+          lastContextId: nullableText(row, 'last_context_id'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+        })),
+        annotations: rows('research_annotations').map((row) => ({
+          id: text(row, 'id'),
+          assetId: text(row, 'asset_id'),
+          editionId: nullableText(row, 'edition_id'),
+          contextId: nullableText(row, 'context_id'),
+          kind: text(row, 'kind'),
+          pageNumber: integer(row, 'page_number'),
+          anchor: JSON.parse(text(row, 'anchor_json')),
+          body: nullableText(row, 'body'),
+          color: nullableText(row, 'color'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        annotationRevisions: rows('research_annotation_revisions').map((row) => ({
+          id: text(row, 'id'),
+          annotationId: text(row, 'annotation_id'),
+          revision: integer(row, 'revision'),
+          snapshot: JSON.parse(text(row, 'snapshot_json')),
+          reason: text(row, 'reason'),
+          createdAt: text(row, 'created_at'),
+        })),
+      },
+      knowledge: {
+        notes: rows('research_notes').map((row) => ({
+          id: text(row, 'id'),
+          contextId: nullableText(row, 'context_id'),
+          title: text(row, 'title'),
+          body: text(row, 'body'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        evidence: rows('research_evidence').map((row) => ({
+          id: text(row, 'id'),
+          contextId: nullableText(row, 'context_id'),
+          workId: text(row, 'work_id'),
+          editionId: nullableText(row, 'edition_id'),
+          assetId: text(row, 'asset_id'),
+          annotationId: text(row, 'annotation_id'),
+          sourceSnapshot: JSON.parse(text(row, 'source_snapshot_json')),
+          sourceKind: text(row, 'source_kind'),
+          title: nullableText(row, 'title'),
+          summary: text(row, 'summary'),
+          notes: nullableText(row, 'notes'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        noteLinks: rows('research_note_links').map((row) => ({
+          id: text(row, 'id'),
+          noteId: text(row, 'note_id'),
+          workId: nullableText(row, 'work_id'),
+          annotationId: nullableText(row, 'annotation_id'),
+          evidenceId: nullableText(row, 'evidence_id'),
+          claimId: nullableText(row, 'claim_id'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        claims: rows('research_claims').map((row) => ({
+          id: text(row, 'id'),
+          contextId: nullableText(row, 'context_id'),
+          statement: text(row, 'statement'),
+          rationale: nullableText(row, 'rationale'),
+          status: text(row, 'status'),
+          statusBeforeDelete: nullableText(row, 'status_before_delete'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          archivedAt: nullableText(row, 'archived_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        claimEvidence: rows('research_claim_evidence').map((row) => ({
+          id: text(row, 'id'),
+          claimId: text(row, 'claim_id'),
+          evidenceId: text(row, 'evidence_id'),
+          relation: text(row, 'relation'),
+          note: nullableText(row, 'note'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        matrices: rows('research_matrices').map((row) => ({
+          id: text(row, 'id'),
+          contextId: nullableText(row, 'context_id'),
+          title: text(row, 'title'),
+          description: nullableText(row, 'description'),
+          status: text(row, 'status'),
+          statusBeforeDelete: nullableText(row, 'status_before_delete'),
+          structureRevision: integer(row, 'structure_revision'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          archivedAt: nullableText(row, 'archived_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        matrixColumns: rows('research_matrix_columns').map((row) => ({
+          id: text(row, 'id'),
+          matrixId: text(row, 'matrix_id'),
+          workId: text(row, 'work_id'),
+          position: integer(row, 'position'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        matrixRows: rows('research_matrix_rows').map((row) => ({
+          id: text(row, 'id'),
+          matrixId: text(row, 'matrix_id'),
+          kind: text(row, 'kind'),
+          claimId: nullableText(row, 'claim_id'),
+          title: nullableText(row, 'title'),
+          question: nullableText(row, 'question'),
+          position: integer(row, 'position'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        matrixCells: rows('research_matrix_cells').map((row) => ({
+          id: text(row, 'id'),
+          matrixId: text(row, 'matrix_id'),
+          rowId: text(row, 'row_id'),
+          columnId: text(row, 'column_id'),
+          synthesis: text(row, 'synthesis'),
+          reviewBaseline: nullableText(row, 'review_baseline_json')
+            ? JSON.parse(text(row, 'review_baseline_json'))
+            : null,
+          reviewedAt: nullableText(row, 'reviewed_at'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        matrixCellEvidence: rows('research_matrix_cell_evidence').map((row) => ({
+          id: text(row, 'id'),
+          cellId: text(row, 'cell_id'),
+          evidenceId: text(row, 'evidence_id'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        writingDocuments: rows('research_writing_documents').map((row) => ({
+          id: text(row, 'id'),
+          contextId: nullableText(row, 'context_id'),
+          title: text(row, 'title'),
+          status: text(row, 'status'),
+          statusBeforeDelete: nullableText(row, 'status_before_delete'),
+          structureRevision: integer(row, 'structure_revision'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          archivedAt: nullableText(row, 'archived_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        writingSections: rows('research_writing_sections').map((row) => ({
+          id: text(row, 'id'),
+          documentId: text(row, 'document_id'),
+          title: text(row, 'title'),
+          position: integer(row, 'position'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        writingBlocks: rows('research_writing_blocks').map((row) => ({
+          id: text(row, 'id'),
+          documentId: text(row, 'document_id'),
+          sectionId: text(row, 'section_id'),
+          kind: text(row, 'kind'),
+          text: nullableText(row, 'text_content'),
+          noteId: nullableText(row, 'note_id'),
+          evidenceId: nullableText(row, 'evidence_id'),
+          claimId: nullableText(row, 'claim_id'),
+          matrixId: nullableText(row, 'matrix_id'),
+          targetLabel: nullableText(row, 'target_label'),
+          position: integer(row, 'position'),
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+          deletedAt: nullableText(row, 'deleted_at'),
+        })),
+        revisions: rows('research_knowledge_revisions').map((row) => ({
+          id: text(row, 'id'),
+          entityType: text(row, 'entity_type'),
+          entityId: text(row, 'entity_id'),
+          revision: integer(row, 'revision'),
+          snapshot: JSON.parse(text(row, 'snapshot_json')),
+          reason: text(row, 'reason'),
+          createdAt: text(row, 'created_at'),
+        })),
+      },
     });
+  }
+
+  async canonicalImportTargetIsEmpty(): Promise<boolean> {
+    return canonicalTargetIsEmpty(this.sqlite);
+  }
+
+  async canonicalImportConflictIds(input: unknown, limit = 100): Promise<string[]> {
+    return canonicalConflictIds(this.sqlite, input, limit);
+  }
+
+  async importCanonicalSnapshot(input: unknown) {
+    return importCanonicalIntoEmptyDatabase(this.sqlite, input);
   }
 
   async createExportJob(draft: ExportJobDraft): Promise<ExportJobRecord> {

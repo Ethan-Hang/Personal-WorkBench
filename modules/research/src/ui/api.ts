@@ -9,6 +9,8 @@ import {
   annotationSchema,
   bulkWorkPreviewSchema,
   bulkWorkResultSchema,
+  canonicalImportPreviewSchema,
+  canonicalImportReportSchema,
   attachmentDeletionPreviewSchema,
   collectionViewSchema,
   claimEvidenceSchema,
@@ -25,6 +27,8 @@ import {
   importSessionViewSchema,
   knowledgeSearchRebuildResponseSchema,
   knowledgeSearchResponseSchema,
+  knowledgeExportPreviewSchema,
+  knowledgeExportReportSchema,
   managedRootMigrationJobSchema,
   managedStorageStatusSchema,
   matricesPageSchema,
@@ -39,6 +43,7 @@ import {
   notesPageSchema,
   ocrJobSchema,
   pickPdfResponseSchema,
+  pickDocumentPathResponseSchema,
   pickAnnotatedExportTargetResponseSchema,
   portableExportJobSchema,
   portableExportPreviewSchema,
@@ -67,6 +72,9 @@ import {
   type AnnotatedExportPreview,
   type AnnotatedExportPreviewInput,
   type BulkWorkActionInput,
+  type CanonicalImportPreview,
+  type CanonicalImportPreviewInput,
+  type CanonicalImportReport,
   type ConfirmImportInput,
   type CreateAnnotationInput,
   type CreateClaimEvidenceInput,
@@ -85,6 +93,9 @@ import {
   type CreateWritingDocumentInput,
   type ImportSessionStatus,
   type KnowledgeSearchInput,
+  type KnowledgeExportPreview,
+  type KnowledgeExportPreviewInput,
+  type KnowledgeExportReport,
   type KnowledgeSearchRebuildResponse,
   type KnowledgeSearchResponse,
   type ConfirmEvidenceRebindInput,
@@ -97,6 +108,8 @@ import {
   type OcrLanguage,
   type PrepareImportInput,
   type PickAnnotatedExportTargetInput,
+  type PickCanonicalImportSourceInput,
+  type PickKnowledgeExportTargetInput,
   type PickAnnotatedExportTargetResponse,
   type PortableExportJob,
   type PortableExportPreview,
@@ -104,6 +117,8 @@ import {
   type PageTextSearchResult,
   type PreviewEvidenceRebindInput,
   type StartPortableExportInput,
+  type StartCanonicalImportInput,
+  type StartKnowledgeExportInput,
   type StructuredSearchInput,
   type TextIndexJob,
   type RelinkLocationResponse,
@@ -193,6 +208,50 @@ export async function fetchKnowledgeSearch(
 export async function postRebuildKnowledgeSearch(): Promise<KnowledgeSearchRebuildResponse> {
   return knowledgeSearchRebuildResponseSchema.parse(
     await apiRequest(RESEARCH_API_V1.knowledgeSearchRebuild, { method: 'POST' }),
+  );
+}
+
+export async function postKnowledgeExportPreview(
+  input: KnowledgeExportPreviewInput,
+): Promise<KnowledgeExportPreview> {
+  return knowledgeExportPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.knowledgeExportPreview, jsonBody('POST', input)),
+  );
+}
+
+export async function postPickKnowledgeExportTarget(input: PickKnowledgeExportTargetInput) {
+  return pickDocumentPathResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.knowledgeExportPickTarget, jsonBody('POST', input)),
+  );
+}
+
+export async function postKnowledgeExport(
+  input: StartKnowledgeExportInput,
+): Promise<KnowledgeExportReport> {
+  return knowledgeExportReportSchema.parse(
+    await apiRequest(RESEARCH_API_V1.knowledgeExports, jsonBody('POST', input)),
+  );
+}
+
+export async function postPickCanonicalImportSource(input: PickCanonicalImportSourceInput) {
+  return pickDocumentPathResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.canonicalImportPickSource, jsonBody('POST', input)),
+  );
+}
+
+export async function postCanonicalImportPreview(
+  input: CanonicalImportPreviewInput,
+): Promise<CanonicalImportPreview> {
+  return canonicalImportPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.canonicalImportPreview, jsonBody('POST', input)),
+  );
+}
+
+export async function postCanonicalImport(
+  input: StartCanonicalImportInput,
+): Promise<CanonicalImportReport> {
+  return canonicalImportReportSchema.parse(
+    await apiRequest(RESEARCH_API_V1.canonicalImports, jsonBody('POST', input)),
   );
 }
 

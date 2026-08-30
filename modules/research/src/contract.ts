@@ -104,6 +104,12 @@ export const RESEARCH_API_V1 = {
   knowledgeSummary: `${API_ROOT}/knowledge/summary`,
   knowledgeSearch: `${API_ROOT}/knowledge/search`,
   knowledgeSearchRebuild: `${API_ROOT}/knowledge/search/rebuild`,
+  knowledgeExportPreview: `${API_ROOT}/knowledge/exports/preview`,
+  knowledgeExportPickTarget: `${API_ROOT}/knowledge/exports/pick-target`,
+  knowledgeExports: `${API_ROOT}/knowledge/exports`,
+  canonicalImportPickSource: `${API_ROOT}/canonical-imports/pick-source`,
+  canonicalImportPreview: `${API_ROOT}/canonical-imports/preview`,
+  canonicalImports: `${API_ROOT}/canonical-imports`,
   notes: `${API_ROOT}/notes`,
   note: (id: string) => `${API_ROOT}/notes/${id}`,
   noteRestore: (id: string) => `${API_ROOT}/notes/${id}/restore`,
@@ -1211,6 +1217,122 @@ export const knowledgeSearchRebuildResponseSchema = z.object({
   total: z.number().int().nonnegative(),
 });
 export type KnowledgeSearchRebuildResponse = z.infer<typeof knowledgeSearchRebuildResponseSchema>;
+
+export const KNOWLEDGE_EXPORT_FORMATS = ['markdown', 'csv'] as const;
+export type KnowledgeExportFormat = (typeof KNOWLEDGE_EXPORT_FORMATS)[number];
+
+export const KNOWLEDGE_EXPORT_OBJECT_TYPES = ['writing-document', 'matrix'] as const;
+export type KnowledgeExportObjectType = (typeof KNOWLEDGE_EXPORT_OBJECT_TYPES)[number];
+
+export const knowledgeExportSelectionSchema = z.object({
+  objectType: z.enum(KNOWLEDGE_EXPORT_OBJECT_TYPES),
+  objectId: researchIdSchema,
+  format: z.enum(KNOWLEDGE_EXPORT_FORMATS),
+});
+export type KnowledgeExportSelection = z.infer<typeof knowledgeExportSelectionSchema>;
+
+export const knowledgeExportPreviewInputSchema = knowledgeExportSelectionSchema.extend({
+  targetPath: z.string().trim().min(1).max(4_096).optional(),
+});
+export type KnowledgeExportPreviewInput = z.infer<typeof knowledgeExportPreviewInputSchema>;
+
+export const knowledgeExportPreviewSchema = z.object({
+  objectType: z.enum(KNOWLEDGE_EXPORT_OBJECT_TYPES),
+  objectId: researchIdSchema,
+  format: z.enum(KNOWLEDGE_EXPORT_FORMATS),
+  title: z.string().min(1).max(1_000),
+  fileExtension: z.enum(['.md', '.csv']),
+  objectCount: z.number().int().positive(),
+  referenceCount: z.number().int().nonnegative(),
+  sourceIssueCount: z.number().int().nonnegative(),
+  estimatedBytes: z.number().int().nonnegative(),
+  targetPath: z.string().nullable(),
+  targetExists: z.boolean(),
+  warnings: z.array(z.string()),
+});
+export type KnowledgeExportPreview = z.infer<typeof knowledgeExportPreviewSchema>;
+
+export const pickKnowledgeExportTargetInputSchema = z.object({
+  format: z.enum(KNOWLEDGE_EXPORT_FORMATS),
+  suggestedName: z.string().trim().min(1).max(240),
+  initialDir: z.string().trim().min(1).max(4_096).optional(),
+});
+export type PickKnowledgeExportTargetInput = z.infer<typeof pickKnowledgeExportTargetInputSchema>;
+
+export const pickDocumentPathResponseSchema = z.object({
+  path: z.string().min(1).nullable(),
+  cancelled: z.boolean(),
+});
+export type PickDocumentPathResponse = z.infer<typeof pickDocumentPathResponseSchema>;
+
+export const startKnowledgeExportInputSchema = knowledgeExportSelectionSchema.extend({
+  targetPath: z.string().trim().min(1).max(4_096),
+  overwriteConfirmed: z.boolean().default(false),
+});
+export type StartKnowledgeExportInput = z.infer<typeof startKnowledgeExportInputSchema>;
+
+export const knowledgeExportReportSchema = z.object({
+  objectType: z.enum(KNOWLEDGE_EXPORT_OBJECT_TYPES),
+  objectId: researchIdSchema,
+  format: z.enum(KNOWLEDGE_EXPORT_FORMATS),
+  targetPath: z.string().min(1),
+  bytes: z.number().int().nonnegative(),
+  sha256: sha256Schema,
+  objectCount: z.number().int().positive(),
+  referenceCount: z.number().int().nonnegative(),
+  sourceIssueCount: z.number().int().nonnegative(),
+  outputValidated: z.literal(true),
+  overwritten: z.boolean(),
+  completedAt: instantSchema,
+  warnings: z.array(z.string()),
+});
+export type KnowledgeExportReport = z.infer<typeof knowledgeExportReportSchema>;
+
+export const pickCanonicalImportSourceInputSchema = z.object({
+  initialDir: z.string().trim().min(1).max(4_096).optional(),
+});
+export type PickCanonicalImportSourceInput = z.infer<typeof pickCanonicalImportSourceInputSchema>;
+
+export const canonicalImportPreviewInputSchema = z.object({
+  sourcePath: z.string().trim().min(1).max(4_096),
+});
+export type CanonicalImportPreviewInput = z.infer<typeof canonicalImportPreviewInputSchema>;
+
+export const canonicalImportPreviewSchema = z.object({
+  sourcePath: z.string().min(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  targetEmpty: z.boolean(),
+  recordCount: z.number().int().nonnegative(),
+  workCount: z.number().int().nonnegative(),
+  attachmentCount: z.number().int().nonnegative(),
+  availableAssetCount: z.number().int().nonnegative(),
+  missingAssetCount: z.number().int().nonnegative(),
+  estimatedCopyBytes: z.number().int().nonnegative(),
+  conflictIds: z.array(researchIdSchema),
+  warnings: z.array(z.string()),
+});
+export type CanonicalImportPreview = z.infer<typeof canonicalImportPreviewSchema>;
+
+export const startCanonicalImportInputSchema = canonicalImportPreviewInputSchema.extend({
+  confirmed: z.literal(true),
+});
+export type StartCanonicalImportInput = z.infer<typeof startCanonicalImportInputSchema>;
+
+export const canonicalImportReportSchema = z.object({
+  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  importedRecords: z.number().int().nonnegative(),
+  importedWorks: z.number().int().nonnegative(),
+  importedAttachments: z.number().int().nonnegative(),
+  copiedAssets: z.number().int().nonnegative(),
+  copiedBytes: z.number().int().nonnegative(),
+  missingAssets: z.number().int().nonnegative(),
+  foreignKeysValid: z.literal(true),
+  roundTripValid: z.literal(true),
+  searchIndexed: z.number().int().nonnegative(),
+  completedAt: instantSchema,
+  warnings: z.array(z.string()),
+});
+export type CanonicalImportReport = z.infer<typeof canonicalImportReportSchema>;
 
 export const createNoteInputSchema = z.object({
   contextId: researchIdSchema.nullable().default(null),

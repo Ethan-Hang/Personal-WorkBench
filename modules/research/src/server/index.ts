@@ -20,7 +20,12 @@ import type { OcrEngine } from '../ocr/engine.js';
 import type { OcrRepository } from '../ocr/repository.js';
 import { ResearchOcrService } from '../ocr/service.js';
 import type { AnnotatedPdfWriter } from '../interop/annotated-export.js';
-import { systemPdfFilePicker, type PdfFilePicker, type PdfOutputDialog } from './file-picker.js';
+import {
+  systemPdfFilePicker,
+  type DocumentFileDialog,
+  type PdfFilePicker,
+  type PdfOutputDialog,
+} from './file-picker.js';
 import { registerResearchAnnotatedExportRoutes } from './annotated-export-routes.js';
 import { registerResearchAnnotationRoutes } from './annotation-routes.js';
 import { registerResearchKnowledgeRoutes } from './knowledge-routes.js';
@@ -52,6 +57,7 @@ export interface ResearchServerModuleOptions {
   metadata?: ReturnType<typeof createMetadataCoordinator>;
   filePicker?: PdfFilePicker;
   pdfOutputDialog?: PdfOutputDialog;
+  documentDialog?: DocumentFileDialog;
   annotatedExportWriter?: AnnotatedPdfWriter;
   clock?: () => Date;
   createId?: () => string;
@@ -76,6 +82,7 @@ export function createResearchServerModule(
     contentStore,
     metadata,
     filePicker: options.filePicker ?? systemPdfFilePicker,
+    documentDialog: options.documentDialog ?? systemPdfFilePicker,
     ...(options.managedRootController
       ? { managedRootController: options.managedRootController }
       : {}),
@@ -96,6 +103,7 @@ export function createResearchServerModule(
     ? new ResearchKnowledgeService(options.knowledgeRepository, {
         ...(options.createId ? { createId: options.createId } : {}),
         ...(options.clock ? { now: options.clock } : {}),
+        documentDialog: options.documentDialog ?? systemPdfFilePicker,
       })
     : null;
   const ocrService = new ResearchOcrService(options.repository, readerContentSource, {

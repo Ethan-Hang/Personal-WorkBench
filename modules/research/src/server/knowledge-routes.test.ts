@@ -8,6 +8,8 @@ import {
   claimEvidenceSchema,
   claimSchema,
   evidenceDetailSchema,
+  knowledgeExportPreviewSchema,
+  knowledgeExportReportSchema,
   knowledgeSearchRebuildResponseSchema,
   knowledgeSearchResponseSchema,
   matrixCellEvidenceSchema,
@@ -101,14 +103,84 @@ async function fixture() {
     managedRoot: () => join(root, 'managed'),
     metadata: { resolve: async () => undefined } as never,
     filePicker: { pick: async () => [] },
+    documentDialog: {
+      saveDocument: async () => join(root, 'knowledge-export.md'),
+      pickDocument: async () => null,
+    },
     createId: () => `route-knowledge-${++sequence}`,
     clock: () => new Date(NOW),
   });
   const app = await buildApp({ getSqlite: () => database.sqlite, modules: [module] });
-  return { ...database, app };
+  return { ...database, root, app };
 }
 
 describe('research knowledge routes', () => {
+  it('研究内容导出 API 先预览、使用系统目标选择器，再安全写入文件', async () => {
+    const { app, sqlite, root } = await fixture();
+    try {
+      sqlite
+        .prepare(
+          `INSERT INTO research_writing_documents
+           (id, context_id, title, status, structure_revision, revision, created_at, updated_at)
+           VALUES ('writing-export', NULL, 'Route draft', 'active', 1, 1, ?, ?)`,
+        )
+        .run(NOW, NOW);
+      sqlite
+        .prepare(
+          `INSERT INTO research_writing_sections
+           (id, document_id, title, position, status, revision, created_at, updated_at)
+           VALUES ('section-export', 'writing-export', 'Argument', 0, 'active', 1, ?, ?)`,
+        )
+        .run(NOW, NOW);
+      sqlite
+        .prepare(
+          `INSERT INTO research_writing_blocks
+           (id, document_id, section_id, kind, text_content, position, status, revision,
+            created_at, updated_at)
+           VALUES ('block-export', 'writing-export', 'section-export', 'text', 'Route body', 0,
+                   'active', 1, ?, ?)`,
+        )
+        .run(NOW, NOW);
+      const targetPath = join(root, 'knowledge-export.md');
+      const selection = {
+        objectType: 'writing-document',
+        objectId: 'writing-export',
+        format: 'markdown',
+      } as const;
+      const picked = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.knowledgeExportPickTarget,
+        payload: { format: 'markdown', suggestedName: 'Route draft.md' },
+      });
+      expect(picked.statusCode).toBe(200);
+      expect(picked.json()).toEqual({ path: targetPath, cancelled: false });
+
+      const preview = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.knowledgeExportPreview,
+        payload: { ...selection, targetPath },
+      });
+      expect(preview.statusCode).toBe(200);
+      expect(knowledgeExportPreviewSchema.parse(preview.json())).toMatchObject({
+        targetExists: false,
+        objectCount: 3,
+      });
+      const exported = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.knowledgeExports,
+        payload: { ...selection, targetPath, overwriteConfirmed: false },
+      });
+      expect(exported.statusCode).toBe(200);
+      expect(knowledgeExportReportSchema.parse(exported.json())).toMatchObject({
+        outputValidated: true,
+        targetPath,
+      });
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
   it('笔记 API 支持通用层、稳定分页和 revision 冲突响应', async () => {
     const { app, sqlite } = await fixture();
     try {

@@ -19,6 +19,7 @@ import type {
   WorkMergeMatrixImpact,
 } from '../contract.js';
 import type { CanonicalResearchLibrary } from '../interop/canonical.js';
+import type { CanonicalDatabaseImportResult } from '../storage/canonical-import.js';
 
 export interface WorkRecord {
   id: string;
@@ -762,6 +763,9 @@ export interface ResearchRepository {
   revertMerge(id: string): Promise<MergeRecord | null>;
 
   exportCanonicalSnapshot(exportedAt: string): Promise<CanonicalResearchLibrary>;
+  canonicalImportTargetIsEmpty(): Promise<boolean>;
+  canonicalImportConflictIds(input: unknown, limit?: number): Promise<string[]>;
+  importCanonicalSnapshot(input: unknown): Promise<CanonicalDatabaseImportResult>;
   createExportJob(draft: ExportJobDraft): Promise<ExportJobRecord>;
   getExportJob(id: string): Promise<ExportJobRecord | null>;
   updateExportJob(id: string, changes: ExportJobChanges): Promise<ExportJobRecord | null>;

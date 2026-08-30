@@ -102,6 +102,7 @@ async function main() {
   await mkdir(outputRoot, { recursive: true });
 
   const includeScale = options.phase === 'c3' || options.phase === 'all';
+  const includeDelivery = options.phase === 'c3' || options.phase === 'all';
   const testFiles = [
     'modules/research/src/acceptance/slice-c-workflow.test.ts',
     'modules/research/src/storage/knowledge-migrations.test.ts',
@@ -110,6 +111,16 @@ async function main() {
     'modules/research/src/knowledge/source-state.test.ts',
     'modules/research/src/server/knowledge-routes.test.ts',
     'modules/research/src/ui/api.test.ts',
+    ...(includeDelivery
+      ? [
+          'modules/research/src/interop/knowledge-export.test.ts',
+          'modules/research/src/interop/canonical.test.ts',
+          'modules/research/src/interop/canonical-restore.test.ts',
+          'modules/research/src/interop/portable-export.test.ts',
+          'modules/research/src/server/export-routes.test.ts',
+          'modules/research/src/server/file-picker.test.ts',
+        ]
+      : []),
     ...(includeScale ? ['modules/research/src/storage/knowledge-scale.test.ts'] : []),
   ];
   const moduleRun = await run(
@@ -231,6 +242,9 @@ async function main() {
             'text blocks',
             'four stable resource references',
             'unified knowledge search and stable links',
+            'deterministic Markdown and CSV outputs',
+            'canonical v1/v2 empty-library restore',
+            'missing attachment preservation and rollback cleanup',
           ]
         : []),
     ],
