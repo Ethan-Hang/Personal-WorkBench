@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@workbench/server';
 import { runMigrationsFrom } from '@workbench/data';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   RESEARCH_API_V1,
   annotationSchema,
@@ -8,6 +11,8 @@ import {
   claimSchema,
   evidenceDetailSchema,
   evidenceRebindPreviewSchema,
+  knowledgeExportPreviewSchema,
+  knowledgeExportReportSchema,
   knowledgeRevisionSchema,
   matrixCellEvidenceSchema,
   matrixCellSchema,
@@ -15,6 +20,7 @@ import {
   matrixDetailSchema,
   noteLinkSchema,
   researchNoteSchema,
+  writingDocumentDetailSchema,
   type AnnotationAnchor,
 } from '../contract.js';
 import { createResearchServerModule } from '../server/index.js';
@@ -23,6 +29,7 @@ import { makeResearchDatabase } from '../testing/harness.js';
 const NOW = '2026-08-30T12:00:00.000Z';
 const HASH = 'a'.repeat(64);
 const roots: Array<ReturnType<typeof makeResearchDatabase>> = [];
+const artifactRoots: string[] = [];
 
 function textAnchor(pageNumber: number, exact: string): AnnotationAnchor {
   return {
@@ -140,6 +147,9 @@ async function evidenceDetail(app: Awaited<ReturnType<typeof buildApp>>, id: str
 
 afterEach(async () => {
   for (const database of roots.splice(0)) database.sqlite.close();
+  await Promise.all(
+    artifactRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
 });
 
 describe('slice C source and evidence workflow', () => {
@@ -422,7 +432,7 @@ describe('slice C source and evidence workflow', () => {
     }
   });
 
-  it('贯通无证据观点、三类关系、跨论文矩阵和来源变更复核', async () => {
+  it('贯通三类观点关系、跨论文矩阵、写作板、知识输出和来源回跳', async () => {
     const database = makeResearchDatabase(() => NOW);
     roots.push(database);
     seedPaper(database);
@@ -485,6 +495,23 @@ describe('slice C source and evidence workflow', () => {
       });
       expect(secondAnnotationResponse.statusCode, secondAnnotationResponse.body).toBe(200);
       const secondAnnotation = annotationSchema.parse(secondAnnotationResponse.json());
+      const thirdAnnotationResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.assetAnnotations('asset-2'),
+        payload: {
+          contextId: null,
+          kind: 'highlight',
+          anchor: {
+            ...textAnchor(3, 'boundary condition'),
+            assetHash: 'd'.repeat(64),
+            editionId: 'edition-2',
+          },
+          body: null,
+          color: '#34d399',
+        },
+      });
+      expect(thirdAnnotationResponse.statusCode, thirdAnnotationResponse.body).toBe(200);
+      const thirdAnnotation = annotationSchema.parse(thirdAnnotationResponse.json());
 
       const createEvidence = async (annotationId: string, summary: string) => {
         const response = await app.inject({
@@ -505,6 +532,10 @@ describe('slice C source and evidence workflow', () => {
       };
       const supportingEvidence = await createEvidence(firstAnnotation.id, 'Supports the result.');
       const counterEvidence = await createEvidence(secondAnnotation.id, 'Limits the result.');
+      const qualifyingEvidence = await createEvidence(
+        thirdAnnotation.id,
+        'Defines the boundary condition.',
+      );
 
       const claimResponse = await app.inject({
         method: 'POST',
@@ -519,6 +550,7 @@ describe('slice C source and evidence workflow', () => {
       for (const [evidenceId, relation] of [
         [supportingEvidence.id, 'supports'],
         [counterEvidence.id, 'refutes'],
+        [qualifyingEvidence.id, 'qualifies'],
       ] as const) {
         const response = await app.inject({
           method: 'POST',
@@ -530,8 +562,8 @@ describe('slice C source and evidence workflow', () => {
       }
       const relationUpdate = await app.inject({
         method: 'PATCH',
-        url: RESEARCH_API_V1.claimEvidenceItem(relations[1]!.id),
-        payload: { relation: 'qualifies', expectedRevision: 1 },
+        url: RESEARCH_API_V1.claimEvidenceItem(relations[2]!.id),
+        payload: { note: 'Applies only beyond the measured range.', expectedRevision: 1 },
       });
       expect(relationUpdate.statusCode, relationUpdate.body).toBe(200);
       expect(relationUpdate.json()).toMatchObject({ relation: 'qualifies', revision: 2 });
@@ -623,6 +655,119 @@ describe('slice C source and evidence workflow', () => {
         id: createdCells[0]!.id,
         reviewState: 'needs-review',
       });
+
+      const noteResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.notes,
+        payload: {
+          title: 'Generalization note',
+          body: 'The two papers set different limits on generalization.',
+        },
+      });
+      expect(noteResponse.statusCode, noteResponse.body).toBe(200);
+      const note = researchNoteSchema.parse(noteResponse.json());
+      const writingResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.writingDocuments,
+        payload: { title: 'Generalization synthesis' },
+      });
+      expect(writingResponse.statusCode, writingResponse.body).toBe(200);
+      const writing = writingDocumentDetailSchema.parse(writingResponse.json());
+      const writingStructureResponse = await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.writingDocumentStructure(writing.id),
+        payload: {
+          expectedStructureRevision: writing.structureRevision,
+          sections: [
+            {
+              title: 'Synthesis',
+              position: 0,
+              blocks: [
+                {
+                  kind: 'text',
+                  text: 'The combined evidence supports a bounded generalization.',
+                  position: 0,
+                },
+                { kind: 'note', targetId: note.id, position: 1 },
+                { kind: 'evidence', targetId: supportingEvidence.id, position: 2 },
+                { kind: 'claim', targetId: emptyClaim.id, position: 3 },
+                { kind: 'matrix', targetId: matrix.id, position: 4 },
+              ],
+            },
+          ],
+        },
+      });
+      expect(writingStructureResponse.statusCode, writingStructureResponse.body).toBe(200);
+      const structuredWriting = writingDocumentDetailSchema.parse(writingStructureResponse.json());
+      expect(structuredWriting.sections[0]?.blocks.map((block) => block.kind)).toEqual([
+        'text',
+        'note',
+        'evidence',
+        'claim',
+        'matrix',
+      ]);
+
+      const artifactRoot = await mkdtemp(join(tmpdir(), 'research-slice-c-acceptance-'));
+      artifactRoots.push(artifactRoot);
+      const writingPath = join(artifactRoot, 'writing.md');
+      const matrixMarkdownPath = join(artifactRoot, 'matrix.md');
+      const matrixCsvPath = join(artifactRoot, 'matrix.csv');
+      const exportKnowledge = async (
+        objectType: 'writing-document' | 'matrix',
+        objectId: string,
+        format: 'markdown' | 'csv',
+        targetPath: string,
+      ) => {
+        const selection = { objectType, objectId, format } as const;
+        const previewResponse = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.knowledgeExportPreview,
+          payload: { ...selection, targetPath },
+        });
+        expect(previewResponse.statusCode, previewResponse.body).toBe(200);
+        expect(knowledgeExportPreviewSchema.parse(previewResponse.json())).toMatchObject({
+          ...selection,
+          targetExists: false,
+        });
+        const exportResponse = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.knowledgeExports,
+          payload: { ...selection, targetPath, overwriteConfirmed: false },
+        });
+        expect(exportResponse.statusCode, exportResponse.body).toBe(200);
+        return knowledgeExportReportSchema.parse(exportResponse.json());
+      };
+
+      const [writingReport, matrixMarkdownReport, matrixCsvReport] = await Promise.all([
+        exportKnowledge('writing-document', writing.id, 'markdown', writingPath),
+        exportKnowledge('matrix', matrix.id, 'markdown', matrixMarkdownPath),
+        exportKnowledge('matrix', matrix.id, 'csv', matrixCsvPath),
+      ]);
+      expect(
+        [writingReport, matrixMarkdownReport, matrixCsvReport].every(
+          (report) => report.outputValidated,
+        ),
+      ).toBe(true);
+      expect(matrixMarkdownReport.referenceCount).toBe(2);
+      expect(matrixCsvReport.referenceCount).toBe(2);
+
+      const [writingMarkdown, matrixMarkdown, matrixCsv] = await Promise.all([
+        readFile(writingPath, 'utf8'),
+        readFile(matrixMarkdownPath, 'utf8'),
+        readFile(matrixCsvPath, 'utf8'),
+      ]);
+      const sourceLink = (await evidenceDetail(app, supportingEvidence.id)).sourceLink.readerUrl;
+      expect(sourceLink).toContain('/research/read/asset-1?page=1&context=general&annotation=');
+      expect(writingMarkdown).toContain(sourceLink);
+      expect(writingMarkdown).toContain(`research:writing-document:${writing.id}`);
+      expect(writingMarkdown).toContain(`research:note:${note.id}`);
+      expect(writingMarkdown).toContain(`research:evidence:${supportingEvidence.id}`);
+      expect(writingMarkdown).toContain(`research:claim:${emptyClaim.id}`);
+      expect(writingMarkdown).toContain(`research:matrix:${matrix.id}`);
+      expect(matrixMarkdown).toContain(`research:matrix:${matrix.id}`);
+      expect(matrixMarkdown).toContain(`research:evidence:${supportingEvidence.id}`);
+      expect(matrixCsv).toContain('"比较项","Evidence Workflow","Counter Evidence"');
+      expect(matrixCsv).toContain(`research:evidence:${counterEvidence.id}`);
 
       const unlinkResponse = await app.inject({
         method: 'DELETE',

@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §11.2、§16“切片 C”、§17.8–§17.9。
 
-**Status:** 已确认，实施中。C1、C2 和 C3 Task 9–11 已完成，下一步进行切片 C 最终验收。
+**Status:** 已完成。C1、C2、C3 和切片 C 最终验收已在 macOS arm64 通过；Windows 11 x64 按模块保留 `not-run`。
 
 ## 执行方式
 
@@ -475,21 +475,21 @@ node .\scripts\research-knowledge-compat.mjs --phase c3 --browser
 
 **提交：** `test(research): complete slice C acceptance`
 
-- [ ] `slice-c-workflow.test.ts` 在一个正式 Fastify + SQLite 流程中贯通：文本选择 → 批注/证据 → 三类观点关系 → 跨论文矩阵 → 写作板 → Markdown/CSV → 来源回跳。
-- [ ] 对照设计 C-01 至 C-14 逐项记录自动测试、真实浏览器或平台待测证据；窄检查不能代替完整场景。
-- [ ] 专项回归设计 C-10、C-11、C-12、C-14：并发与删除恢复、上下文归档迁移、作品生命周期和四宽度操作均保留直接证据。
-- [ ] 运行目标规模、迁移重跑、外键、`integrity_check`、FTS 重建、canonical v1/v2 round-trip、导入失败恢复和临时文件审计。
-- [ ] 四宽度使用全新浏览器状态完成文献库/知识页/阅读器切换、证据提炼、矩阵、写作、搜索、导出和回跳。
-- [ ] 平台记录按模块收口：当前开发平台记录实际结果；Windows 文件输出与真实浏览器模块保留准确脚本，未运行就保持 `not-run`。
-- [ ] 对照范围确认没有加入完整项目管理、观点树、任意电子表格、富文本处理器、AI 生成、CSL、DOCX 或 LaTeX。
-- [ ] 更新设计文档和本计划的完成状态、实测阈值、命令和平台记录。
-- [ ] 执行 `git fetch origin --prune`，检查工作区、提交序列、远端差异和未跟踪产物；只保留本地提交。
+- [x] `slice-c-workflow.test.ts` 在一个正式 Fastify + SQLite 流程中贯通：文本选择 → 批注/证据 → 三类观点关系 → 跨论文矩阵 → 写作板 → Markdown/CSV → 来源回跳。
+- [x] 对照设计 C-01 至 C-14 逐项记录自动测试、真实浏览器或平台待测证据；窄检查不能代替完整场景。
+- [x] 专项回归设计 C-10、C-11、C-12、C-14：并发与删除恢复、上下文归档迁移、作品生命周期和四宽度操作均保留直接证据。
+- [x] 运行目标规模、迁移重跑、外键、`integrity_check`、FTS 重建、canonical v1/v2 round-trip、导入失败恢复和临时文件审计。
+- [x] 四宽度使用全新浏览器状态完成文献库/知识页/阅读器切换、证据提炼、矩阵、写作、搜索、导出和回跳。
+- [x] 平台记录按模块收口：当前开发平台记录实际结果；Windows 文件输出与真实浏览器模块保留准确脚本，未运行就保持 `not-run`。
+- [x] 对照范围确认没有加入完整项目管理、观点树、任意电子表格、富文本处理器、AI 生成、CSL、DOCX 或 LaTeX。
+- [x] 更新设计文档和本计划的完成状态、实测阈值、命令和平台记录。
+- [x] 执行 `git fetch origin --prune`，检查工作区、提交序列、远端差异和未跟踪产物；只保留本地提交。
 
 **当前开发平台验证：**
 
 ```bash
 npm run check
-node scripts/research-knowledge-compat.mjs --phase all --browser
+node scripts/research-knowledge-compat.mjs --phase all --browser --target-scale
 ```
 
 **Windows 11 x64 同模块补测：**
@@ -497,10 +497,34 @@ node scripts/research-knowledge-compat.mjs --phase all --browser
 ```powershell
 npm run setup
 npm run check
-node .\scripts\research-knowledge-compat.mjs --phase all --browser
+node .\scripts\research-knowledge-compat.mjs --phase all --browser --target-scale
 ```
 
 兼容脚本按 C1、C2、C3 记录模块、操作系统、架构、文件系统、Node.js、浏览器和日期；只把实际运行的平台标为通过。截图、临时数据库、生成 PDF、输出文件和浏览器 profile 在结果汇总后清理。
+
+### 最终验收记录（2026-08-30）
+
+macOS arm64、APFS、Apple M3、24 GiB、Node.js 25.1.0 下，`--phase all --browser --target-scale`
+的 14 个文件、67 项模块测试通过。Microsoft Edge 152.0.4191.53 使用每个视口和状态独立的新 profile，
+在 1440、1024、768、390 像素生成 29 张检查图，完成来源状态、观点、矩阵、写作、检索、导出、空状态和
+canonical 恢复预览；真实创建三类证据并完成来源回跳，页面无水平溢出、浏览器异常或 API 异常。目标规模、
+迁移重跑、外键、SQLite 完整性、FTS、文件原子输出、canonical v1/v2 恢复、缺失附件和失败回滚通过。
+
+| 场景       | 验收证据                                                                            | macOS arm64 |
+| ---------- | ----------------------------------------------------------------------------------- | ----------- |
+| C-01～C-03 | `slice-c-workflow.test.ts` 的直接文本/区域/OCR 证据、跨上下文复用；浏览器创建与回跳 | 通过        |
+| C-04～C-05 | 同一正式流程中的三类观点关系、两作品混合矩阵、候选证据、单元格综合和复核            | 通过        |
+| C-06～C-07 | 来源修订/删除、Asset 变化、缺失、OCR 变化、重新绑定差异与 revision 历史             | 通过        |
+| C-08       | 四类知识 FTS、结构筛选、稳定分页和知识页/阅读器链接；四宽度检索操作                 | 通过        |
+| C-09       | 同一正式流程中的四类写作引用、写作 Markdown、矩阵 Markdown/CSV 和来源链接           | 通过        |
+| C-10       | Repository、Service、API 的 revision 冲突、tombstone、恢复和独立关系解除回归        | 通过        |
+| C-11       | 上下文影响预览、保留归档冻结、完整知识与批注迁移、来源快照保持                      | 通过        |
+| C-12       | 作品回收、合并/撤销、永久删除影响与有效知识引用阻止                                 | 通过        |
+| C-13       | canonical v1 兼容、v2 A/B/C 真源与历史空库恢复、缺失附件保留、失败回滚和 round-trip | 通过        |
+| C-14       | Edge 四宽度覆盖文献库、阅读器和知识页核心流程，含窄屏矩阵、写作、导出和恢复         | 通过        |
+
+Windows 11 x64 的领域与完整性、目标规模、系统文件选择器和真实浏览器模块均保持 `not-run`，不从 macOS
+结果推定兼容。`git fetch origin --prune` 后远端没有新增提交；本轮只形成本地提交，没有 push。
 
 ## 完成定义
 
