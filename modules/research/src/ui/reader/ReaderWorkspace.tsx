@@ -20,6 +20,7 @@ import type {
 import {
   deleteResearchAnnotation,
   fetchAnnotations,
+  fetchAnnotation,
   fetchCollectionReadingContext,
   fetchCollections,
   fetchOcrJob,
@@ -27,6 +28,7 @@ import {
   fetchReadingContexts,
   fetchTextIndexJob,
   patchAnnotation,
+  postKnowledgeEvidence,
   postAnnotation,
   postCancelOcr,
   postReadingContext,
@@ -57,6 +59,7 @@ import {
 } from './annotation/tools.js';
 import { clampPage, clampZoom, nextRotation } from './reader-controls.js';
 import { useReaderStatePersistence } from './session.js';
+import { EvidenceComposer, type EvidenceDraftSource } from '../knowledge/EvidenceComposer.js';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -100,6 +103,8 @@ export function ReaderWorkspace({
   active = true,
   manifest,
   openingCollectionId = null,
+  openingContext = null,
+  openingAnnotationId = null,
   openingPageNumber = null,
   onBack,
   onOpenAsset,
@@ -107,6 +112,8 @@ export function ReaderWorkspace({
   active?: boolean;
   manifest: ReaderManifest;
   openingCollectionId?: string | null;
+  openingContext?: string | null;
+  openingAnnotationId?: string | null;
   openingPageNumber?: number | null;
   onBack: () => void;
   onOpenAsset: (assetId: string, pageNumber: number) => void;
@@ -129,11 +136,14 @@ export function ReaderWorkspace({
   );
   const [includeGeneral, setIncludeGeneral] = useState(true);
   const [annotationError, setAnnotationError] = useState<string | null>(null);
+  const [evidenceMessage, setEvidenceMessage] = useState<string | null>(null);
+  const [evidenceDraft, setEvidenceDraft] = useState<EvidenceDraftSource | null>(null);
   const [annotatedExportOpen, setAnnotatedExportOpen] = useState(false);
   const [undoAnnotation, setUndoAnnotation] = useState<Annotation | null>(null);
   const [textSearchQuery, setTextSearchQuery] = useState('');
   const [textSearchScope, setTextSearchScope] = useState<TextSearchScope>('document');
   const autoIndexStartedRef = useRef(false);
+  const locatedAnnotationRef = useRef<string | null>(null);
   const [documentCacheId] = useState(() => `${manifest.assetId}:${++readerWorkspaceSequence}`);
   const readerState = useReaderStatePersistence(manifest.state);
   const contextsQuery = useQuery({
@@ -158,12 +168,20 @@ export function ReaderWorkspace({
       manifest.assetId,
       visibleContextKey,
       includeGeneral,
+      openingAnnotationId,
     ],
     queryFn: () =>
       fetchAnnotations(manifest.assetId, {
         contextIds: [...visibleContextIds].sort(),
         includeGeneral,
+        includeDeleted: openingAnnotationId !== null,
       }),
+  });
+  const openingAnnotationQuery = useQuery({
+    queryKey: ['research', 'reader-annotation', openingAnnotationId],
+    queryFn: () => fetchAnnotation(openingAnnotationId!),
+    enabled: openingAnnotationId !== null,
+    retry: false,
   });
   const textIndexQuery = useQuery({
     queryKey: ['research', 'text-index', manifest.assetId],
@@ -229,6 +247,18 @@ export function ReaderWorkspace({
       void invalidateAnnotations();
     },
     onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '创建批注失败'),
+  });
+  const createEvidenceMutation = useMutation({
+    mutationFn: postKnowledgeEvidence,
+    onSuccess: () => {
+      setEvidenceDraft(null);
+      setAnnotationTool('cursor');
+      setAnnotationError(null);
+      setEvidenceMessage('证据已保存 · 来源正常');
+      void invalidateAnnotations();
+      void queryClient.invalidateQueries({ queryKey: ['research', 'knowledge', 'evidence'] });
+    },
+    onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '保存证据失败'),
   });
   const updateAnnotationMutation = useMutation({
     mutationFn: ({
@@ -328,7 +358,8 @@ export function ReaderWorkspace({
     deleteAnnotationMutation.isPending ||
     restoreAnnotationMutation.isPending ||
     createContextMutation.isPending ||
-    bindCollectionMutation.isPending;
+    bindCollectionMutation.isPending ||
+    createEvidenceMutation.isPending;
 
   useEffect(() => {
     const contexts = contextsQuery.data?.contexts;
@@ -348,6 +379,25 @@ export function ReaderWorkspace({
     setActiveContextId(contextId);
     setVisibleContextIds((current) => new Set(current).add(contextId));
   }, [openingContextQuery.data?.context?.id]);
+
+  useEffect(() => {
+    if (openingContext === 'general') {
+      setIncludeGeneral(true);
+      return;
+    }
+    if (!openingContext || !contexts.some((context) => context.id === openingContext)) return;
+    setVisibleContextIds((current) => new Set(current).add(openingContext));
+  }, [contexts, openingContext]);
+
+  useEffect(() => {
+    const annotation = openingAnnotationQuery.data;
+    if (!annotation || annotation.assetId !== manifest.assetId) return;
+    if (annotation.contextId) {
+      setVisibleContextIds((current) => new Set(current).add(annotation.contextId!));
+    } else {
+      setIncludeGeneral(true);
+    }
+  }, [manifest.assetId, openingAnnotationQuery.data]);
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 1024px)');
@@ -480,9 +530,34 @@ export function ReaderWorkspace({
   );
 
   useEffect(() => {
-    if (!active || openingPageNumber === null) return;
+    locatedAnnotationRef.current = null;
+  }, [manifest.assetId, openingAnnotationId]);
+
+  useEffect(() => {
+    const annotation = openingAnnotationQuery.data;
+    if (
+      !active ||
+      !annotation ||
+      annotation.assetId !== manifest.assetId ||
+      locatedAnnotationRef.current === annotation.id
+    ) {
+      return;
+    }
+    locatedAnnotationRef.current = annotation.id;
+    locateAnnotation(annotation);
+    setSidePanelOpen(true);
+  }, [active, locateAnnotation, manifest.assetId, openingAnnotationQuery.data]);
+
+  useEffect(() => {
+    if (!active || openingPageNumber === null || openingAnnotationId !== null) return;
     setPage(openingPageNumber);
-  }, [active, openingPageNumber, setPage]);
+  }, [active, openingAnnotationId, openingPageNumber, setPage]);
+
+  useEffect(() => {
+    if (!evidenceMessage) return;
+    const timer = window.setTimeout(() => setEvidenceMessage(null), 2_400);
+    return () => window.clearTimeout(timer);
+  }, [evidenceMessage]);
 
   useEffect(() => {
     if (!active || readerState.position.lastContextId === activeContextId) return;
@@ -551,7 +626,18 @@ export function ReaderWorkspace({
     if (readerState.status === 'error') return '保存失败';
     return readerState.revision > 0 ? `已保存 · v${readerState.revision}` : '尚未保存';
   }, [readerState.revision, readerState.status]);
-  const annotations = annotationsQuery.data ?? [];
+  const annotations = useMemo(() => {
+    const items = annotationsQuery.data ?? [];
+    const opening = openingAnnotationQuery.data;
+    if (
+      !opening ||
+      opening.assetId !== manifest.assetId ||
+      items.some((item) => item.id === opening.id)
+    ) {
+      return items;
+    }
+    return [...items, opening];
+  }, [annotationsQuery.data, manifest.assetId, openingAnnotationQuery.data]);
   const activeLayerName =
     activeContextId === null
       ? '通用批注'
@@ -620,6 +706,16 @@ export function ReaderWorkspace({
             assetHash={manifest.contentHash}
             editionId={manifest.editionId}
             onCreateAnnotation={(kind, anchor) => createAnnotationMutation.mutate({ kind, anchor })}
+            onCreateEvidence={(kind, anchor) => {
+              setEvidenceDraft({
+                mode: 'direct',
+                assetId: manifest.assetId,
+                editionId: manifest.editionId,
+                kind,
+                anchor,
+                targetContextId: activeContextId,
+              });
+            }}
             onPosition={(position) => update(position)}
           />
         ) : document ? (
@@ -700,6 +796,13 @@ export function ReaderWorkspace({
                 updateAnnotationMutation.mutate({ annotation, changes })
               }
               onDeleteAnnotation={(annotation) => deleteAnnotationMutation.mutate(annotation)}
+              onCreateEvidence={(annotation) =>
+                setEvidenceDraft({
+                  mode: 'annotation',
+                  annotation,
+                  targetContextId: activeContextId,
+                })
+              }
               onUndo={() => undoAnnotation && restoreAnnotationMutation.mutate(undoAnnotation)}
               onTextSearch={setTextSearchQuery}
               onTextSearchScope={setTextSearchScope}
@@ -714,6 +817,12 @@ export function ReaderWorkspace({
       {annotationError && (
         <div className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2 border border-critical/30 bg-surface px-3 py-2 text-xs text-critical shadow-lg">
           {annotationError}
+        </div>
+      )}
+
+      {evidenceMessage && (
+        <div className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2 border border-accent/30 bg-surface px-3 py-2 text-xs font-semibold text-accent shadow-lg">
+          {evidenceMessage}
         </div>
       )}
 
@@ -733,6 +842,13 @@ export function ReaderWorkspace({
         visibleContextIds={[...visibleContextIds].sort()}
         contexts={contexts}
         onClose={() => setAnnotatedExportOpen(false)}
+      />
+
+      <EvidenceComposer
+        source={evidenceDraft}
+        busy={createEvidenceMutation.isPending}
+        onClose={() => !createEvidenceMutation.isPending && setEvidenceDraft(null)}
+        onSubmit={(input) => createEvidenceMutation.mutate(input)}
       />
     </section>
   );

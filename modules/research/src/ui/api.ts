@@ -14,6 +14,9 @@ import {
   collectionDeletionPreviewSchema,
   collectionsResponseSchema,
   deletionPreviewSchema,
+  evidenceDetailSchema,
+  evidencePageSchema,
+  evidenceRebindPreviewSchema,
   importCommitResultSchema,
   importInspectionResponseSchema,
   importSessionViewSchema,
@@ -21,6 +24,8 @@ import {
   managedStorageStatusSchema,
   importSessionsResponseSchema,
   mergeRecordViewSchema,
+  noteLinkSchema,
+  notesPageSchema,
   ocrJobSchema,
   pickPdfResponseSchema,
   pickAnnotatedExportTargetResponseSchema,
@@ -32,6 +37,7 @@ import {
   readerStateSchema,
   readingContextCatalogSchema,
   readingContextSchema,
+  researchNoteSchema,
   collectionReadingContextSchema,
   searchIndexRebuildResponseSchema,
   tagCandidatesResponseSchema,
@@ -49,12 +55,16 @@ import {
   type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateAnnotationInput,
+  type CreateEvidenceRequest,
+  type CreateNoteInput,
   type CreateReadingContextInput,
   type CreateManualWorkInput,
+  type CreateNoteLinkInput,
   type CreateSavedQueryInput,
   type CreateTagInput,
   type CreateWorkRelationInput,
   type ImportSessionStatus,
+  type ConfirmEvidenceRebindInput,
   type InspectImportInput,
   type MergeTagsInput,
   type MergeWorksInput,
@@ -69,6 +79,7 @@ import {
   type PortableExportPreview,
   type PortableExportPreviewInput,
   type PageTextSearchResult,
+  type PreviewEvidenceRebindInput,
   type StartPortableExportInput,
   type StructuredSearchInput,
   type TextIndexJob,
@@ -85,10 +96,13 @@ import {
   type StartAnnotatedExportInput,
   type SystemView,
   type UpdateAnnotationInput,
+  type UpdateEvidenceInput,
+  type UpdateNoteInput,
   type UpdateCollectionInput,
   type UpdateTagInput,
   type UpdateWorkMetadataInput,
   type WorkStatus,
+  type NoteLink,
 } from '../contract.js';
 
 export type WorksPage = z.infer<typeof worksPageResponseSchema>;
@@ -111,6 +125,10 @@ export type TagDeletionPreview = z.infer<typeof tagDeletionPreviewSchema>;
 export type WorkMergePreview = z.infer<typeof workMergePreviewSchema>;
 export type MergeRecordView = z.infer<typeof mergeRecordViewSchema>;
 export type AttachmentDeletionPreview = z.infer<typeof attachmentDeletionPreviewSchema>;
+export type KnowledgeNotesPage = z.infer<typeof notesPageSchema>;
+export type KnowledgeEvidencePage = z.infer<typeof evidencePageSchema>;
+export type EvidenceDetail = z.infer<typeof evidenceDetailSchema>;
+export type EvidenceRebindPreview = z.infer<typeof evidenceRebindPreviewSchema>;
 
 export async function fetchReaderManifest(assetId: string): Promise<ReaderManifest> {
   return readerManifestSchema.parse(await apiRequest(RESEARCH_API_V1.readerManifest(assetId)));
@@ -276,6 +294,10 @@ export async function fetchAnnotations(
     .parse(await apiRequest(`${RESEARCH_API_V1.assetAnnotations(assetId)}?${params.toString()}`));
 }
 
+export async function fetchAnnotation(id: string): Promise<Annotation> {
+  return annotationSchema.parse(await apiRequest(RESEARCH_API_V1.annotation(id)));
+}
+
 export async function postAnnotation(
   assetId: string,
   input: CreateAnnotationInput,
@@ -316,6 +338,149 @@ export async function fetchAnnotationRevisions(id: string): Promise<AnnotationRe
   return annotationRevisionSchema
     .array()
     .parse(await apiRequest(RESEARCH_API_V1.annotationRevisions(id)));
+}
+
+function knowledgeListParams(options: {
+  contextId?: string | null;
+  status?: 'active' | 'deleted';
+  cursor?: string | null;
+  limit?: number;
+}): URLSearchParams {
+  const params = new URLSearchParams();
+  if ('contextId' in options) params.set('contextId', options.contextId ?? 'general');
+  if (options.status) params.set('status', options.status);
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.limit) params.set('limit', String(options.limit));
+  return params;
+}
+
+export async function fetchKnowledgeNotes(
+  options: {
+    contextId?: string | null;
+    status?: 'active' | 'deleted';
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<KnowledgeNotesPage> {
+  const params = knowledgeListParams(options);
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  return notesPageSchema.parse(await apiRequest(`${RESEARCH_API_V1.notes}${suffix}`));
+}
+
+export async function postKnowledgeNote(input: CreateNoteInput) {
+  return researchNoteSchema.parse(await apiRequest(RESEARCH_API_V1.notes, jsonBody('POST', input)));
+}
+
+export async function patchKnowledgeNote(id: string, input: UpdateNoteInput) {
+  return researchNoteSchema.parse(
+    await apiRequest(RESEARCH_API_V1.note(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function deleteKnowledgeNote(id: string, expectedRevision: number) {
+  return researchNoteSchema.parse(
+    await apiRequest(RESEARCH_API_V1.note(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreKnowledgeNote(id: string, expectedRevision: number) {
+  return researchNoteSchema.parse(
+    await apiRequest(RESEARCH_API_V1.noteRestore(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function fetchNoteLinks(noteId: string, includeDeleted = false): Promise<NoteLink[]> {
+  const params = new URLSearchParams({ includeDeleted: String(includeDeleted) });
+  return noteLinkSchema
+    .array()
+    .parse(await apiRequest(`${RESEARCH_API_V1.noteLinks(noteId)}?${params.toString()}`));
+}
+
+export async function postNoteLink(noteId: string, input: CreateNoteLinkInput): Promise<NoteLink> {
+  return noteLinkSchema.parse(
+    await apiRequest(RESEARCH_API_V1.noteLinks(noteId), jsonBody('POST', input)),
+  );
+}
+
+export async function deleteNoteLink(id: string, expectedRevision: number): Promise<NoteLink> {
+  return noteLinkSchema.parse(
+    await apiRequest(RESEARCH_API_V1.noteLink(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreNoteLink(id: string, expectedRevision: number): Promise<NoteLink> {
+  return noteLinkSchema.parse(
+    await apiRequest(RESEARCH_API_V1.noteLinkRestore(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function fetchKnowledgeEvidence(
+  options: {
+    contextId?: string | null;
+    workId?: string;
+    sourceState?: EvidenceDetail['sourceState'];
+    status?: 'active' | 'deleted';
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<KnowledgeEvidencePage> {
+  const params = knowledgeListParams(options);
+  if (options.workId) params.set('workId', options.workId);
+  if (options.sourceState) params.set('sourceState', options.sourceState);
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  return evidencePageSchema.parse(await apiRequest(`${RESEARCH_API_V1.evidence}${suffix}`));
+}
+
+export async function fetchEvidenceDetail(id: string): Promise<EvidenceDetail> {
+  return evidenceDetailSchema.parse(await apiRequest(RESEARCH_API_V1.evidenceItem(id)));
+}
+
+export async function postKnowledgeEvidence(input: CreateEvidenceRequest): Promise<EvidenceDetail> {
+  return evidenceDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.evidence, jsonBody('POST', input)),
+  );
+}
+
+export async function patchKnowledgeEvidence(id: string, input: UpdateEvidenceInput) {
+  return evidenceDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.evidenceItem(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function deleteKnowledgeEvidence(id: string, expectedRevision: number) {
+  return evidenceDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.evidenceItem(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreKnowledgeEvidence(id: string, expectedRevision: number) {
+  return evidenceDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.evidenceRestore(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function postEvidenceRebindPreview(
+  id: string,
+  input: PreviewEvidenceRebindInput,
+): Promise<EvidenceRebindPreview> {
+  return evidenceRebindPreviewSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.evidenceRebind(id),
+      jsonBody('POST', { mode: 'preview', ...input }),
+    ),
+  );
+}
+
+export async function postConfirmEvidenceRebind(
+  id: string,
+  input: ConfirmEvidenceRebindInput,
+): Promise<EvidenceDetail> {
+  return evidenceDetailSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.evidenceRebind(id),
+      jsonBody('POST', { mode: 'confirm', ...input }),
+    ),
+  );
 }
 
 export async function postAnnotatedExportPreview(

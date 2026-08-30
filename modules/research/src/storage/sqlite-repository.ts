@@ -1771,12 +1771,20 @@ export class SqliteResearchRepository
     const collections = this.sqlite
       .prepare('SELECT COUNT(*) AS count FROM research_collection_contexts WHERE context_id = ?')
       .get(id) as { count: number };
+    const notes = this.sqlite
+      .prepare('SELECT COUNT(*) AS count FROM research_notes WHERE context_id = ?')
+      .get(id) as { count: number };
+    const evidence = this.sqlite
+      .prepare('SELECT COUNT(*) AS count FROM research_evidence WHERE context_id = ?')
+      .get(id) as { count: number };
     return {
       context,
       annotationCount: annotations.annotation_count,
       activeAnnotationCount: annotations.annotation_count - annotations.deleted_count,
       deletedAnnotationCount: annotations.deleted_count,
       collectionCount: collections.count,
+      noteCount: notes.count,
+      evidenceCount: evidence.count,
     };
   }
 
@@ -1817,6 +1825,44 @@ export class SqliteResearchRepository
           );
           movedAnnotations += move.run(timestamp, annotation.id, annotation.revision).changes;
         }
+        const moveKnowledge = (
+          table: 'research_notes' | 'research_evidence',
+          entityType: string,
+        ) => {
+          const knowledgeRows = this.sqlite
+            .prepare(`SELECT * FROM ${table} WHERE context_id = ? ORDER BY id`)
+            .all(id) as Row[];
+          const insertKnowledgeRevision = this.sqlite.prepare(
+            `INSERT INTO research_knowledge_revisions
+             (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+             VALUES (?, ?, ?, ?, ?, 'move-context', ?)`,
+          );
+          const moveKnowledgeRow = this.sqlite.prepare(
+            `UPDATE ${table}
+             SET context_id = NULL, revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ?`,
+          );
+          const moveSearch = this.sqlite.prepare(
+            `UPDATE research_knowledge_search SET context_id = NULL, updated_at = ?
+             WHERE entity_type = ? AND entity_id = ?`,
+          );
+          for (const row of knowledgeRows) {
+            const entityId = text(row, 'id');
+            const revision = integer(row, 'revision');
+            insertKnowledgeRevision.run(
+              revisionId(),
+              entityType,
+              entityId,
+              revision,
+              JSON.stringify(row),
+              timestamp,
+            );
+            moveKnowledgeRow.run(timestamp, entityId, revision);
+            moveSearch.run(timestamp, entityType, entityId);
+          }
+        };
+        moveKnowledge('research_notes', 'note');
+        moveKnowledge('research_evidence', 'evidence');
       }
       this.sqlite.prepare('DELETE FROM research_collection_contexts WHERE context_id = ?').run(id);
       this.sqlite
@@ -3383,6 +3429,9 @@ export class SqliteResearchRepository
                  WHERE other.asset_id = att.asset_id AND other.id <> att.id) AS other_count,
                 (SELECT COUNT(*) FROM research_asset_locations linked
                  WHERE linked.asset_id = att.asset_id AND linked.mode = 'linked') AS linked_count,
+                (SELECT COUNT(*) FROM research_evidence evidence
+                 WHERE evidence.asset_id = att.asset_id
+                   AND evidence.edition_id = att.edition_id) AS evidence_count,
                 (SELECT managed.object_key FROM research_asset_locations managed
                  WHERE managed.asset_id = att.asset_id AND managed.mode = 'managed' LIMIT 1) AS object_key
          FROM research_attachments att
@@ -3399,6 +3448,7 @@ export class SqliteResearchRepository
       displayName: text(row, 'display_name'),
       otherAttachmentCount,
       linkedLocationCount: integer(row, 'linked_count'),
+      evidenceCount: integer(row, 'evidence_count'),
       orphanedAssetId: otherAttachmentCount === 0 ? text(row, 'asset_id') : null,
       removableManagedAsset:
         otherAttachmentCount === 0 && objectKey
@@ -3425,6 +3475,15 @@ export class SqliteResearchRepository
         .get(row.asset_id, id) as { count: number };
       const expectedOrphan = count.count === 0 ? row.asset_id : null;
       if (expectedOrphan !== removableAssetId) return false;
+      const evidence = this.sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count FROM research_evidence
+           WHERE asset_id = ? AND edition_id = (
+             SELECT edition_id FROM research_attachments WHERE id = ?
+           )`,
+        )
+        .get(row.asset_id, id) as { count: number };
+      if (evidence.count > 0) return false;
       this.sqlite.prepare('DELETE FROM research_attachments WHERE id = ?').run(id);
       if (expectedOrphan)
         this.sqlite.prepare('DELETE FROM research_assets WHERE id = ?').run(expectedOrphan);
@@ -3468,6 +3527,9 @@ export class SqliteResearchRepository
          WHERE e.work_id = ?`,
       )
       .get(workId) as { attachment_count: number; linked_location_count: number };
+    const evidence = this.sqlite
+      .prepare('SELECT COUNT(*) AS count FROM research_evidence WHERE work_id = ?')
+      .get(workId) as { count: number };
     const removable = this.sqlite
       .prepare(
         `SELECT DISTINCT a2.id AS asset_id, l.object_key, a2.content_hash, a2.byte_size
@@ -3494,6 +3556,7 @@ export class SqliteResearchRepository
       attachmentCount: counts.attachment_count,
       managedObjectCount: removable.length,
       linkedLocationCount: counts.linked_location_count,
+      evidenceCount: evidence.count,
       removableManagedAssets: removable.map((row) => ({
         assetId: row.asset_id,
         objectKey: row.object_key,
@@ -3509,6 +3572,10 @@ export class SqliteResearchRepository
         .prepare('SELECT status FROM research_works WHERE id = ?')
         .get(workId) as { status: string } | undefined;
       if (!work || work.status !== 'trashed') return false;
+      const evidence = this.sqlite
+        .prepare('SELECT COUNT(*) AS count FROM research_evidence WHERE work_id = ?')
+        .get(workId) as { count: number };
+      if (evidence.count > 0) return false;
       const current = this.sqlite
         .prepare(
           `SELECT DISTINCT a2.id AS asset_id
@@ -4066,8 +4133,40 @@ export class SqliteResearchRepository
           )
           .all(draft.survivorId, draft.mergedId) as Row[],
         importItems: queryScoped('research_import_items', 'work_id IN (?, ?)'),
+        evidence: queryScoped('research_evidence', 'work_id IN (?, ?)'),
       };
       const timestamp = this.clock();
+
+      const mergedEvidence = before.evidence.filter(
+        (row) => text(row, 'work_id') === draft.mergedId,
+      );
+      const insertEvidenceRevision = this.sqlite.prepare(
+        `INSERT INTO research_knowledge_revisions
+         (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+         VALUES (?, 'evidence', ?, ?, ?, 'rebind', ?)`,
+      );
+      const moveEvidenceWork = this.sqlite.prepare(
+        `UPDATE research_evidence
+         SET work_id = ?, revision = revision + 1, updated_at = ?
+         WHERE id = ? AND revision = ?`,
+      );
+      const moveEvidenceSearch = this.sqlite.prepare(
+        `UPDATE research_knowledge_search SET work_id = ?, updated_at = ?
+         WHERE entity_type = 'evidence' AND entity_id = ?`,
+      );
+      for (const [index, row] of mergedEvidence.entries()) {
+        const evidenceId = text(row, 'id');
+        const revision = integer(row, 'revision');
+        insertEvidenceRevision.run(
+          `${draft.id}:evidence:${index}`,
+          evidenceId,
+          revision,
+          JSON.stringify(row),
+          timestamp,
+        );
+        moveEvidenceWork.run(draft.survivorId, timestamp, evidenceId, revision);
+        moveEvidenceSearch.run(draft.survivorId, timestamp, evidenceId);
+      }
 
       this.sqlite
         .prepare('UPDATE research_editions SET work_id = ? WHERE work_id = ?')
@@ -4248,6 +4347,12 @@ export class SqliteResearchRepository
           draft.survivorId,
           draft.mergedId,
         ),
+        evidence: queryApplied(
+          'research_evidence',
+          'work_id IN (?, ?)',
+          draft.survivorId,
+          draft.mergedId,
+        ),
       };
       const snapshotJson = JSON.stringify({ version: 1, entityType: 'work', before, applied });
       const record = this.sqlite
@@ -4362,6 +4467,7 @@ export class SqliteResearchRepository
             sourceMaps: Row[];
             identifiers: Row[];
             importItems: Row[];
+            evidence: Row[];
           };
           applied: {
             works: Row[];
@@ -4373,6 +4479,7 @@ export class SqliteResearchRepository
             sourceMaps: Row[];
             identifiers: Row[];
             importItems: Row[];
+            evidence: Row[];
           };
         };
         const editionIds = snapshot.before.editions.map((edition) => text(edition, 'id'));
@@ -4431,6 +4538,12 @@ export class SqliteResearchRepository
             record.survivorId,
             record.mergedId,
           ),
+          evidence: query(
+            'research_evidence',
+            'work_id IN (?, ?)',
+            record.survivorId,
+            record.mergedId,
+          ),
         };
         if (
           (Object.keys(current) as Array<keyof typeof current>).some(
@@ -4438,6 +4551,41 @@ export class SqliteResearchRepository
           )
         ) {
           return null;
+        }
+
+        const restoreTimestamp = this.clock();
+        const beforeEvidence = new Map(
+          snapshot.before.evidence.map((row) => [text(row, 'id'), row] as const),
+        );
+        const insertEvidenceRevision = this.sqlite.prepare(
+          `INSERT INTO research_knowledge_revisions
+           (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+           VALUES (?, 'evidence', ?, ?, ?, 'rebind', ?)`,
+        );
+        const restoreEvidence = this.sqlite.prepare(
+          `UPDATE research_evidence
+           SET work_id = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND revision = ?`,
+        );
+        const restoreEvidenceSearch = this.sqlite.prepare(
+          `UPDATE research_knowledge_search SET work_id = ?, updated_at = ?
+           WHERE entity_type = 'evidence' AND entity_id = ?`,
+        );
+        for (const [index, currentEvidence] of current.evidence.entries()) {
+          const evidenceId = text(currentEvidence, 'id');
+          const before = beforeEvidence.get(evidenceId);
+          if (!before) return null;
+          if (text(before, 'work_id') === text(currentEvidence, 'work_id')) continue;
+          const revision = integer(currentEvidence, 'revision');
+          insertEvidenceRevision.run(
+            `${id}:undo-evidence:${index}`,
+            evidenceId,
+            revision,
+            JSON.stringify(currentEvidence),
+            restoreTimestamp,
+          );
+          restoreEvidence.run(text(before, 'work_id'), restoreTimestamp, evidenceId, revision);
+          restoreEvidenceSearch.run(text(before, 'work_id'), restoreTimestamp, evidenceId);
         }
 
         for (const [table, predicate] of [

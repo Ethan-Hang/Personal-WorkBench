@@ -352,6 +352,7 @@ function deletionFingerprint(impact: DeletionImpact): string {
     workId: impact.workId,
     attachmentCount: impact.attachmentCount,
     linkedLocationCount: impact.linkedLocationCount,
+    evidenceCount: impact.evidenceCount,
     removableManagedAssets: impact.removableManagedAssets,
   });
 }
@@ -363,6 +364,7 @@ function attachmentDeletionFingerprint(impact: AttachmentDeletionImpact): string
     otherAttachmentCount: impact.otherAttachmentCount,
     linkedLocationCount: impact.linkedLocationCount,
     orphanedAssetId: impact.orphanedAssetId,
+    evidenceCount: impact.evidenceCount,
     removableManagedAsset: impact.removableManagedAsset,
   });
 }
@@ -2328,6 +2330,7 @@ export class ResearchService {
       otherAttachmentCount: impact.otherAttachmentCount,
       managedObjectCount: impact.removableManagedAsset ? 1 : 0,
       linkedLocationCount: impact.linkedLocationCount,
+      evidenceCount: impact.evidenceCount,
       confirmationToken: token,
     };
   }
@@ -2342,6 +2345,9 @@ export class ResearchService {
       const impact = await this.repository.getAttachmentDeletionImpact(id);
       if (!impact || attachmentDeletionFingerprint(impact) !== token.fingerprint) {
         throw conflict('附件引用已经变化，请重新查看影响');
+      }
+      if (impact.evidenceCount > 0) {
+        throw conflict('附件仍被研究证据引用，请先删除或重新绑定相关证据');
       }
       let quarantined: QuarantinedManagedObject | null = null;
       try {
@@ -2410,6 +2416,7 @@ export class ResearchService {
       attachmentCount: impact.attachmentCount,
       managedObjectCount: impact.managedObjectCount,
       linkedLocationCount: impact.linkedLocationCount,
+      evidenceCount: impact.evidenceCount,
       confirmationToken: token,
     };
   }
@@ -2424,6 +2431,9 @@ export class ResearchService {
       const impact = await this.repository.getDeletionImpact(id);
       if (!impact || deletionFingerprint(impact) !== token.fingerprint) {
         throw conflict('引用关系已经变化，请重新查看影响');
+      }
+      if (impact.evidenceCount > 0) {
+        throw conflict('作品仍被研究证据引用，请先删除或重新绑定相关证据');
       }
       const work = await this.repository.getWork(id);
       if (work?.status !== 'trashed') throw conflict('作品必须先进入回收站');

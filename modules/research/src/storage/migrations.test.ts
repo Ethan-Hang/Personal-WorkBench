@@ -20,7 +20,7 @@ function seedWork(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite'], id:
 }
 
 describe('research migrations', () => {
-  it('建立 33 张规范领域表和两个 FTS5 搜索索引且迁移可重复执行', () => {
+  it('建立 38 张规范领域表和三个 FTS5 搜索索引且迁移可重复执行', () => {
     const { db, sqlite } = makeResearchDatabase();
     const tables = sqlite
       .prepare(
@@ -28,11 +28,12 @@ describe('research migrations', () => {
          WHERE type = 'table' AND name LIKE 'research_%'
            AND name NOT LIKE 'research_work_search%'
            AND name NOT LIKE 'research_page_text_fts%'
+           AND name NOT LIKE 'research_knowledge_search_fts%'
          ORDER BY name`,
       )
       .all() as Array<{ name: string }>;
 
-    expect(tables).toHaveLength(33);
+    expect(tables).toHaveLength(38);
     expect(tables.map((table) => table.name)).toContain('research_works');
     expect(tables.map((table) => table.name)).toContain('research_export_jobs');
     expect(tables.map((table) => table.name)).toContain('research_metadata_cache');
@@ -41,6 +42,9 @@ describe('research migrations', () => {
     expect(tables.map((table) => table.name)).toContain('research_asset_reader_state');
     expect(tables.map((table) => table.name)).toContain('research_annotations');
     expect(tables.map((table) => table.name)).toContain('research_ocr_page_cache');
+    expect(tables.map((table) => table.name)).toContain('research_notes');
+    expect(tables.map((table) => table.name)).toContain('research_evidence');
+    expect(tables.map((table) => table.name)).toContain('research_knowledge_search');
     expect(
       sqlite
         .prepare(
@@ -57,6 +61,14 @@ describe('research migrations', () => {
         )
         .get(),
     ).toEqual({ name: 'research_page_text_fts' });
+    expect(
+      sqlite
+        .prepare(
+          `SELECT name FROM sqlite_master
+           WHERE type = 'table' AND name = 'research_knowledge_search_fts'`,
+        )
+        .get(),
+    ).toEqual({ name: 'research_knowledge_search_fts' });
 
     // 模块迁移有独立 ledger，重复执行不应重放 DDL。
     expect(() => runMigrationsFrom(db, 'modules/research/migrations')).not.toThrow();

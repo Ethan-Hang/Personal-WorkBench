@@ -402,6 +402,83 @@ describe('ResearchService 导入闭环', () => {
     await expect(access(source)).resolves.toBeUndefined();
   });
 
+  it('永久删除预览计入研究证据，并在提交前拒绝删除来源作品', async () => {
+    const { service, repo, knowledgeRepo, sources } = await harness();
+    const source = await pdf(join(sources, 'protected.pdf'), { title: 'Protected Source' });
+    const imported = await inspectFile(service, source, 'managed', 'protected-flow');
+    const committed = await service.confirmImport(imported.session.id, {
+      itemId: imported.item.item.id,
+      duplicateDecision: 'new-work',
+      collectionIds: [],
+      fields: selectedFields(imported.inspection),
+      requestId: 'protected-confirm',
+    });
+    if ('deferred' in committed || 'discarded' in committed) throw new Error('unexpected');
+    const detail = await service.getWork(committed.workId);
+    const attachment = detail.editions[0]!.attachments[0]!;
+    const anchor = {
+      pageNumber: 1,
+      pageSize: { width: 612, height: 792 },
+      rect: null,
+      quads: [{ x1: 1, y1: 2, x2: 3, y2: 2, x3: 1, y3: 1, x4: 3, y4: 1 }],
+      textQuote: {
+        exact: 'protected source',
+        prefix: '',
+        suffix: '',
+        fingerprint: 'f'.repeat(64),
+      },
+      assetHash: attachment.asset.contentHash,
+      editionId: committed.editionId,
+    };
+    await repo.createAnnotation({
+      id: 'protected-annotation',
+      assetId: committed.assetId,
+      editionId: committed.editionId,
+      contextId: null,
+      kind: 'highlight',
+      pageNumber: 1,
+      anchor,
+      body: null,
+      color: null,
+      status: 'active',
+    });
+    await knowledgeRepo.createEvidence({
+      id: 'protected-evidence',
+      contextId: null,
+      workId: committed.workId,
+      editionId: committed.editionId,
+      assetId: committed.assetId,
+      annotationId: 'protected-annotation',
+      sourceSnapshot: {
+        workId: committed.workId,
+        editionId: committed.editionId,
+        assetId: committed.assetId,
+        annotationId: 'protected-annotation',
+        contextId: null,
+        pageNumber: 1,
+        anchor,
+        sourceKind: 'pdf',
+        annotationRevision: 1,
+        assetHash: attachment.asset.contentHash,
+        workTitle: detail.work.title,
+        editionTitle: detail.editions[0]!.title,
+        ocr: null,
+        extractedAt: NOW.toISOString(),
+      },
+      title: null,
+      summary: 'Evidence keeps this source traceable.',
+      notes: null,
+    });
+
+    await service.trashWork(committed.workId);
+    const preview = await service.deletionPreview(committed.workId);
+    expect(preview).toMatchObject({ evidenceCount: 1 });
+    await expect(
+      service.permanentlyDelete(committed.workId, preview.confirmationToken),
+    ).rejects.toThrow('仍被研究证据引用');
+    await expect(service.getWork(committed.workId)).resolves.toBeDefined();
+  });
+
   it('对账会登记文件已发布但数据库尚未提交的托管对象', async () => {
     const { service, contentStore, repo, sources } = await harness();
     const source = await pdf(join(sources, 'interrupted.pdf'), { title: 'Interrupted' });

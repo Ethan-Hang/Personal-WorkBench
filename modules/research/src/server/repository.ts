@@ -515,6 +515,7 @@ export interface DeletionImpact {
   attachmentCount: number;
   managedObjectCount: number;
   linkedLocationCount: number;
+  evidenceCount: number;
   removableManagedAssets: Array<{
     assetId: string;
     objectKey: string;
@@ -575,6 +576,7 @@ export interface AttachmentDeletionImpact {
   displayName: string;
   otherAttachmentCount: number;
   linkedLocationCount: number;
+  evidenceCount: number;
   orphanedAssetId: string | null;
   removableManagedAsset: {
     assetId: string;

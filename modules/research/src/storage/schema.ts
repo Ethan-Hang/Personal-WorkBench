@@ -20,6 +20,11 @@ import {
   EDITION_KINDS,
   IMPORT_ITEM_STAGES,
   IMPORT_SESSION_STATUSES,
+  KNOWLEDGE_BASIC_STATUSES,
+  KNOWLEDGE_ENTITY_TYPES,
+  KNOWLEDGE_REVISION_REASONS,
+  EVIDENCE_SOURCE_KINDS,
+  EVIDENCE_SOURCE_STATES,
   LOCATION_STATES,
   MANAGED_ROOT_MIGRATION_STATUSES,
   METADATA_SOURCE_KINDS,
@@ -853,6 +858,212 @@ export const researchAnnotatedExportJobs = sqliteTable(
       table.assetId,
       table.status,
       table.updatedAt,
+    ),
+  ],
+);
+
+export const researchNotes = sqliteTable(
+  'research_notes',
+  {
+    id: text('id').primaryKey(),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    title: text('title').notNull(),
+    body: text('body').notNull().default(''),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_notes_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_notes_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_notes_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_notes_context_status').on(
+      table.contextId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+  ],
+);
+
+export const researchEvidence = sqliteTable(
+  'research_evidence',
+  {
+    id: text('id').primaryKey(),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    workId: text('work_id')
+      .notNull()
+      .references(() => researchWorks.id, { onDelete: 'restrict' }),
+    editionId: text('edition_id').references(() => researchEditions.id, {
+      onDelete: 'restrict',
+    }),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => researchAssets.id, { onDelete: 'restrict' }),
+    annotationId: text('annotation_id')
+      .notNull()
+      .references(() => researchAnnotations.id, { onDelete: 'restrict' }),
+    sourceSnapshotJson: text('source_snapshot_json').notNull(),
+    sourceKind: text('source_kind').notNull(),
+    title: text('title'),
+    summary: text('summary').notNull().default(''),
+    notes: text('notes'),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_evidence_source_kind', enumSql('source_kind', EVIDENCE_SOURCE_KINDS)),
+    check('ck_research_evidence_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_evidence_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_evidence_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_evidence_context_status').on(
+      table.contextId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+    index('idx_research_evidence_work_status').on(
+      table.workId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+    index('idx_research_evidence_annotation').on(table.annotationId, table.status),
+    index('idx_research_evidence_asset').on(table.assetId, table.status),
+  ],
+);
+
+export const researchNoteLinks = sqliteTable(
+  'research_note_links',
+  {
+    id: text('id').primaryKey(),
+    noteId: text('note_id')
+      .notNull()
+      .references(() => researchNotes.id, { onDelete: 'restrict' }),
+    workId: text('work_id').references(() => researchWorks.id, { onDelete: 'restrict' }),
+    annotationId: text('annotation_id').references(() => researchAnnotations.id, {
+      onDelete: 'restrict',
+    }),
+    evidenceId: text('evidence_id').references(() => researchEvidence.id, {
+      onDelete: 'restrict',
+    }),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check(
+      'ck_research_note_links_target',
+      sql`(${table.workId} IS NOT NULL) + (${table.annotationId} IS NOT NULL) + (${table.evidenceId} IS NOT NULL) = 1`,
+    ),
+    check('ck_research_note_links_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_note_links_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_note_links_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_note_links_note').on(table.noteId, table.status, table.updatedAt, table.id),
+    uniqueIndex('uq_research_note_links_active_work')
+      .on(table.noteId, table.workId)
+      .where(sql`${table.status} = 'active' AND ${table.workId} IS NOT NULL`),
+    uniqueIndex('uq_research_note_links_active_annotation')
+      .on(table.noteId, table.annotationId)
+      .where(sql`${table.status} = 'active' AND ${table.annotationId} IS NOT NULL`),
+    uniqueIndex('uq_research_note_links_active_evidence')
+      .on(table.noteId, table.evidenceId)
+      .where(sql`${table.status} = 'active' AND ${table.evidenceId} IS NOT NULL`),
+  ],
+);
+
+export const researchKnowledgeRevisions = sqliteTable(
+  'research_knowledge_revisions',
+  {
+    id: text('id').primaryKey(),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    revision: integer('revision').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    check(
+      'ck_research_knowledge_revisions_entity_type',
+      enumSql('entity_type', KNOWLEDGE_ENTITY_TYPES),
+    ),
+    check('ck_research_knowledge_revisions_reason', enumSql('reason', KNOWLEDGE_REVISION_REASONS)),
+    check('ck_research_knowledge_revisions_revision', sql`${table.revision} >= 1`),
+    uniqueIndex('uq_research_knowledge_revisions_number').on(
+      table.entityType,
+      table.entityId,
+      table.revision,
+    ),
+    index('idx_research_knowledge_revisions_entity').on(
+      table.entityType,
+      table.entityId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const researchKnowledgeSearch = sqliteTable(
+  'research_knowledge_search',
+  {
+    rowid: integer('rowid').primaryKey({ autoIncrement: true }),
+    entityType: text('entity_type').notNull(),
+    entityId: text('entity_id').notNull(),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    workId: text('work_id').references(() => researchWorks.id, { onDelete: 'restrict' }),
+    title: text('title').notNull(),
+    body: text('body').notNull(),
+    status: text('status').notNull(),
+    sourceState: text('source_state'),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    check(
+      'ck_research_knowledge_search_entity_type',
+      enumSql('entity_type', ['note', 'evidence', 'claim', 'writing-document']),
+    ),
+    check(
+      'ck_research_knowledge_search_status',
+      enumSql('status', ['active', 'archived', 'deleted', 'draft']),
+    ),
+    check(
+      'ck_research_knowledge_search_source_state',
+      sql`${table.sourceState} IS NULL OR ${enumSql('source_state', EVIDENCE_SOURCE_STATES)}`,
+    ),
+    unique('uq_research_knowledge_search_entity').on(table.entityType, table.entityId),
+    index('idx_research_knowledge_search_context').on(
+      table.contextId,
+      table.status,
+      table.updatedAt,
+      table.entityId,
+    ),
+    index('idx_research_knowledge_search_work').on(
+      table.workId,
+      table.status,
+      table.updatedAt,
+      table.entityId,
     ),
   ],
 );

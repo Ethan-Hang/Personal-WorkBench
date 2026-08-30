@@ -29,6 +29,7 @@ export function PdfPage({
   assetHash,
   editionId,
   onCreateAnnotation,
+  onCreateEvidence,
   onSize,
 }: {
   document: PDFDocumentProxy;
@@ -41,6 +42,7 @@ export function PdfPage({
   assetHash: string;
   editionId: string | null;
   onCreateAnnotation: (kind: AnnotationKind, anchor: AnnotationAnchor) => void;
+  onCreateEvidence: (kind: 'highlight' | 'area', anchor: AnnotationAnchor) => void;
   onSize: (pageNumber: number, size: { width: number; height: number }) => void;
 }) {
   const rootRef = useRef<HTMLElement>(null);
@@ -144,7 +146,8 @@ export function PdfPage({
       editionId,
     });
     if (!anchor || rootRef.current !== root) return;
-    onCreateAnnotation(annotationTool, anchor);
+    if (annotationTool === 'evidence-text') onCreateEvidence('highlight', anchor);
+    else onCreateAnnotation(annotationTool, anchor);
     selection.removeAllRanges();
   };
 
@@ -191,7 +194,11 @@ export function PdfPage({
     const top = Math.min(current.startY, event.clientY);
     const right = Math.max(current.startX, event.clientX, left + pointSize);
     const bottom = Math.max(current.startY, event.clientY, top + pointSize);
-    if (annotationTool === 'area' && (right - left < 4 || bottom - top < 4)) return;
+    if (
+      (annotationTool === 'area' || annotationTool === 'evidence-area') &&
+      (right - left < 4 || bottom - top < 4)
+    )
+      return;
     const anchor = buildAreaAnchor({
       bounds: { left, top, right, bottom },
       pageBounds: root.getBoundingClientRect(),
@@ -201,7 +208,9 @@ export function PdfPage({
       assetHash,
       editionId,
     });
-    if (anchor) onCreateAnnotation(annotationTool, anchor);
+    if (!anchor) return;
+    if (annotationTool === 'evidence-area') onCreateEvidence('area', anchor);
+    else onCreateAnnotation(annotationTool, anchor);
   };
 
   const dragPreview = drag
@@ -239,7 +248,7 @@ export function PdfPage({
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
         >
-          {dragPreview && annotationTool === 'area' && (
+          {dragPreview && (annotationTool === 'area' || annotationTool === 'evidence-area') && (
             <div
               className="absolute border border-accent bg-accent/10"
               style={dragPreview}

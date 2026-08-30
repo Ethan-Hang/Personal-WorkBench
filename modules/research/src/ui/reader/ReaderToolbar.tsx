@@ -10,6 +10,8 @@ const ANNOTATION_TOOLS: Array<{ id: ReaderAnnotationTool; label: string; key: st
   { id: 'area', label: '区域', key: 'A' },
   { id: 'note', label: '便笺', key: 'N' },
   { id: 'bookmark', label: '书签', key: 'B' },
+  { id: 'evidence-text', label: '提炼文字', key: 'E' },
+  { id: 'evidence-area', label: '提炼区域', key: 'G' },
 ];
 
 export function ReaderToolbar({

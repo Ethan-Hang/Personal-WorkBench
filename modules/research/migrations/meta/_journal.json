@@ -43,6 +43,13 @@
       "when": 1788029990000,
       "tag": "0005_research_ocr_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788081433000,
+      "tag": "0006_research_knowledge_sources",
+      "breakpoints": true
     }
   ]
 }

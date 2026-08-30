@@ -24,6 +24,7 @@ export function PdfViewport({
   assetHash,
   editionId,
   onCreateAnnotation,
+  onCreateEvidence,
   onPosition,
 }: {
   document: PDFDocumentProxy;
@@ -38,6 +39,7 @@ export function PdfViewport({
   assetHash: string;
   editionId: string | null;
   onCreateAnnotation: (kind: AnnotationKind, anchor: AnnotationAnchor) => void;
+  onCreateEvidence: (kind: 'highlight' | 'area', anchor: AnnotationAnchor) => void;
   onPosition: (position: { pageNumber: number; pageOffsetRatio: number }) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -189,6 +191,7 @@ export function PdfViewport({
           assetHash={assetHash}
           editionId={editionId}
           onCreateAnnotation={onCreateAnnotation}
+          onCreateEvidence={onCreateEvidence}
           onSize={onSize}
         />
       </div>
@@ -224,6 +227,7 @@ export function PdfViewport({
               assetHash={assetHash}
               editionId={editionId}
               onCreateAnnotation={onCreateAnnotation}
+              onCreateEvidence={onCreateEvidence}
               onSize={onSize}
             />
           </div>

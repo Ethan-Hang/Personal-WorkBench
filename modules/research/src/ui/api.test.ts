@@ -7,7 +7,11 @@ import {
   fetchPageTextSearch,
   fetchTextIndexJob,
   fetchAnnotations,
+  fetchAnnotation,
   fetchAnnotatedExport,
+  fetchKnowledgeEvidence,
+  fetchKnowledgeNotes,
+  fetchNoteLinks,
   fetchReadingContexts,
   fetchReaderManifest,
   fetchWorks,
@@ -19,6 +23,9 @@ import {
   postAnnotatedExportPreview,
   postCancelAnnotatedExport,
   postReadingContext,
+  postKnowledgeEvidence,
+  postKnowledgeNote,
+  postNoteLink,
   postOpenAnnotatedExportLocation,
   postPickAnnotatedExportTarget,
   postPermanentDeleteAttachment,
@@ -225,6 +232,163 @@ describe('research ui api', () => {
     respondWith({ ...annotation, revision: 4 });
     await postRestoreAnnotation(annotation.id, 3);
     expect(calls[6]?.url).toBe(RESEARCH_API_V1.annotationRestore(annotation.id));
+
+    respondWith(annotation);
+    await expect(fetchAnnotation(annotation.id)).resolves.toMatchObject({ id: annotation.id });
+    expect(calls[7]?.url).toBe(RESEARCH_API_V1.annotation(annotation.id));
+  });
+
+  it('研究知识客户端保留上下文筛选和两种证据创建模式', async () => {
+    const note = {
+      id: 'note-1',
+      contextId: null,
+      title: 'Research note',
+      body: '',
+      status: 'active',
+      revision: 1,
+      createdAt: instant,
+      updatedAt: instant,
+      deletedAt: null,
+    } as const;
+    respondWith({ notes: [note], nextCursor: null });
+    await expect(
+      fetchKnowledgeNotes({ contextId: null, status: 'active', limit: 20 }),
+    ).resolves.toMatchObject({ notes: [{ id: 'note-1' }] });
+    expect(calls[0]?.url).toBe(`${RESEARCH_API_V1.notes}?contextId=general&status=active&limit=20`);
+
+    respondWith(note);
+    await postKnowledgeNote({ contextId: null, title: note.title, body: '' });
+    expect(calls[1]).toMatchObject({ url: RESEARCH_API_V1.notes, init: { method: 'POST' } });
+
+    respondWith([]);
+    await expect(fetchNoteLinks(note.id)).resolves.toEqual([]);
+    expect(calls[2]?.url).toBe(`${RESEARCH_API_V1.noteLinks(note.id)}?includeDeleted=false`);
+
+    const anchor = {
+      pageNumber: 2,
+      pageSize: { width: 612, height: 792 },
+      rect: null,
+      quads: [{ x1: 1, y1: 2, x2: 3, y2: 2, x3: 1, y3: 1, x4: 3, y4: 1 }],
+      textQuote: {
+        exact: 'source text',
+        prefix: '',
+        suffix: '',
+        fingerprint: 'b'.repeat(64),
+      },
+      assetHash: 'a'.repeat(64),
+      editionId: 'edition-1',
+    };
+    const evidence = {
+      id: 'evidence-1',
+      contextId: null,
+      workId: 'work-1',
+      editionId: 'edition-1',
+      assetId: 'asset-1',
+      annotationId: 'annotation-1',
+      sourceSnapshot: {
+        workId: 'work-1',
+        editionId: 'edition-1',
+        assetId: 'asset-1',
+        annotationId: 'annotation-1',
+        contextId: null,
+        pageNumber: 2,
+        anchor,
+        sourceKind: 'pdf',
+        annotationRevision: 1,
+        assetHash: 'a'.repeat(64),
+        workTitle: 'Paper',
+        editionTitle: null,
+        ocr: null,
+        extractedAt: instant,
+      },
+      sourceState: 'current',
+      title: null,
+      summary: 'source text',
+      notes: null,
+      status: 'active',
+      revision: 1,
+      createdAt: instant,
+      updatedAt: instant,
+      deletedAt: null,
+    } as const;
+    const link = {
+      id: 'link-1',
+      noteId: note.id,
+      target: { kind: 'evidence', evidenceId: evidence.id },
+      status: 'active',
+      revision: 1,
+      createdAt: instant,
+      updatedAt: instant,
+      deletedAt: null,
+    } as const;
+    respondWith(link);
+    await postNoteLink(note.id, { target: link.target });
+    expect(calls[3]).toMatchObject({
+      url: RESEARCH_API_V1.noteLinks(note.id),
+      init: { method: 'POST' },
+    });
+
+    respondWith({ evidence: [evidence], nextCursor: null });
+    await fetchKnowledgeEvidence({ contextId: null, sourceState: 'current' });
+    expect(calls[4]?.url).toBe(`${RESEARCH_API_V1.evidence}?contextId=general&sourceState=current`);
+
+    respondWith({
+      ...evidence,
+      sourceLink: {
+        assetId: 'asset-1',
+        annotationId: 'annotation-1',
+        contextId: null,
+        pageNumber: 2,
+        anchor,
+        sourceState: 'current',
+        readerUrl: '/research/read/asset-1?page=2&context=general&annotation=annotation-1',
+      },
+    });
+    await postKnowledgeEvidence({
+      mode: 'annotation',
+      contextId: null,
+      annotationId: 'annotation-1',
+      sourceKind: 'pdf',
+      title: null,
+      summary: 'source text',
+      notes: null,
+    });
+    expect(calls[5]).toMatchObject({
+      url: RESEARCH_API_V1.evidence,
+      init: { method: 'POST' },
+    });
+    expect(parsedBody(calls[5]!)).toMatchObject({
+      mode: 'annotation',
+      annotationId: 'annotation-1',
+    });
+
+    respondWith({
+      ...evidence,
+      sourceLink: {
+        assetId: 'asset-1',
+        annotationId: 'annotation-1',
+        contextId: null,
+        pageNumber: 2,
+        anchor,
+        sourceState: 'current',
+        readerUrl: '/research/read/asset-1?page=2&context=general&annotation=annotation-1',
+      },
+    });
+    await postKnowledgeEvidence({
+      mode: 'direct',
+      contextId: null,
+      assetId: 'asset-1',
+      editionId: 'edition-1',
+      kind: 'highlight',
+      anchor,
+      body: null,
+      color: '#facc15',
+      sourceKind: 'pdf',
+      title: null,
+      summary: 'source text',
+      notes: null,
+    });
+    expect(parsedBody(calls[6]!)).toMatchObject({ mode: 'direct', assetId: 'asset-1' });
   });
 
   it('带批注副本客户端完整保留选择、预览、任务控制与位置操作', async () => {

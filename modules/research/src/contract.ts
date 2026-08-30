@@ -101,6 +101,20 @@ export const RESEARCH_API_V1 = {
   annotation: (id: string) => `${API_ROOT}/annotations/${id}`,
   annotationRestore: (id: string) => `${API_ROOT}/annotations/${id}/restore`,
   annotationRevisions: (id: string) => `${API_ROOT}/annotations/${id}/revisions`,
+  knowledgeSummary: `${API_ROOT}/knowledge/summary`,
+  knowledgeSearch: `${API_ROOT}/knowledge/search`,
+  notes: `${API_ROOT}/notes`,
+  note: (id: string) => `${API_ROOT}/notes/${id}`,
+  noteRestore: (id: string) => `${API_ROOT}/notes/${id}/restore`,
+  noteRevisions: (id: string) => `${API_ROOT}/notes/${id}/revisions`,
+  noteLinks: (id: string) => `${API_ROOT}/notes/${id}/links`,
+  noteLink: (id: string) => `${API_ROOT}/note-links/${id}`,
+  noteLinkRestore: (id: string) => `${API_ROOT}/note-links/${id}/restore`,
+  evidence: `${API_ROOT}/evidence`,
+  evidenceItem: (id: string) => `${API_ROOT}/evidence/${id}`,
+  evidenceRebind: (id: string) => `${API_ROOT}/evidence/${id}/rebind`,
+  evidenceRestore: (id: string) => `${API_ROOT}/evidence/${id}/restore`,
+  evidenceRevisions: (id: string) => `${API_ROOT}/evidence/${id}/revisions`,
 } as const;
 
 export const WORK_TYPES = [
@@ -260,6 +274,13 @@ export const RESEARCH_ERROR_CODES = [
   'ANNOTATION_NOT_FOUND',
   'ANNOTATION_CONFLICT',
   'ANNOTATION_INVALID',
+  'KNOWLEDGE_CONTEXT_NOT_FOUND',
+  'KNOWLEDGE_CONTEXT_ARCHIVED',
+  'KNOWLEDGE_NOTE_NOT_FOUND',
+  'KNOWLEDGE_EVIDENCE_NOT_FOUND',
+  'KNOWLEDGE_SOURCE_NOT_FOUND',
+  'KNOWLEDGE_CONFLICT',
+  'KNOWLEDGE_INVALID',
 ] as const;
 export type ResearchErrorCode = (typeof RESEARCH_ERROR_CODES)[number];
 
@@ -294,6 +315,52 @@ export type AnnotationKind = (typeof ANNOTATION_KINDS)[number];
 
 export const ANNOTATION_STATUSES = ['active', 'deleted', 'needs-review'] as const;
 export type AnnotationStatus = (typeof ANNOTATION_STATUSES)[number];
+
+export const KNOWLEDGE_BASIC_STATUSES = ['active', 'deleted'] as const;
+export type KnowledgeBasicStatus = (typeof KNOWLEDGE_BASIC_STATUSES)[number];
+
+export const EVIDENCE_SOURCE_KINDS = ['pdf', 'ocr'] as const;
+export type EvidenceSourceKind = (typeof EVIDENCE_SOURCE_KINDS)[number];
+
+export const EVIDENCE_SOURCE_STATES = [
+  'current',
+  'annotation-revised',
+  'annotation-deleted',
+  'asset-mismatch',
+  'source-unavailable',
+] as const;
+export type EvidenceSourceState = (typeof EVIDENCE_SOURCE_STATES)[number];
+
+export const KNOWLEDGE_ENTITY_TYPES = [
+  'note',
+  'evidence',
+  'note-link',
+  'claim',
+  'claim-evidence',
+  'matrix',
+  'matrix-column',
+  'matrix-row',
+  'matrix-cell',
+  'matrix-cell-evidence',
+  'writing-document',
+  'writing-section',
+  'writing-block',
+] as const;
+export type KnowledgeEntityType = (typeof KNOWLEDGE_ENTITY_TYPES)[number];
+
+export const KNOWLEDGE_REVISION_REASONS = [
+  'update',
+  'delete',
+  'restore',
+  'rebind',
+  'move-context',
+  'link',
+  'unlink',
+  'archive',
+  'reorder',
+  'review',
+] as const;
+export type KnowledgeRevisionReason = (typeof KNOWLEDGE_REVISION_REASONS)[number];
 
 export const ANNOTATED_EXPORT_TREATMENTS = ['standard', 'flattened', 'skipped'] as const;
 export type AnnotatedExportTreatment = (typeof ANNOTATED_EXPORT_TREATMENTS)[number];
@@ -486,6 +553,8 @@ export const readingContextDeletionPreviewSchema = z.object({
   activeAnnotationCount: z.number().int().nonnegative(),
   deletedAnnotationCount: z.number().int().nonnegative(),
   collectionCount: z.number().int().nonnegative(),
+  noteCount: z.number().int().nonnegative().default(0),
+  evidenceCount: z.number().int().nonnegative().default(0),
 });
 export type ReadingContextDeletionPreview = z.infer<typeof readingContextDeletionPreviewSchema>;
 
@@ -618,6 +687,257 @@ export const annotationRevisionSchema = z.object({
   createdAt: instantSchema,
 });
 export type AnnotationRevision = z.infer<typeof annotationRevisionSchema>;
+
+export const knowledgeContextRefSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('general'),
+    contextId: z.null(),
+    name: z.string().trim().min(1).max(200),
+  }),
+  z.object({
+    kind: z.literal('named'),
+    contextId: researchIdSchema,
+    name: z.string().trim().min(1).max(200),
+  }),
+]);
+export type KnowledgeContextRef = z.infer<typeof knowledgeContextRefSchema>;
+
+export const evidenceSourceSnapshotSchema = z.object({
+  workId: researchIdSchema,
+  editionId: researchIdSchema.nullable(),
+  assetId: researchIdSchema,
+  annotationId: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  pageNumber: z.number().int().positive(),
+  anchor: annotationAnchorSchema,
+  sourceKind: z.enum(EVIDENCE_SOURCE_KINDS),
+  annotationRevision: z.number().int().positive(),
+  assetHash: sha256Schema,
+  workTitle: z.string().trim().min(1).max(1_000),
+  editionTitle: z.string().trim().min(1).max(1_000).nullable(),
+  ocr: z
+    .object({
+      engine: z.string().trim().min(1).max(200),
+      engineVersion: z.string().trim().min(1).max(200),
+      languagePackVersion: z.string().trim().min(1).max(200),
+      languagesKey: z.string().trim().min(1).max(200),
+    })
+    .nullable(),
+  extractedAt: instantSchema,
+});
+export type EvidenceSourceSnapshot = z.infer<typeof evidenceSourceSnapshotSchema>;
+
+export const researchNoteSchema = z.object({
+  id: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  title: z.string().trim().min(1).max(500),
+  body: z.string().max(500_000),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type ResearchNote = z.infer<typeof researchNoteSchema>;
+
+export const evidenceSchema = z.object({
+  id: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  workId: researchIdSchema,
+  editionId: researchIdSchema.nullable(),
+  assetId: researchIdSchema,
+  annotationId: researchIdSchema,
+  sourceSnapshot: evidenceSourceSnapshotSchema,
+  sourceState: z.enum(EVIDENCE_SOURCE_STATES),
+  title: z.string().trim().min(1).max(500).nullable(),
+  summary: z.string().max(100_000),
+  notes: z.string().max(100_000).nullable(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type Evidence = z.infer<typeof evidenceSchema>;
+
+export const noteLinkTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('work'), workId: researchIdSchema }),
+  z.object({ kind: z.literal('annotation'), annotationId: researchIdSchema }),
+  z.object({ kind: z.literal('evidence'), evidenceId: researchIdSchema }),
+]);
+export type NoteLinkTarget = z.infer<typeof noteLinkTargetSchema>;
+
+export const noteLinkSchema = z.object({
+  id: researchIdSchema,
+  noteId: researchIdSchema,
+  target: noteLinkTargetSchema,
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type NoteLink = z.infer<typeof noteLinkSchema>;
+
+export const createNoteLinkInputSchema = z.object({
+  target: noteLinkTargetSchema,
+});
+export type CreateNoteLinkInput = z.infer<typeof createNoteLinkInputSchema>;
+
+export const knowledgeRevisionSchema = z.object({
+  id: researchIdSchema,
+  entityType: z.enum(KNOWLEDGE_ENTITY_TYPES),
+  entityId: researchIdSchema,
+  revision: z.number().int().positive(),
+  snapshot: z.unknown(),
+  reason: z.enum(KNOWLEDGE_REVISION_REASONS),
+  createdAt: instantSchema,
+});
+export type KnowledgeRevision = z.infer<typeof knowledgeRevisionSchema>;
+
+export const knowledgePageInputSchema = z.object({
+  cursor: z.string().min(1).max(512).nullable().default(null),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const listNotesQuerySchema = knowledgePageInputSchema.extend({
+  contextId: researchIdSchema.nullable().optional(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES).default('active'),
+});
+export type ListNotesQuery = z.infer<typeof listNotesQuerySchema>;
+
+export const notesPageSchema = z.object({
+  notes: z.array(researchNoteSchema),
+  nextCursor: z.string().nullable(),
+});
+export type NotesPage = z.infer<typeof notesPageSchema>;
+
+export const listEvidenceQuerySchema = knowledgePageInputSchema.extend({
+  contextId: researchIdSchema.nullable().optional(),
+  workId: researchIdSchema.optional(),
+  sourceState: z.enum(EVIDENCE_SOURCE_STATES).optional(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES).default('active'),
+});
+export type ListEvidenceQuery = z.infer<typeof listEvidenceQuerySchema>;
+
+export const evidencePageSchema = z.object({
+  evidence: z.array(evidenceSchema),
+  nextCursor: z.string().nullable(),
+});
+export type EvidencePage = z.infer<typeof evidencePageSchema>;
+
+export const createNoteInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  title: z.string().trim().min(1).max(500),
+  body: z.string().max(500_000).default(''),
+});
+export type CreateNoteInput = z.infer<typeof createNoteInputSchema>;
+
+export const updateNoteInputSchema = z
+  .object({
+    contextId: researchIdSchema.nullable().optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    body: z.string().max(500_000).optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine((value) => Object.keys(value).some((key) => key !== 'expectedRevision'), '没有笔记变更');
+export type UpdateNoteInput = z.infer<typeof updateNoteInputSchema>;
+
+export const createEvidenceInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  annotationId: researchIdSchema,
+  sourceKind: z.enum(EVIDENCE_SOURCE_KINDS),
+  title: z.string().trim().min(1).max(500).nullable().default(null),
+  summary: z.string().max(100_000).default(''),
+  notes: z.string().max(100_000).nullable().default(null),
+});
+export type CreateEvidenceInput = z.infer<typeof createEvidenceInputSchema>;
+
+export const createDirectEvidenceInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  assetId: researchIdSchema,
+  editionId: researchIdSchema.nullable().default(null),
+  kind: z.enum(ANNOTATION_KINDS),
+  anchor: annotationAnchorSchema,
+  body: z.string().max(100_000).nullable().default(null),
+  color: z.string().trim().min(1).max(64).nullable().default(null),
+  sourceKind: z.enum(EVIDENCE_SOURCE_KINDS),
+  title: z.string().trim().min(1).max(500).nullable().default(null),
+  summary: z.string().max(100_000).default(''),
+  notes: z.string().max(100_000).nullable().default(null),
+});
+export type CreateDirectEvidenceInput = z.infer<typeof createDirectEvidenceInputSchema>;
+
+export const createEvidenceRequestSchema = z.discriminatedUnion('mode', [
+  createEvidenceInputSchema.extend({ mode: z.literal('annotation') }),
+  createDirectEvidenceInputSchema.extend({ mode: z.literal('direct') }),
+]);
+export type CreateEvidenceRequest = z.infer<typeof createEvidenceRequestSchema>;
+
+export const updateEvidenceInputSchema = z
+  .object({
+    contextId: researchIdSchema.nullable().optional(),
+    title: z.string().trim().min(1).max(500).nullable().optional(),
+    summary: z.string().max(100_000).optional(),
+    notes: z.string().max(100_000).nullable().optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine((value) => Object.keys(value).some((key) => key !== 'expectedRevision'), '没有证据变更');
+export type UpdateEvidenceInput = z.infer<typeof updateEvidenceInputSchema>;
+
+export const previewEvidenceRebindInputSchema = z.object({
+  annotationId: researchIdSchema,
+  sourceKind: z.enum(EVIDENCE_SOURCE_KINDS),
+});
+export type PreviewEvidenceRebindInput = z.infer<typeof previewEvidenceRebindInputSchema>;
+
+export const confirmEvidenceRebindInputSchema = previewEvidenceRebindInputSchema.extend({
+  expectedRevision: z.number().int().positive(),
+  targetAnnotationRevision: z.number().int().positive(),
+});
+export type ConfirmEvidenceRebindInput = z.infer<typeof confirmEvidenceRebindInputSchema>;
+
+export const evidenceRebindPreviewSchema = z.object({
+  evidenceId: researchIdSchema,
+  expectedRevision: z.number().int().positive(),
+  targetAnnotationRevision: z.number().int().positive(),
+  oldSource: evidenceSourceSnapshotSchema,
+  newSource: evidenceSourceSnapshotSchema,
+  differences: z.array(
+    z.object({
+      field: z.enum(['work', 'edition', 'asset', 'annotation', 'context', 'page', 'text', 'kind']),
+      before: z.string().nullable(),
+      after: z.string().nullable(),
+    }),
+  ),
+});
+export type EvidenceRebindPreview = z.infer<typeof evidenceRebindPreviewSchema>;
+
+export const evidenceRebindRequestSchema = z.discriminatedUnion('mode', [
+  previewEvidenceRebindInputSchema.extend({ mode: z.literal('preview') }),
+  confirmEvidenceRebindInputSchema.extend({ mode: z.literal('confirm') }),
+]);
+
+export const knowledgeRevisionInputSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+export type KnowledgeRevisionInput = z.infer<typeof knowledgeRevisionInputSchema>;
+
+export const evidenceSourceLinkSchema = z.object({
+  assetId: researchIdSchema,
+  annotationId: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  pageNumber: z.number().int().positive(),
+  anchor: annotationAnchorSchema,
+  sourceState: z.enum(EVIDENCE_SOURCE_STATES),
+  readerUrl: z.string().startsWith('/research/read/'),
+});
+export type EvidenceSourceLink = z.infer<typeof evidenceSourceLinkSchema>;
+
+export const evidenceDetailSchema = evidenceSchema.extend({
+  sourceLink: evidenceSourceLinkSchema,
+});
+export type EvidenceDetail = z.infer<typeof evidenceDetailSchema>;
 
 const annotatedExportContextIdsSchema = z
   .array(researchIdSchema)
@@ -1064,6 +1384,7 @@ export const attachmentDeletionPreviewSchema = z.object({
   otherAttachmentCount: z.number().int().nonnegative(),
   managedObjectCount: z.number().int().nonnegative(),
   linkedLocationCount: z.number().int().nonnegative(),
+  evidenceCount: z.number().int().nonnegative().default(0),
   confirmationToken: researchIdSchema,
 });
 
@@ -1635,5 +1956,6 @@ export const deletionPreviewSchema = z.object({
   attachmentCount: z.number().int().nonnegative(),
   managedObjectCount: z.number().int().nonnegative(),
   linkedLocationCount: z.number().int().nonnegative(),
+  evidenceCount: z.number().int().nonnegative().default(0),
   confirmationToken: z.string().min(1),
 });

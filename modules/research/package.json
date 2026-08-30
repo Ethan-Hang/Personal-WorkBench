@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/server/index.ts",
     "./contract": "./src/contract.ts",
+    "./knowledge/storage": "./src/storage/sqlite-knowledge-repository.ts",
     "./storage": "./src/storage/sqlite-repository.ts",
     "./ui": "./src/ui/index.tsx",
     "./ui/api": "./src/ui/api.ts"

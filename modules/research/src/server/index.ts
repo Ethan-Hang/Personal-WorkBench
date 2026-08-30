@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import type { ServerModuleDefinition } from '@workbench/core';
 import { dirname, join } from 'node:path';
 import { RESEARCH_MODULE_ID } from '../contract.js';
+import type { KnowledgeRepository } from '../knowledge/repository.js';
+import { ResearchKnowledgeService } from '../knowledge/service.js';
 import type { AnnotationRepository } from '../annotation/repository.js';
 import { ResearchAnnotationService } from '../annotation/service.js';
 import type { AnnotatedExportRepository } from '../annotated-export/repository.js';
@@ -21,6 +23,7 @@ import type { AnnotatedPdfWriter } from '../interop/annotated-export.js';
 import { systemPdfFilePicker, type PdfFilePicker, type PdfOutputDialog } from './file-picker.js';
 import { registerResearchAnnotatedExportRoutes } from './annotated-export-routes.js';
 import { registerResearchAnnotationRoutes } from './annotation-routes.js';
+import { registerResearchKnowledgeRoutes } from './knowledge-routes.js';
 import { registerResearchReaderRoutes } from './reader-routes.js';
 import { registerResearchTextIndexRoutes } from './text-index-routes.js';
 import { registerResearchOcrRoutes } from './ocr-routes.js';
@@ -35,6 +38,7 @@ export interface ResearchServerModuleOptions {
     TextIndexRepository &
     OcrRepository &
     AnnotatedExportRepository;
+  knowledgeRepository?: KnowledgeRepository;
   managedRoot: () => string;
   managedRootController?: ManagedRootController;
   contentStore?: ResearchContentStore;
@@ -88,6 +92,12 @@ export function createResearchServerModule(
   const annotationService = new ResearchAnnotationService(options.repository, {
     ...(options.createId ? { createId: options.createId } : {}),
   });
+  const knowledgeService = options.knowledgeRepository
+    ? new ResearchKnowledgeService(options.knowledgeRepository, {
+        ...(options.createId ? { createId: options.createId } : {}),
+        ...(options.clock ? { now: options.clock } : {}),
+      })
+    : null;
   const ocrService = new ResearchOcrService(options.repository, readerContentSource, {
     cacheRoot: options.ocrCacheRoot ?? (() => join(dirname(managedRoot()), 'ocr-cache')),
     ...(options.ocrEngine ? { engine: options.ocrEngine } : {}),
@@ -119,6 +129,9 @@ export function createResearchServerModule(
       registerResearchTextIndexRoutes(app as FastifyInstance, textIndexService);
       registerResearchOcrRoutes(app as FastifyInstance, ocrService);
       registerResearchAnnotationRoutes(app as FastifyInstance, annotationService);
+      if (knowledgeService) {
+        registerResearchKnowledgeRoutes(app as FastifyInstance, knowledgeService);
+      }
       registerResearchAnnotatedExportRoutes(app as FastifyInstance, annotatedExportService);
       (app as FastifyInstance).addHook('onReady', async () => {
         await textIndexService.recoverInterruptedJobs();
@@ -137,6 +150,7 @@ export function createResearchServerModule(
 export { ResearchService } from './service.js';
 export { ResearchReaderService } from '../reader/service.js';
 export { ResearchAnnotationService } from '../annotation/service.js';
+export { ResearchKnowledgeService } from '../knowledge/service.js';
 export { ResearchTextIndexService } from '../reader/text-index-service.js';
 export { ResearchOcrService } from '../ocr/service.js';
 export { ResearchAnnotatedExportService } from '../annotated-export/service.js';

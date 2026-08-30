@@ -110,6 +110,8 @@ export function ResearchReaderPage() {
                 active={active}
                 manifest={manifest}
                 openingCollectionId={active ? searchParams.get('collectionId') : null}
+                openingContext={active ? searchParams.get('context') : null}
+                openingAnnotationId={active ? searchParams.get('annotation') : null}
                 openingPageNumber={
                   active && Number(searchParams.get('page')) > 0
                     ? Number(searchParams.get('page'))

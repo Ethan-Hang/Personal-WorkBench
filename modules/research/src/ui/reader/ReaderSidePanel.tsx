@@ -64,6 +64,7 @@ export function ReaderSidePanel({
   onBindCollection,
   onUpdateAnnotation,
   onDeleteAnnotation,
+  onCreateEvidence,
   onUndo,
   onTextSearch,
   onTextSearchScope,
@@ -102,6 +103,7 @@ export function ReaderSidePanel({
     changes: { body: string | null; color: string | null },
   ) => void;
   onDeleteAnnotation: (annotation: Annotation) => void;
+  onCreateEvidence: (annotation: Annotation) => void;
   onUndo: () => void;
   onTextSearch: (query: string) => void;
   onTextSearchScope: (scope: TextSearchScope) => void;
@@ -322,9 +324,19 @@ export function ReaderSidePanel({
                       <span className="text-[10px] font-semibold text-critical">待确认</span>
                     )}
                   </button>
-                  <p className="mt-1 line-clamp-2 leading-5 text-secondary">
-                    {annotation.body || annotation.anchor.textQuote?.exact || '无正文'}
-                  </p>
+                  <div className="mt-1 flex items-start justify-between gap-2">
+                    <p className="line-clamp-2 min-w-0 flex-1 leading-5 text-secondary">
+                      {annotation.body || annotation.anchor.textQuote?.exact || '无正文'}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => onCreateEvidence(annotation)}
+                    >
+                      提炼
+                    </Button>
+                  </div>
                   {editingId === annotation.id && (
                     <div className="mt-2 space-y-2 pb-2">
                       <textarea

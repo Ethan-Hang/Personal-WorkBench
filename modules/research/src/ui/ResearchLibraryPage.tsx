@@ -66,6 +66,7 @@ import { ManagedStorageDialog } from './components/ManagedStorageDialog.js';
 import { TagManagerDialog } from './components/TagManagerDialog.js';
 import { TemplateLibraryView } from './components/TemplateLibraryView.js';
 import { WorkMetadataDialog } from './components/WorkMetadataDialog.js';
+import { ResearchSectionNav } from './components/ResearchSectionNav.js';
 
 const LAYOUT_STORAGE_KEY = 'research_library_layout';
 
@@ -543,20 +544,27 @@ export function ResearchLibraryPage() {
 
   return (
     <>
-      {activeView === 'inbox' ? (
-        <ImportInboxPanel
-          layout={layout}
-          collections={sharedProps.collections.filter((collection) => collection.kind === 'manual')}
-          onLayout={setLayout}
-          onLibrary={() => setActiveView('library')}
-          onManualWork={() => setManualWorkOpen(true)}
-          onChanged={invalidate}
-        />
-      ) : layout === 'compact' ? (
-        <CompactLibraryView {...sharedProps} />
-      ) : (
-        <TemplateLibraryView {...sharedProps} />
-      )}
+      <div className="flex h-full min-h-0 flex-col">
+        <ResearchSectionNav />
+        <div className="min-h-0 flex-1">
+          {activeView === 'inbox' ? (
+            <ImportInboxPanel
+              layout={layout}
+              collections={sharedProps.collections.filter(
+                (collection) => collection.kind === 'manual',
+              )}
+              onLayout={setLayout}
+              onLibrary={() => setActiveView('library')}
+              onManualWork={() => setManualWorkOpen(true)}
+              onChanged={invalidate}
+            />
+          ) : layout === 'compact' ? (
+            <CompactLibraryView {...sharedProps} />
+          ) : (
+            <TemplateLibraryView {...sharedProps} />
+          )}
+        </div>
+      </div>
 
       <ImportDialog
         open={importOpen}

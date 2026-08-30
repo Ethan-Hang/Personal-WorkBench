@@ -6,11 +6,16 @@ import {
   annotationAnchorSchema,
   assetLocationViewSchema,
   createAnnotationInputSchema,
+  createEvidenceInputSchema,
+  createNoteInputSchema,
+  evidenceSchema,
+  evidenceSourceSnapshotSchema,
   importItemViewSchema,
   metadataAssertionViewSchema,
   ocrJobSchema,
   pageTextSearchResponseSchema,
   readerManifestSchema,
+  researchNoteSchema,
   readingContextCatalogSchema,
   saveReaderStateInputSchema,
   startOcrInputSchema,
@@ -47,6 +52,85 @@ describe('research contract', () => {
     expect(RESEARCH_API_V1.annotatedExportJob('export-1')).toBe(
       '/api/research/v1/annotated-exports/export-1',
     );
+    expect(RESEARCH_API_V1.knowledgeSummary).toBe('/api/research/v1/knowledge/summary');
+    expect(RESEARCH_API_V1.note('note-1')).toBe('/api/research/v1/notes/note-1');
+    expect(RESEARCH_API_V1.evidenceRebind('evidence-1')).toBe(
+      '/api/research/v1/evidence/evidence-1/rebind',
+    );
+  });
+
+  it('知识对象保留通用上下文和不可变来源快照', () => {
+    const sourceSnapshot = evidenceSourceSnapshotSchema.parse({
+      workId: 'work-1',
+      editionId: 'edition-1',
+      assetId: 'asset-1',
+      annotationId: 'annotation-1',
+      contextId: null,
+      pageNumber: 4,
+      anchor: {
+        pageNumber: 4,
+        pageSize: { width: 612, height: 792 },
+        rect: { x: 10, y: 20, width: 30, height: 12 },
+        quads: [],
+        textQuote: {
+          exact: 'evidence text',
+          prefix: 'before',
+          suffix: 'after',
+          fingerprint: 'b'.repeat(64),
+        },
+        assetHash: 'a'.repeat(64),
+        editionId: 'edition-1',
+      },
+      sourceKind: 'pdf',
+      annotationRevision: 1,
+      assetHash: 'a'.repeat(64),
+      workTitle: 'Research Workbench',
+      editionTitle: 'Journal edition',
+      ocr: null,
+      extractedAt: instant,
+    });
+
+    expect(createNoteInputSchema.parse({ title: 'Methods' })).toEqual({
+      contextId: null,
+      title: 'Methods',
+      body: '',
+    });
+    expect(
+      createEvidenceInputSchema.parse({ annotationId: 'annotation-1', sourceKind: 'pdf' }),
+    ).toMatchObject({ contextId: null, title: null, summary: '', notes: null });
+    expect(
+      researchNoteSchema.parse({
+        id: 'note-1',
+        contextId: null,
+        title: 'Methods',
+        body: '',
+        status: 'active',
+        revision: 1,
+        createdAt: instant,
+        updatedAt: instant,
+        deletedAt: null,
+      }),
+    ).toMatchObject({ contextId: null, revision: 1 });
+    expect(
+      evidenceSchema.parse({
+        id: 'evidence-1',
+        contextId: null,
+        workId: 'work-1',
+        editionId: 'edition-1',
+        assetId: 'asset-1',
+        annotationId: 'annotation-1',
+        sourceSnapshot,
+        sourceState: 'current',
+        title: null,
+        summary: '',
+        notes: null,
+        status: 'active',
+        revision: 1,
+        createdAt: instant,
+        updatedAt: instant,
+        deletedAt: null,
+      }),
+    ).toMatchObject({ sourceSnapshot: { contextId: null, annotationRevision: 1 } });
   });
 
   it('批注契约显式区分通用层并保留跨版本锚点', () => {

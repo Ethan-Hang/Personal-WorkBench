@@ -1,17 +1,19 @@
 import type { AnnotationKind } from '../../../contract.js';
 
-export type ReaderAnnotationTool = 'cursor' | AnnotationKind;
+export type ReaderAnnotationTool = 'cursor' | AnnotationKind | 'evidence-text' | 'evidence-area';
 
 export function isTextAnnotationTool(
   tool: ReaderAnnotationTool,
-): tool is 'highlight' | 'underline' | 'strikeout' {
-  return tool === 'highlight' || tool === 'underline' || tool === 'strikeout';
+): tool is 'highlight' | 'underline' | 'strikeout' | 'evidence-text' {
+  return (
+    tool === 'highlight' || tool === 'underline' || tool === 'strikeout' || tool === 'evidence-text'
+  );
 }
 
 export function isPointerAnnotationTool(
   tool: ReaderAnnotationTool,
-): tool is 'area' | 'note' | 'bookmark' {
-  return tool === 'area' || tool === 'note' || tool === 'bookmark';
+): tool is 'area' | 'note' | 'bookmark' | 'evidence-area' {
+  return tool === 'area' || tool === 'note' || tool === 'bookmark' || tool === 'evidence-area';
 }
 
 const KEY_TO_TOOL: Record<string, ReaderAnnotationTool> = {
@@ -22,6 +24,8 @@ const KEY_TO_TOOL: Record<string, ReaderAnnotationTool> = {
   a: 'area',
   n: 'note',
   b: 'bookmark',
+  e: 'evidence-text',
+  g: 'evidence-area',
   escape: 'cursor',
 };
 

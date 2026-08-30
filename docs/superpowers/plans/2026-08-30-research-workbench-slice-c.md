@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §11.2、§16“切片 C”、§17.8–§17.9。
 
-**Status:** 待用户确认。确认前不创建迁移、不修改产品代码。
+**Status:** 已确认，实施中。C1 已完成，下一步进入 C2。
 
 ## 执行方式
 
@@ -217,12 +217,12 @@ source-unavailable
 
 **提交：** `feat(research): add knowledge source domain`
 
-- [ ] 在 `contract.ts` 增加知识 API、上下文引用、笔记、证据、来源快照、来源状态、revision、关系和分页 schema。
-- [ ] `0006` 建立 C1 表、显式外键、唯一约束、状态 `CHECK`、revision 约束、搜索内容表和 FTS5 同步触发器。
-- [ ] `schema.ts` 与实际迁移保持一致；迁移重跑幂等，现有 A/B 数据不需回填伪造证据。
-- [ ] 定义窄 `KnowledgeRepository`，把事务级“创建批注并创建证据”作为一个领域操作。
-- [ ] 实现独立 `SqliteKnowledgeRepository(getSqlite, clock)`，测试账号连接切换、通用层 `NULL`、上下文归档拒绝和 revision 冲突。
-- [ ] 更新 boundary 测试，确认 `knowledge/**` 不依赖 SQLite/Drizzle/data，存储实现不泄露到服务或 UI。
+- [x] 在 `contract.ts` 增加知识 API、上下文引用、笔记、证据、来源快照、来源状态、revision、关系和分页 schema。
+- [x] `0006` 建立 C1 表、显式外键、唯一约束、状态 `CHECK`、revision 约束、搜索内容表和 FTS5 同步触发器。
+- [x] `schema.ts` 与实际迁移保持一致；迁移重跑幂等，现有 A/B 数据不需回填伪造证据。
+- [x] 定义窄 `KnowledgeRepository`，把事务级“创建批注并创建证据”作为一个领域操作。
+- [x] 实现独立 `SqliteKnowledgeRepository(getSqlite, clock)`，测试账号连接切换、通用层 `NULL`、上下文归档拒绝和 revision 冲突。
+- [x] 更新 boundary 测试，确认 `knowledge/**` 不依赖 SQLite/Drizzle/data，存储实现不泄露到服务或 UI。
 
 **验证：**
 
@@ -235,12 +235,12 @@ npm run typecheck
 
 **提交：** `feat(research): create traceable evidence`
 
-- [ ] `ResearchKnowledgeService` 实现笔记创建/更新/删除/恢复、资源链接和证据列表/详情。
-- [ ] 支持从现有批注提炼证据；验证 Annotation、Asset、Edition、Work 和上下文的当前关系后生成服务器端来源快照。
-- [ ] 支持文本、区域、图表、书签和 OCR 来源；文本保留 exact/prefix/suffix/fingerprint，非文本来源要求证据说明。
-- [ ] 直接提炼在一个事务中创建正常批注与证据；失败注入测试确认不存在孤立批注或半条证据。
-- [ ] `knowledge-routes.ts` 注册笔记和证据 API，统一稳定错误码、Zod 校验和 revision 冲突响应。
-- [ ] 来源回跳响应只返回 Asset、页码、anchor、上下文和当前状态，不返回磁盘路径；阅读器深链接使用稳定查询参数。
+- [x] `ResearchKnowledgeService` 实现笔记创建/更新/删除/恢复、资源链接和证据列表/详情。
+- [x] 支持从现有批注提炼证据；验证 Annotation、Asset、Edition、Work 和上下文的当前关系后生成服务器端来源快照。
+- [x] 支持文本、区域、图表、书签和 OCR 来源；文本保留 exact/prefix/suffix/fingerprint，非文本来源要求证据说明。
+- [x] 直接提炼在一个事务中创建正常批注与证据；失败注入测试确认不存在孤立批注或半条证据。
+- [x] `knowledge-routes.ts` 注册笔记和证据 API，统一稳定错误码、Zod 校验和 revision 冲突响应。
+- [x] 来源回跳响应只返回 Asset、页码、anchor、上下文和当前状态，不返回磁盘路径；阅读器深链接使用稳定查询参数。
 
 **验证：**
 
@@ -252,12 +252,12 @@ npx vitest run modules/research/src/knowledge/service.test.ts modules/research/s
 
 **提交：** `feat(research): preserve evidence provenance`
 
-- [ ] `source-state.ts` 计算五种来源状态和严重度，覆盖批注 revision、tombstone、Asset hash、位置可用性和 OCR 版本。
-- [ ] 证据重新绑定先返回旧快照、新来源和差异预览；确认时要求证据与目标批注 revision，写 revision 后更新当前来源。
-- [ ] 扩展上下文归档预览。含 C 数据时 `keep-archived` 冻结整套知识；迁移策略在同一事务移动批注与当前知识归属。
-- [ ] 扩展作品、附件和 Asset 永久删除预览，把有效证据列入影响并由 Repository 二次检查阻止竞态删除。
-- [ ] 作品合并与撤销在原事务中更新/恢复证据当前 Work，来源快照保持原 ID。
-- [ ] 测试 Work 回收、恢复、合并、撤销、附件移除、上下文归档/迁移和并发状态变化。
+- [x] `source-state.ts` 计算五种来源状态和严重度，覆盖批注 revision、tombstone、Asset hash、位置可用性和 OCR 版本。
+- [x] 证据重新绑定先返回旧快照、新来源和差异预览；确认时要求证据与目标批注 revision，写 revision 后更新当前来源。
+- [x] 扩展上下文归档预览。含 C 数据时 `keep-archived` 冻结整套知识；迁移策略在同一事务移动批注与当前知识归属。
+- [x] 扩展作品、附件和 Asset 永久删除预览，把有效证据列入影响并由 Repository 二次检查阻止竞态删除。
+- [x] 作品合并与撤销在原事务中更新/恢复证据当前 Work，来源快照保持原 ID。
+- [x] 测试 Work 回收、恢复、合并、撤销、附件移除、上下文归档/迁移和并发状态变化。
 
 **验证：**
 
@@ -269,12 +269,12 @@ npx vitest run modules/research/src/knowledge/source-state.test.ts modules/resea
 
 **提交：** `feat(research): open evidence workspace`
 
-- [ ] 加入 Research 内部“文献库 / 研究知识”导航和懒加载 `/research/knowledge` 路由，不增加 WorkBench 顶层模块。
-- [ ] 阅读器从已有批注创建证据，也可把当前文本选择或区域直接交给 Evidence Composer；提交期间锁定来源上下文和 anchor。
-- [ ] 阅读器显示创建结果和来源状态；从知识页回跳时打开正确 Asset、页码、上下文和批注，缩放/旋转后仍按 PDF 坐标定位。
-- [ ] 知识页首版完成上下文切换、笔记列表/编辑、证据箱、来源状态、删除恢复和来源预览。
-- [ ] 通用证据在命名上下文中复用时只创建关系；UI 显示来源上下文，不复制证据卡片。
-- [ ] 390 像素使用抽屉和单列编辑；键盘焦点不被 PDF 文本层或浮层截断。
+- [x] 加入 Research 内部“文献库 / 研究知识”导航和懒加载 `/research/knowledge` 路由，不增加 WorkBench 顶层模块。
+- [x] 阅读器从已有批注创建证据，也可把当前文本选择或区域直接交给 Evidence Composer；提交期间锁定来源上下文和 anchor。
+- [x] 阅读器显示创建结果和来源状态；从知识页回跳时打开正确 Asset、页码、上下文和批注，缩放/旋转后仍按 PDF 坐标定位。
+- [x] 知识页首版完成上下文切换、笔记列表/编辑、证据箱、来源状态、删除恢复和来源预览。
+- [x] 通用证据在命名上下文中复用时只创建关系；UI 显示来源上下文，不复制证据卡片。
+- [x] 390 像素使用抽屉和单列编辑；键盘焦点不被 PDF 文本层或浮层截断。
 
 **验证：**
 
@@ -290,11 +290,11 @@ npm run dev
 
 **提交：** `test(research): verify evidence milestone`
 
-- [ ] 自动覆盖设计 C-01、C-02、C-03、C-06、C-07 的服务、SQLite 和 API 证据。
-- [ ] 使用生成 PDF 文本层、区域锚点和 OCR 代理完成真实浏览器创建与回跳；不需要私有 PDF 才能验收。
-- [ ] 四种宽度分别使用全新状态截图，覆盖空证据、长文本、来源修订、来源删除、Asset 不匹配和来源不可用。
-- [ ] 运行迁移重跑、`foreign_key_check`、`integrity_check`、FTS 对账和临时产物检查。
-- [ ] 更新本计划的真实命令、平台、浏览器和验收结果；执行 `git fetch origin --prune`。
+- [x] 自动覆盖设计 C-01、C-02、C-03、C-06、C-07 的服务、SQLite 和 API 证据。
+- [x] 使用生成 PDF 文本层、区域锚点和 OCR 代理完成真实浏览器创建与回跳；不需要私有 PDF 才能验收。
+- [x] 四种宽度分别使用全新状态截图，覆盖空证据、长文本、来源修订、来源删除、Asset 不匹配和来源不可用。
+- [x] 运行迁移重跑、`foreign_key_check`、`integrity_check`、FTS 对账和临时产物检查。
+- [x] 更新本计划的真实命令、平台、浏览器和验收结果；执行 `git fetch origin --prune`。
 
 **验证：**
 
@@ -302,6 +302,13 @@ npm run dev
 node scripts/research-knowledge-compat.mjs --phase c1 --browser
 npm run check
 ```
+
+**阶段记录（2026-08-30，macOS）：** `research-knowledge-compat.mjs --phase c1 --browser`
+在 Apple M3、24 GiB、APFS、Node.js 25.1.0 和 Microsoft Edge 152.0.4191.53 下通过。
+C1 模块集 35 项测试通过；浏览器用生成 PDF 实际创建文字、区域和 OCR 三类证据，完成笔记关系与来源回跳，
+并用全新 profile 生成 1440、1024、768、390 四宽度和 390 空状态截图。整仓 1531 项测试通过、
+4 项按原条件跳过。迁移重跑、外键、SQLite 完整性、FTS 对账和临时数据清理通过；私有 PDF 不参与验收。
+Windows 11 x64 的 C1 领域与 UI 模块保持 `not-run`，运行同一命令后再更新平台结论。
 
 ## C2：观点与对照
 
