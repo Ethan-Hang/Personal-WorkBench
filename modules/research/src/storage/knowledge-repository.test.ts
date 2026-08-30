@@ -360,7 +360,7 @@ describe('SqliteKnowledgeRepository', () => {
     }
   });
 
-  it('作品合并和撤销只迁移证据当前 Work，来源快照保留原 ID', async () => {
+  it('作品合并和撤销迁移证据当前 Work，并无损合并重复矩阵列', async () => {
     const database = makeResearchDatabase(() => instant);
     try {
       seedPaper(database.sqlite);
@@ -432,6 +432,54 @@ describe('SqliteKnowledgeRepository', () => {
         summary: 'Evidence on merged work',
         notes: null,
       });
+      await database.knowledgeRepo.createMatrix({
+        id: 'matrix-merge',
+        contextId: null,
+        title: 'Merge matrix',
+        description: null,
+      });
+      await database.knowledgeRepo.updateMatrixStructure('matrix-merge', {
+        expectedStructureRevision: 1,
+        revisionId: 'matrix-structure-1',
+        columns: [
+          { id: 'column-survivor', workId: 'work-1', position: 0 },
+          { id: 'column-merged', workId: 'work-2', position: 1 },
+        ],
+        rows: [
+          {
+            id: 'row-dimension',
+            kind: 'dimension',
+            claimId: null,
+            title: 'Outcome',
+            question: null,
+            position: 0,
+          },
+        ],
+      });
+      await database.knowledgeRepo.createMatrixCell({
+        id: 'cell-survivor',
+        matrixId: 'matrix-merge',
+        rowId: 'row-dimension',
+        columnId: 'column-survivor',
+        synthesis: '',
+      });
+      await database.knowledgeRepo.createMatrixCell({
+        id: 'cell-merged',
+        matrixId: 'matrix-merge',
+        rowId: 'row-dimension',
+        columnId: 'column-merged',
+        synthesis: 'Merged paper result',
+      });
+      await database.knowledgeRepo.createMatrixCellEvidence({
+        id: 'cell-evidence-merged',
+        cellId: 'cell-merged',
+        evidenceId: 'evidence-merged',
+      });
+      await expect(database.repo.getWorkMergeMatrixImpact('work-1', 'work-2')).resolves.toEqual({
+        affectedMatrixCount: 1,
+        duplicateColumnCount: 1,
+        conflicts: [],
+      });
 
       const record = await database.repo.mergeWorks({
         id: 'merge-1',
@@ -461,6 +509,24 @@ describe('SqliteKnowledgeRepository', () => {
         revision: 2,
         sourceSnapshot: { workId: 'work-2' },
       });
+      await expect(database.knowledgeRepo.getMatrix('matrix-merge', true)).resolves.toMatchObject({
+        structureRevision: 3,
+        columns: [
+          { id: 'column-survivor', workId: 'work-1', status: 'active' },
+          { id: 'column-merged', workId: 'work-2', status: 'deleted' },
+        ],
+      });
+      await expect(database.knowledgeRepo.getMatrixCell('cell-survivor')).resolves.toMatchObject({
+        synthesis: 'Merged paper result',
+        selectedEvidenceCount: 1,
+        reviewState: 'needs-review',
+      });
+      await expect(database.knowledgeRepo.getMatrixCell('cell-merged')).resolves.toMatchObject({
+        status: 'deleted',
+      });
+      await expect(
+        database.knowledgeRepo.getMatrixCellEvidence('cell-evidence-merged'),
+      ).resolves.toMatchObject({ cellId: 'cell-survivor', status: 'active' });
 
       await expect(database.repo.revertMerge('merge-1')).resolves.toMatchObject({
         status: 'reverted',
@@ -470,6 +536,26 @@ describe('SqliteKnowledgeRepository', () => {
         revision: 3,
         sourceSnapshot: { workId: 'work-2' },
       });
+      await expect(database.knowledgeRepo.getMatrix('matrix-merge', false)).resolves.toMatchObject({
+        structureRevision: 4,
+        columns: [
+          { id: 'column-survivor', workId: 'work-1', status: 'active' },
+          { id: 'column-merged', workId: 'work-2', status: 'active' },
+        ],
+      });
+      await expect(database.knowledgeRepo.getMatrixCell('cell-survivor')).resolves.toMatchObject({
+        synthesis: '',
+        selectedEvidenceCount: 0,
+        status: 'active',
+      });
+      await expect(database.knowledgeRepo.getMatrixCell('cell-merged')).resolves.toMatchObject({
+        synthesis: 'Merged paper result',
+        selectedEvidenceCount: 1,
+        status: 'active',
+      });
+      await expect(
+        database.knowledgeRepo.getMatrixCellEvidence('cell-evidence-merged'),
+      ).resolves.toMatchObject({ cellId: 'cell-merged', status: 'active' });
       expect(
         database.sqlite
           .prepare(

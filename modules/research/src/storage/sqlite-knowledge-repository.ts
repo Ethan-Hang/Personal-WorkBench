@@ -1,12 +1,25 @@
 import type Database from 'better-sqlite3';
 import {
   evidenceSourceSnapshotSchema,
+  matrixReviewBaselineSchema,
   type Annotation,
+  type Claim,
+  type ClaimEvidence,
+  type ComparisonMatrix,
   type Evidence,
   type EvidenceSourceState,
   type KnowledgeBasicStatus,
+  type KnowledgeEntityType,
   type KnowledgeRevision,
   type KnowledgeRevisionReason,
+  type MatrixCandidates,
+  type MatrixCell,
+  type MatrixCellEvidence,
+  type MatrixCellWindow,
+  type MatrixColumn,
+  type MatrixDetail,
+  type MatrixReviewBaseline,
+  type MatrixRow,
   type NoteLink,
   type ResearchNote,
 } from '../contract.js';
@@ -17,6 +30,18 @@ import type {
   EvidenceDraft,
   EvidenceListQuery,
   EvidenceRebindChanges,
+  ClaimChanges,
+  ClaimDraft,
+  ClaimEvidenceChanges,
+  ClaimEvidenceDraft,
+  ClaimListQuery,
+  MatrixCellChanges,
+  MatrixCellDraft,
+  MatrixCellEvidenceDraft,
+  MatrixChanges,
+  MatrixDraft,
+  MatrixListQuery,
+  MatrixStructureDraft,
   KnowledgeChangeResult,
   KnowledgeCreateResult,
   KnowledgeListQuery,
@@ -66,6 +91,109 @@ function toResearchNote(row: Row): ResearchNote {
     contextId: nullableText(row, 'context_id'),
     title: requiredText(row, 'title'),
     body: requiredText(row, 'body'),
+    status: requiredText(row, 'status') as KnowledgeBasicStatus,
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+}
+
+function toClaim(row: Row): Claim {
+  return {
+    id: requiredText(row, 'id'),
+    contextId: nullableText(row, 'context_id'),
+    statement: requiredText(row, 'statement'),
+    rationale: nullableText(row, 'rationale'),
+    status: requiredText(row, 'status') as Claim['status'],
+    evidenceCount: requiredNumber(row, 'evidence_count'),
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    archivedAt: nullableText(row, 'archived_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+}
+
+function toClaimEvidence(row: Row): ClaimEvidence {
+  return {
+    id: requiredText(row, 'id'),
+    claimId: requiredText(row, 'claim_id'),
+    evidenceId: requiredText(row, 'evidence_id'),
+    relation: requiredText(row, 'relation') as ClaimEvidence['relation'],
+    note: nullableText(row, 'note'),
+    status: requiredText(row, 'status') as KnowledgeBasicStatus,
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+}
+
+function toComparisonMatrix(row: Row): ComparisonMatrix {
+  return {
+    id: requiredText(row, 'id'),
+    contextId: nullableText(row, 'context_id'),
+    title: requiredText(row, 'title'),
+    description: nullableText(row, 'description'),
+    status: requiredText(row, 'status') as ComparisonMatrix['status'],
+    structureRevision: requiredNumber(row, 'structure_revision'),
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    archivedAt: nullableText(row, 'archived_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+}
+
+function toMatrixColumn(row: Row): MatrixColumn {
+  return {
+    id: requiredText(row, 'id'),
+    matrixId: requiredText(row, 'matrix_id'),
+    workId: requiredText(row, 'work_id'),
+    workTitle: requiredText(row, 'work_title'),
+    position: requiredNumber(row, 'position'),
+    status: requiredText(row, 'status') as KnowledgeBasicStatus,
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+}
+
+function toMatrixRow(row: Row): MatrixRow {
+  const base = {
+    id: requiredText(row, 'id'),
+    matrixId: requiredText(row, 'matrix_id'),
+    position: requiredNumber(row, 'position'),
+    status: requiredText(row, 'status') as KnowledgeBasicStatus,
+    revision: requiredNumber(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  };
+  return requiredText(row, 'kind') === 'claim'
+    ? {
+        ...base,
+        kind: 'claim',
+        claimId: requiredText(row, 'claim_id'),
+        title: null,
+        question: null,
+      }
+    : {
+        ...base,
+        kind: 'dimension',
+        claimId: null,
+        title: nullableText(row, 'title'),
+        question: nullableText(row, 'question'),
+      };
+}
+
+function toMatrixCellEvidence(row: Row): MatrixCellEvidence {
+  return {
+    id: requiredText(row, 'id'),
+    cellId: requiredText(row, 'cell_id'),
+    evidenceId: requiredText(row, 'evidence_id'),
     status: requiredText(row, 'status') as KnowledgeBasicStatus,
     revision: requiredNumber(row, 'revision'),
     createdAt: requiredText(row, 'created_at'),
@@ -142,11 +270,14 @@ function toNoteLink(row: Row): NoteLink {
   const workId = nullableText(row, 'work_id');
   const annotationId = nullableText(row, 'annotation_id');
   const evidenceId = nullableText(row, 'evidence_id');
+  const claimId = nullableText(row, 'claim_id');
   const target = workId
     ? ({ kind: 'work', workId } as const)
     : annotationId
       ? ({ kind: 'annotation', annotationId } as const)
-      : ({ kind: 'evidence', evidenceId: evidenceId ?? '' } as const);
+      : evidenceId
+        ? ({ kind: 'evidence', evidenceId } as const)
+        : ({ kind: 'claim', claimId: claimId ?? '' } as const);
   return {
     id: requiredText(row, 'id'),
     noteId: requiredText(row, 'note_id'),
@@ -369,13 +500,167 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
     return null;
   }
 
+  private contextChangeFailure<T>(state: ContextState): KnowledgeChangeResult<T> | null {
+    if (state === 'missing') return { kind: 'context-not-found' };
+    if (state === 'archived') return { kind: 'context-archived' };
+    return null;
+  }
+
   private getEvidenceSync(id: string): Evidence | null {
     const row = this.sqlite.prepare(`${evidenceSelect} WHERE e.id = ?`).get(id) as Row | undefined;
     return row ? toEvidence(row) : null;
   }
 
+  private getClaimSync(id: string): Claim | null {
+    const row = this.sqlite
+      .prepare(
+        `SELECT claim.*,
+                (SELECT COUNT(*) FROM research_claim_evidence relation
+                 WHERE relation.claim_id = claim.id AND relation.status = 'active') AS evidence_count
+         FROM research_claims claim WHERE claim.id = ?`,
+      )
+      .get(id) as Row | undefined;
+    return row ? toClaim(row) : null;
+  }
+
+  private getMatrixSync(id: string, includeDeletedStructure: boolean): MatrixDetail | null {
+    const row = this.sqlite.prepare('SELECT * FROM research_matrices WHERE id = ?').get(id) as
+      Row | undefined;
+    if (!row) return null;
+    const structureClause = includeDeletedStructure ? '' : "AND item.status = 'active'";
+    const columns = (
+      this.sqlite
+        .prepare(
+          `SELECT item.*, work.title AS work_title
+           FROM research_matrix_columns item
+           JOIN research_works work ON work.id = item.work_id
+           WHERE item.matrix_id = ? ${structureClause}
+           ORDER BY item.position, item.id`,
+        )
+        .all(id) as Row[]
+    ).map(toMatrixColumn);
+    const rows = (
+      this.sqlite
+        .prepare(
+          `SELECT item.* FROM research_matrix_rows item
+           WHERE item.matrix_id = ? ${structureClause}
+           ORDER BY item.position, item.id`,
+        )
+        .all(id) as Row[]
+    ).map(toMatrixRow);
+    return { ...toComparisonMatrix(row), columns, rows };
+  }
+
+  private matrixReviewBaseline(
+    rowId: string,
+    columnId: string,
+    cellId: string,
+  ): MatrixReviewBaseline {
+    const row = this.sqlite
+      .prepare('SELECT kind, claim_id FROM research_matrix_rows WHERE id = ?')
+      .get(rowId) as { kind: string; claim_id: string | null } | undefined;
+    const column = this.sqlite
+      .prepare('SELECT work_id FROM research_matrix_columns WHERE id = ?')
+      .get(columnId) as { work_id: string } | undefined;
+    if (!row || !column) throw new Error('Matrix cell structure could not be read');
+    const claim = row.claim_id ? this.getClaimSync(row.claim_id) : null;
+    const relationRows = row.claim_id
+      ? (this.sqlite
+          .prepare(
+            `SELECT relation.id, relation.revision, relation.relation, relation.evidence_id
+             FROM research_claim_evidence relation
+             JOIN research_evidence evidence ON evidence.id = relation.evidence_id
+             WHERE relation.claim_id = ? AND relation.status = 'active'
+               AND evidence.status = 'active' AND evidence.work_id = ?
+             ORDER BY relation.id`,
+          )
+          .all(row.claim_id, column.work_id) as Array<{
+          id: string;
+          revision: number;
+          relation: string;
+          evidence_id: string;
+        }>)
+      : [];
+    const candidateSignature = JSON.stringify(
+      relationRows.map((relation) => {
+        const evidence = this.getEvidenceSync(relation.evidence_id);
+        return [
+          relation.id,
+          relation.revision,
+          relation.relation,
+          relation.evidence_id,
+          evidence?.revision ?? null,
+          evidence?.sourceState ?? 'source-unavailable',
+        ];
+      }),
+    );
+    const evidence = (
+      this.sqlite
+        .prepare(
+          `SELECT evidence_id FROM research_matrix_cell_evidence
+           WHERE cell_id = ? AND status = 'active' ORDER BY evidence_id`,
+        )
+        .all(cellId) as Array<{ evidence_id: string }>
+    ).map((link) => {
+      const item = this.getEvidenceSync(link.evidence_id);
+      if (!item) throw new Error('Selected matrix evidence could not be read');
+      return { id: item.id, revision: item.revision, sourceState: item.sourceState };
+    });
+    return matrixReviewBaselineSchema.parse({
+      claimRevision: claim?.revision ?? null,
+      candidateSignature,
+      evidence,
+    });
+  }
+
+  private getMatrixCellSync(id: string): MatrixCell | null {
+    const row = this.sqlite
+      .prepare(
+        `SELECT cell.*,
+                (SELECT COUNT(*) FROM research_matrix_cell_evidence link
+                 WHERE link.cell_id = cell.id AND link.status = 'active') AS selected_evidence_count
+         FROM research_matrix_cells cell WHERE cell.id = ?`,
+      )
+      .get(id) as Row | undefined;
+    if (!row) return null;
+    const baselineJson = nullableText(row, 'review_baseline_json');
+    const reviewBaseline = baselineJson
+      ? matrixReviewBaselineSchema.parse(JSON.parse(baselineJson))
+      : null;
+    const selectedEvidenceCount = requiredNumber(row, 'selected_evidence_count');
+    const current = this.matrixReviewBaseline(
+      requiredText(row, 'row_id'),
+      requiredText(row, 'column_id'),
+      requiredText(row, 'id'),
+    );
+    const reviewState =
+      reviewBaseline === null
+        ? requiredText(row, 'synthesis').length === 0 && selectedEvidenceCount === 0
+          ? 'current'
+          : 'needs-review'
+        : JSON.stringify(reviewBaseline) === JSON.stringify(current)
+          ? 'current'
+          : 'needs-review';
+    return {
+      id: requiredText(row, 'id'),
+      matrixId: requiredText(row, 'matrix_id'),
+      rowId: requiredText(row, 'row_id'),
+      columnId: requiredText(row, 'column_id'),
+      synthesis: requiredText(row, 'synthesis'),
+      reviewBaseline,
+      reviewState,
+      selectedEvidenceCount,
+      status: requiredText(row, 'status') as KnowledgeBasicStatus,
+      revision: requiredNumber(row, 'revision'),
+      createdAt: requiredText(row, 'created_at'),
+      updatedAt: requiredText(row, 'updated_at'),
+      reviewedAt: nullableText(row, 'reviewed_at'),
+      deletedAt: nullableText(row, 'deleted_at'),
+    };
+  }
+
   private insertRevision(
-    entityType: 'note' | 'evidence' | 'note-link',
+    entityType: KnowledgeEntityType,
     entityId: string,
     revision: number,
     snapshot: unknown,
@@ -434,6 +719,27 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
       );
   }
 
+  private syncClaimSearch(claim: Claim): void {
+    this.sqlite
+      .prepare(
+        `INSERT INTO research_knowledge_search
+         (entity_type, entity_id, context_id, work_id, title, body, status, source_state, updated_at)
+         VALUES ('claim', ?, ?, NULL, ?, ?, ?, NULL, ?)
+         ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+           context_id = excluded.context_id, work_id = NULL, title = excluded.title,
+           body = excluded.body, status = excluded.status, source_state = NULL,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        claim.id,
+        claim.contextId,
+        claim.statement,
+        claim.rationale ?? '',
+        claim.status,
+        claim.updatedAt,
+      );
+  }
+
   private sourceMatches(draft: EvidenceDraft): boolean {
     const row = this.sqlite
       .prepare(
@@ -482,6 +788,13 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
         this.sqlite
           .prepare("SELECT 1 FROM research_annotations WHERE id = ? AND status <> 'deleted'")
           .get(target.annotationId),
+      );
+    }
+    if (target.kind === 'claim') {
+      return Boolean(
+        this.sqlite
+          .prepare("SELECT 1 FROM research_claims WHERE id = ? AND status <> 'deleted'")
+          .get(target.claimId),
       );
     }
     return Boolean(
@@ -957,6 +1270,1203 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
     })();
   }
 
+  async getClaim(id: string): Promise<Claim | null> {
+    return this.getClaimSync(id);
+  }
+
+  async listClaims(query: ClaimListQuery): Promise<KnowledgePage<Claim>> {
+    const clauses = ['claim.status = ?'];
+    const params: unknown[] = [query.status];
+    if ('contextId' in query) {
+      if (query.contextId === null) clauses.push('claim.context_id IS NULL');
+      else {
+        clauses.push('claim.context_id = ?');
+        params.push(query.contextId);
+      }
+    }
+    if (query.before) {
+      clauses.push('(claim.updated_at < ? OR (claim.updated_at = ? AND claim.id < ?))');
+      params.push(query.before.updatedAt, query.before.updatedAt, query.before.id);
+    }
+    params.push(query.limit + 1);
+    const rows = this.sqlite
+      .prepare(
+        `SELECT claim.*,
+                (SELECT COUNT(*) FROM research_claim_evidence relation
+                 WHERE relation.claim_id = claim.id AND relation.status = 'active') AS evidence_count
+         FROM research_claims claim WHERE ${clauses.join(' AND ')}
+         ORDER BY claim.updated_at DESC, claim.id DESC LIMIT ?`,
+      )
+      .all(...params) as Row[];
+    const items = rows.slice(0, query.limit).map(toClaim);
+    const last = items.at(-1);
+    return {
+      items,
+      next: rows.length > query.limit && last ? { updatedAt: last.updatedAt, id: last.id } : null,
+    };
+  }
+
+  async createClaim(draft: ClaimDraft): Promise<KnowledgeCreateResult<Claim>> {
+    const failure = this.contextFailure<Claim>(this.contextState(draft.contextId));
+    if (failure) return failure;
+    try {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_claims
+           (id, context_id, statement, rationale, status, status_before_delete, revision,
+            created_at, updated_at, archived_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, NULL)`,
+        )
+        .run(
+          draft.id,
+          draft.contextId,
+          draft.statement,
+          draft.rationale,
+          draft.status,
+          timestamp,
+          timestamp,
+          draft.status === 'archived' ? timestamp : null,
+        );
+      const claim = this.getClaimSync(draft.id);
+      if (!claim) throw new Error('Inserted claim could not be read');
+      this.syncClaimSearch(claim);
+      return { kind: 'created', value: claim };
+    } catch (error) {
+      if (isConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async updateClaim(id: string, changes: ClaimChanges): Promise<KnowledgeChangeResult<Claim>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<Claim> => {
+      const current = this.getClaimSync(id);
+      if (!current) return { kind: 'not-found' };
+      if (current.revision !== changes.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const currentContext = this.contextState(current.contextId);
+      if (currentContext === 'missing') return { kind: 'context-not-found' };
+      if (currentContext === 'archived') return { kind: 'context-archived' };
+      const context = this.contextState(changes.contextId);
+      if (context === 'missing') return { kind: 'context-not-found' };
+      if (context === 'archived') return { kind: 'context-archived' };
+      const timestamp = this.clock();
+      this.insertRevision(
+        'claim',
+        id,
+        current.revision,
+        current,
+        changes.status === 'archived' && current.status !== 'archived' ? 'archive' : 'update',
+        changes.revisionId,
+        timestamp,
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_claims SET context_id = ?, statement = ?, rationale = ?, status = ?,
+             archived_at = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND revision = ?`,
+        )
+        .run(
+          changes.contextId,
+          changes.statement,
+          changes.rationale,
+          changes.status,
+          changes.status === 'archived' ? (current.archivedAt ?? timestamp) : null,
+          timestamp,
+          id,
+          changes.expectedRevision,
+        );
+      const saved = this.getClaimSync(id);
+      if (!saved) throw new Error('Updated claim could not be read');
+      this.syncClaimSearch(saved);
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async deleteClaim(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<Claim>> {
+    return this.changeClaimDeletedState(id, draft, true);
+  }
+
+  async restoreClaim(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<Claim>> {
+    return this.changeClaimDeletedState(id, draft, false);
+  }
+
+  private changeClaimDeletedState(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+    deleting: boolean,
+  ): KnowledgeChangeResult<Claim> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<Claim> => {
+      const current = this.getClaimSync(id);
+      if (!current) return { kind: 'not-found' };
+      const wrongState = deleting ? current.status === 'deleted' : current.status !== 'deleted';
+      if (current.revision !== draft.expectedRevision || wrongState) {
+        return { kind: 'conflict', current };
+      }
+      const context = this.contextState(current.contextId);
+      if (context === 'missing') return { kind: 'context-not-found' };
+      if (context === 'archived') return { kind: 'context-archived' };
+      const timestamp = this.clock();
+      this.insertRevision(
+        'claim',
+        id,
+        current.revision,
+        current,
+        deleting ? 'delete' : 'restore',
+        draft.revisionId,
+        timestamp,
+      );
+      if (deleting) {
+        this.sqlite
+          .prepare(
+            `UPDATE research_claims SET status_before_delete = status, status = 'deleted',
+               deleted_at = ?, revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ?`,
+          )
+          .run(timestamp, timestamp, id, draft.expectedRevision);
+      } else {
+        this.sqlite
+          .prepare(
+            `UPDATE research_claims SET status = status_before_delete, status_before_delete = NULL,
+               deleted_at = NULL, revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ?`,
+          )
+          .run(timestamp, id, draft.expectedRevision);
+      }
+      const saved = this.getClaimSync(id);
+      if (!saved) throw new Error('Changed claim could not be read');
+      this.syncClaimSearch(saved);
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async listClaimEvidence(
+    claimId: string,
+    includeDeleted: boolean,
+  ): Promise<ClaimEvidence[] | null> {
+    if (!this.sqlite.prepare('SELECT 1 FROM research_claims WHERE id = ?').get(claimId))
+      return null;
+    return (
+      this.sqlite
+        .prepare(
+          `SELECT * FROM research_claim_evidence WHERE claim_id = ?
+           ${includeDeleted ? '' : "AND status = 'active'"}
+           ORDER BY updated_at DESC, id DESC`,
+        )
+        .all(claimId) as Row[]
+    ).map(toClaimEvidence);
+  }
+
+  async getClaimEvidence(id: string): Promise<ClaimEvidence | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_claim_evidence WHERE id = ?')
+      .get(id) as Row | undefined;
+    return row ? toClaimEvidence(row) : null;
+  }
+
+  async createClaimEvidence(
+    draft: ClaimEvidenceDraft,
+  ): Promise<KnowledgeCreateResult<ClaimEvidence>> {
+    const claim = this.getClaimSync(draft.claimId);
+    if (!claim || claim.status === 'deleted') return { kind: 'source-not-found' };
+    const contextFailure = this.contextFailure<ClaimEvidence>(this.contextState(claim.contextId));
+    if (contextFailure) return contextFailure;
+    const evidence = this.getEvidenceSync(draft.evidenceId);
+    if (!evidence || evidence.status === 'deleted') return { kind: 'source-not-found' };
+    try {
+      const timestamp = this.clock();
+      const row = this.sqlite
+        .prepare(
+          `INSERT INTO research_claim_evidence
+           (id, claim_id, evidence_id, relation, note, status, revision, created_at, updated_at,
+            deleted_at)
+           VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?, NULL) RETURNING *`,
+        )
+        .get(
+          draft.id,
+          draft.claimId,
+          draft.evidenceId,
+          draft.relation,
+          draft.note,
+          timestamp,
+          timestamp,
+        ) as Row;
+      return { kind: 'created', value: toClaimEvidence(row) };
+    } catch (error) {
+      if (isConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async updateClaimEvidence(
+    id: string,
+    changes: ClaimEvidenceChanges,
+  ): Promise<KnowledgeChangeResult<ClaimEvidence>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<ClaimEvidence> => {
+      const row = this.sqlite
+        .prepare('SELECT * FROM research_claim_evidence WHERE id = ?')
+        .get(id) as Row | undefined;
+      if (!row) return { kind: 'not-found' };
+      const current = toClaimEvidence(row);
+      if (current.revision !== changes.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const claim = this.getClaimSync(current.claimId);
+      if (!claim || claim.status === 'deleted') return { kind: 'source-not-found' };
+      const contextFailure = this.contextChangeFailure<ClaimEvidence>(
+        this.contextState(claim.contextId),
+      );
+      if (contextFailure) return contextFailure;
+      const evidence = this.getEvidenceSync(current.evidenceId);
+      if (!evidence || evidence.status === 'deleted') return { kind: 'source-not-found' };
+      const timestamp = this.clock();
+      this.insertRevision(
+        'claim-evidence',
+        id,
+        current.revision,
+        current,
+        'update',
+        changes.revisionId,
+        timestamp,
+      );
+      const saved = this.sqlite
+        .prepare(
+          `UPDATE research_claim_evidence SET relation = ?, note = ?, revision = revision + 1,
+             updated_at = ? WHERE id = ? AND revision = ? RETURNING *`,
+        )
+        .get(changes.relation, changes.note, timestamp, id, changes.expectedRevision) as Row;
+      return { kind: 'saved', value: toClaimEvidence(saved) };
+    })();
+  }
+
+  async deleteClaimEvidence(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<ClaimEvidence>> {
+    return this.changeClaimEvidenceStatus(id, draft, 'deleted');
+  }
+
+  async restoreClaimEvidence(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<ClaimEvidence>> {
+    return this.changeClaimEvidenceStatus(id, draft, 'active');
+  }
+
+  private changeClaimEvidenceStatus(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+    status: KnowledgeBasicStatus,
+  ): KnowledgeChangeResult<ClaimEvidence> {
+    try {
+      return this.sqlite.transaction((): KnowledgeChangeResult<ClaimEvidence> => {
+        const row = this.sqlite
+          .prepare('SELECT * FROM research_claim_evidence WHERE id = ?')
+          .get(id) as Row | undefined;
+        if (!row) return { kind: 'not-found' };
+        const current = toClaimEvidence(row);
+        const wrongState =
+          status === 'deleted' ? current.status === 'deleted' : current.status !== 'deleted';
+        if (current.revision !== draft.expectedRevision || wrongState) {
+          return { kind: 'conflict', current };
+        }
+        const claim = this.getClaimSync(current.claimId);
+        if (!claim || claim.status === 'deleted') return { kind: 'source-not-found' };
+        const contextFailure = this.contextChangeFailure<ClaimEvidence>(
+          this.contextState(claim.contextId),
+        );
+        if (contextFailure) return contextFailure;
+        if (status === 'active') {
+          const evidence = this.getEvidenceSync(current.evidenceId);
+          if (!evidence || evidence.status === 'deleted') return { kind: 'source-not-found' };
+        }
+        const timestamp = this.clock();
+        this.insertRevision(
+          'claim-evidence',
+          id,
+          current.revision,
+          current,
+          status === 'deleted' ? 'unlink' : 'link',
+          draft.revisionId,
+          timestamp,
+        );
+        const saved = this.sqlite
+          .prepare(
+            `UPDATE research_claim_evidence SET status = ?, deleted_at = ?,
+               revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ? RETURNING *`,
+          )
+          .get(
+            status,
+            status === 'deleted' ? timestamp : null,
+            timestamp,
+            id,
+            draft.expectedRevision,
+          ) as Row;
+        return { kind: 'saved', value: toClaimEvidence(saved) };
+      })();
+    } catch (error) {
+      if (isConstraintError(error)) {
+        const current = this.sqlite
+          .prepare('SELECT * FROM research_claim_evidence WHERE id = ?')
+          .get(id) as Row | undefined;
+        return current
+          ? { kind: 'conflict', current: toClaimEvidence(current) }
+          : { kind: 'not-found' };
+      }
+      throw error;
+    }
+  }
+
+  async getMatrix(id: string, includeDeletedStructure: boolean): Promise<MatrixDetail | null> {
+    return this.getMatrixSync(id, includeDeletedStructure);
+  }
+
+  async listMatrices(query: MatrixListQuery): Promise<KnowledgePage<ComparisonMatrix>> {
+    const clauses = ['status = ?'];
+    const params: unknown[] = [query.status];
+    if ('contextId' in query) {
+      if (query.contextId === null) clauses.push('context_id IS NULL');
+      else {
+        clauses.push('context_id = ?');
+        params.push(query.contextId);
+      }
+    }
+    if (query.before) {
+      clauses.push('(updated_at < ? OR (updated_at = ? AND id < ?))');
+      params.push(query.before.updatedAt, query.before.updatedAt, query.before.id);
+    }
+    params.push(query.limit + 1);
+    const rows = this.sqlite
+      .prepare(
+        `SELECT * FROM research_matrices WHERE ${clauses.join(' AND ')}
+         ORDER BY updated_at DESC, id DESC LIMIT ?`,
+      )
+      .all(...params) as Row[];
+    const items = rows.slice(0, query.limit).map(toComparisonMatrix);
+    const last = items.at(-1);
+    return {
+      items,
+      next: rows.length > query.limit && last ? { updatedAt: last.updatedAt, id: last.id } : null,
+    };
+  }
+
+  async createMatrix(draft: MatrixDraft): Promise<KnowledgeCreateResult<MatrixDetail>> {
+    const failure = this.contextFailure<MatrixDetail>(this.contextState(draft.contextId));
+    if (failure) return failure;
+    try {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_matrices
+           (id, context_id, title, description, status, status_before_delete,
+            structure_revision, revision, created_at, updated_at, archived_at, deleted_at)
+           VALUES (?, ?, ?, ?, 'active', NULL, 1, 1, ?, ?, NULL, NULL)`,
+        )
+        .run(draft.id, draft.contextId, draft.title, draft.description, timestamp, timestamp);
+      const matrix = this.getMatrixSync(draft.id, false);
+      if (!matrix) throw new Error('Inserted matrix could not be read');
+      return { kind: 'created', value: matrix };
+    } catch (error) {
+      if (isConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async updateMatrix(
+    id: string,
+    changes: MatrixChanges,
+  ): Promise<KnowledgeChangeResult<MatrixDetail>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<MatrixDetail> => {
+      const current = this.getMatrixSync(id, false);
+      if (!current) return { kind: 'not-found' };
+      if (current.revision !== changes.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const currentContext = this.contextState(current.contextId);
+      if (currentContext === 'missing') return { kind: 'context-not-found' };
+      if (currentContext === 'archived') return { kind: 'context-archived' };
+      const context = this.contextState(changes.contextId);
+      if (context === 'missing') return { kind: 'context-not-found' };
+      if (context === 'archived') return { kind: 'context-archived' };
+      const timestamp = this.clock();
+      const reason =
+        changes.status === current.status
+          ? 'update'
+          : changes.status === 'archived'
+            ? 'archive'
+            : 'restore';
+      this.insertRevision(
+        'matrix',
+        id,
+        current.revision,
+        current,
+        reason,
+        changes.revisionId,
+        timestamp,
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_matrices SET context_id = ?, title = ?, description = ?, status = ?,
+             archived_at = ?, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND revision = ?`,
+        )
+        .run(
+          changes.contextId,
+          changes.title,
+          changes.description,
+          changes.status,
+          changes.status === 'archived' ? (current.archivedAt ?? timestamp) : null,
+          timestamp,
+          id,
+          changes.expectedRevision,
+        );
+      const saved = this.getMatrixSync(id, false);
+      if (!saved) throw new Error('Updated matrix could not be read');
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async deleteMatrix(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixDetail>> {
+    return this.changeMatrixDeletedState(id, draft, true);
+  }
+
+  async restoreMatrix(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixDetail>> {
+    return this.changeMatrixDeletedState(id, draft, false);
+  }
+
+  private changeMatrixDeletedState(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+    deleting: boolean,
+  ): KnowledgeChangeResult<MatrixDetail> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<MatrixDetail> => {
+      const current = this.getMatrixSync(id, false);
+      if (!current) return { kind: 'not-found' };
+      const wrongState = deleting ? current.status === 'deleted' : current.status !== 'deleted';
+      if (current.revision !== draft.expectedRevision || wrongState) {
+        return { kind: 'conflict', current };
+      }
+      const context = this.contextState(current.contextId);
+      if (context === 'missing') return { kind: 'context-not-found' };
+      if (context === 'archived') return { kind: 'context-archived' };
+      const timestamp = this.clock();
+      this.insertRevision(
+        'matrix',
+        id,
+        current.revision,
+        current,
+        deleting ? 'delete' : 'restore',
+        draft.revisionId,
+        timestamp,
+      );
+      if (deleting) {
+        this.sqlite
+          .prepare(
+            `UPDATE research_matrices SET status_before_delete = status, status = 'deleted',
+               deleted_at = ?, revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ?`,
+          )
+          .run(timestamp, timestamp, id, draft.expectedRevision);
+      } else {
+        this.sqlite
+          .prepare(
+            `UPDATE research_matrices SET status = status_before_delete,
+               status_before_delete = NULL, deleted_at = NULL, revision = revision + 1,
+               updated_at = ? WHERE id = ? AND revision = ?`,
+          )
+          .run(timestamp, id, draft.expectedRevision);
+      }
+      const saved = this.getMatrixSync(id, false);
+      if (!saved) throw new Error('Changed matrix could not be read');
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async updateMatrixStructure(
+    id: string,
+    draft: MatrixStructureDraft,
+  ): Promise<KnowledgeChangeResult<MatrixDetail>> {
+    try {
+      return this.sqlite.transaction((): KnowledgeChangeResult<MatrixDetail> => {
+        const current = this.getMatrixSync(id, false);
+        if (!current) return { kind: 'not-found' };
+        if (
+          current.structureRevision !== draft.expectedStructureRevision ||
+          current.status !== 'active'
+        ) {
+          return { kind: 'conflict', current };
+        }
+        const contextFailure = this.contextChangeFailure<MatrixDetail>(
+          this.contextState(current.contextId),
+        );
+        if (contextFailure) return contextFailure;
+        const positionsAreContiguous = (positions: number[]) =>
+          [...positions]
+            .sort((left, right) => left - right)
+            .every((value, index) => value === index);
+        if (
+          !positionsAreContiguous(draft.columns.map((column) => column.position)) ||
+          !positionsAreContiguous(draft.rows.map((row) => row.position)) ||
+          new Set(draft.columns.map((column) => column.id)).size !== draft.columns.length ||
+          new Set(draft.columns.map((column) => column.workId)).size !== draft.columns.length ||
+          new Set(draft.rows.map((row) => row.id)).size !== draft.rows.length
+        ) {
+          return { kind: 'source-not-found' };
+        }
+        const timestamp = this.clock();
+        const full = this.getMatrixSync(id, true);
+        if (!full) return { kind: 'not-found' };
+        const currentColumns = new Map(full.columns.map((column) => [column.id, column]));
+        const currentRows = new Map(full.rows.map((row) => [row.id, row]));
+        for (const column of draft.columns) {
+          const existing = currentColumns.get(column.id);
+          if (existing && existing.workId !== column.workId) return { kind: 'source-not-found' };
+          if (
+            !existing &&
+            this.sqlite.prepare('SELECT 1 FROM research_matrix_columns WHERE id = ?').get(column.id)
+          ) {
+            return { kind: 'source-not-found' };
+          }
+          const work = this.sqlite
+            .prepare("SELECT 1 FROM research_works WHERE id = ? AND status = 'active'")
+            .get(column.workId);
+          if (!work) return { kind: 'source-not-found' };
+        }
+        for (const row of draft.rows) {
+          const existing = currentRows.get(row.id);
+          if (
+            existing &&
+            (existing.kind !== row.kind ||
+              (existing.kind === 'claim' && existing.claimId !== row.claimId))
+          ) {
+            return { kind: 'source-not-found' };
+          }
+          if (
+            !existing &&
+            this.sqlite.prepare('SELECT 1 FROM research_matrix_rows WHERE id = ?').get(row.id)
+          ) {
+            return { kind: 'source-not-found' };
+          }
+          if (row.kind === 'claim') {
+            const claim = row.claimId ? this.getClaimSync(row.claimId) : null;
+            if (!claim || claim.status === 'deleted') return { kind: 'source-not-found' };
+          } else if (!row.title?.trim() && !row.question?.trim()) {
+            return { kind: 'source-not-found' };
+          }
+        }
+        const activeColumnIds = new Set(draft.columns.map((column) => column.id));
+        const activeRowIds = new Set(draft.rows.map((row) => row.id));
+        const reviseStructureItem = (
+          entityType: 'matrix-column' | 'matrix-row',
+          item: MatrixColumn | MatrixRow,
+          reason: KnowledgeRevisionReason,
+        ) =>
+          this.insertRevision(
+            entityType,
+            item.id,
+            item.revision,
+            item,
+            reason,
+            `${draft.revisionId}:${entityType}:${item.id}:${item.revision}`,
+            timestamp,
+          );
+        for (const existing of full.columns) {
+          if (existing.status === 'active' && !activeColumnIds.has(existing.id)) {
+            reviseStructureItem('matrix-column', existing, 'delete');
+            this.sqlite
+              .prepare(
+                `UPDATE research_matrix_columns SET status = 'deleted', deleted_at = ?,
+                   revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(timestamp, timestamp, existing.id);
+          }
+        }
+        for (const column of draft.columns) {
+          const existing = currentColumns.get(column.id);
+          if (!existing) {
+            this.sqlite
+              .prepare(
+                `INSERT INTO research_matrix_columns
+                 (id, matrix_id, work_id, position, status, revision, created_at, updated_at,
+                  deleted_at) VALUES (?, ?, ?, ?, 'active', 1, ?, ?, NULL)`,
+              )
+              .run(column.id, id, column.workId, column.position, timestamp, timestamp);
+          } else if (existing.status === 'deleted' || existing.position !== column.position) {
+            reviseStructureItem(
+              'matrix-column',
+              existing,
+              existing.status === 'deleted' ? 'restore' : 'reorder',
+            );
+            this.sqlite
+              .prepare(
+                `UPDATE research_matrix_columns SET position = ?, status = 'active',
+                   deleted_at = NULL, revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(column.position, timestamp, column.id);
+          }
+        }
+        for (const existing of full.rows) {
+          if (existing.status === 'active' && !activeRowIds.has(existing.id)) {
+            reviseStructureItem('matrix-row', existing, 'delete');
+            this.sqlite
+              .prepare(
+                `UPDATE research_matrix_rows SET status = 'deleted', deleted_at = ?,
+                   revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(timestamp, timestamp, existing.id);
+          }
+        }
+        for (const row of draft.rows) {
+          const existing = currentRows.get(row.id);
+          if (!existing) {
+            this.sqlite
+              .prepare(
+                `INSERT INTO research_matrix_rows
+                 (id, matrix_id, kind, claim_id, title, question, position, status, revision,
+                  created_at, updated_at, deleted_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, NULL)`,
+              )
+              .run(
+                row.id,
+                id,
+                row.kind,
+                row.claimId,
+                row.title,
+                row.question,
+                row.position,
+                timestamp,
+                timestamp,
+              );
+          } else {
+            const changed =
+              existing.status === 'deleted' ||
+              existing.position !== row.position ||
+              existing.title !== row.title ||
+              existing.question !== row.question;
+            if (changed) {
+              const contentChanged =
+                existing.title !== row.title || existing.question !== row.question;
+              reviseStructureItem(
+                'matrix-row',
+                existing,
+                existing.status === 'deleted' ? 'restore' : contentChanged ? 'update' : 'reorder',
+              );
+              this.sqlite
+                .prepare(
+                  `UPDATE research_matrix_rows SET title = ?, question = ?, position = ?,
+                     status = 'active', deleted_at = NULL, revision = revision + 1,
+                     updated_at = ? WHERE id = ?`,
+                )
+                .run(row.title, row.question, row.position, timestamp, row.id);
+            }
+          }
+        }
+        this.sqlite
+          .prepare(
+            `UPDATE research_matrices SET structure_revision = structure_revision + 1,
+               updated_at = ? WHERE id = ? AND structure_revision = ?`,
+          )
+          .run(timestamp, id, draft.expectedStructureRevision);
+        const saved = this.getMatrixSync(id, false);
+        if (!saved) throw new Error('Updated matrix structure could not be read');
+        return { kind: 'saved', value: saved };
+      })();
+    } catch (error) {
+      if (isConstraintError(error)) {
+        const current = this.getMatrixSync(id, false);
+        return current ? { kind: 'conflict', current } : { kind: 'not-found' };
+      }
+      throw error;
+    }
+  }
+
+  async getMatrixCell(id: string): Promise<MatrixCell | null> {
+    return this.getMatrixCellSync(id);
+  }
+
+  async getMatrixCellWindow(
+    matrixId: string,
+    columnOffset: number,
+    columnLimit: number,
+    rowOffset: number,
+    rowLimit: number,
+  ): Promise<MatrixCellWindow | null> {
+    const matrix = this.getMatrixSync(matrixId, false);
+    if (!matrix) return null;
+    const columnIds = matrix.columns
+      .slice(columnOffset, columnOffset + columnLimit)
+      .map((column) => column.id);
+    const rowIds = matrix.rows.slice(rowOffset, rowOffset + rowLimit).map((row) => row.id);
+    if (columnIds.length === 0 || rowIds.length === 0) {
+      return { matrixId, columnIds, rowIds, cells: [] };
+    }
+    const rows = this.sqlite
+      .prepare(
+        `SELECT cell.id FROM research_matrix_cells cell
+         JOIN research_matrix_rows row ON row.id = cell.row_id AND row.status = 'active'
+         WHERE cell.matrix_id = ? AND cell.status = 'active'
+           AND cell.column_id IN (${columnIds.map(() => '?').join(', ')})
+           AND cell.row_id IN (${rowIds.map(() => '?').join(', ')})
+         ORDER BY row.position, cell.column_id, cell.id`,
+      )
+      .all(matrixId, ...columnIds, ...rowIds) as Array<{ id: string }>;
+    return {
+      matrixId,
+      columnIds,
+      rowIds,
+      cells: rows.flatMap((row) => {
+        const cell = this.getMatrixCellSync(row.id);
+        return cell ? [cell] : [];
+      }),
+    };
+  }
+
+  private matrixCellStructure(
+    matrixId: string,
+    rowId: string,
+    columnId: string,
+  ): {
+    matrix: MatrixDetail;
+    row: MatrixRow;
+    column: MatrixColumn;
+  } | null {
+    const matrix = this.getMatrixSync(matrixId, false);
+    if (!matrix) return null;
+    const row = matrix.rows.find((item) => item.id === rowId);
+    const column = matrix.columns.find((item) => item.id === columnId);
+    return row && column ? { matrix, row, column } : null;
+  }
+
+  private evidenceCanEnterCell(row: MatrixRow, column: MatrixColumn, evidenceId: string): boolean {
+    const evidence = this.getEvidenceSync(evidenceId);
+    if (!evidence || evidence.status !== 'active' || evidence.workId !== column.workId)
+      return false;
+    if (row.kind === 'dimension') return true;
+    return Boolean(
+      this.sqlite
+        .prepare(
+          `SELECT 1 FROM research_claim_evidence
+           WHERE claim_id = ? AND evidence_id = ? AND status = 'active'`,
+        )
+        .get(row.claimId, evidenceId),
+    );
+  }
+
+  async createMatrixCell(draft: MatrixCellDraft): Promise<KnowledgeCreateResult<MatrixCell>> {
+    const structure = this.matrixCellStructure(draft.matrixId, draft.rowId, draft.columnId);
+    if (!structure || structure.matrix.status !== 'active') return { kind: 'source-not-found' };
+    const contextFailure = this.contextFailure<MatrixCell>(
+      this.contextState(structure.matrix.contextId),
+    );
+    if (contextFailure) return contextFailure;
+    try {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_matrix_cells
+           (id, matrix_id, row_id, column_id, synthesis, review_baseline_json, reviewed_at,
+            status, revision, created_at, updated_at, deleted_at)
+           VALUES (?, ?, ?, ?, ?, NULL, NULL, 'active', 1, ?, ?, NULL)`,
+        )
+        .run(
+          draft.id,
+          draft.matrixId,
+          draft.rowId,
+          draft.columnId,
+          draft.synthesis,
+          timestamp,
+          timestamp,
+        );
+      const cell = this.getMatrixCellSync(draft.id);
+      if (!cell) throw new Error('Inserted matrix cell could not be read');
+      return { kind: 'created', value: cell };
+    } catch (error) {
+      if (isConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async updateMatrixCell(
+    id: string,
+    changes: MatrixCellChanges,
+  ): Promise<KnowledgeChangeResult<MatrixCell>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<MatrixCell> => {
+      const current = this.getMatrixCellSync(id);
+      if (!current) return { kind: 'not-found' };
+      if (current.revision !== changes.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const structure = this.matrixCellStructure(current.matrixId, current.rowId, current.columnId);
+      if (!structure || structure.matrix.status !== 'active') {
+        return { kind: 'source-not-found' };
+      }
+      const contextFailure = this.contextChangeFailure<MatrixCell>(
+        this.contextState(structure.matrix.contextId),
+      );
+      if (contextFailure) return contextFailure;
+      const timestamp = this.clock();
+      this.insertRevision(
+        'matrix-cell',
+        id,
+        current.revision,
+        current,
+        'update',
+        changes.revisionId,
+        timestamp,
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_matrix_cells SET synthesis = ?, revision = revision + 1,
+             updated_at = ? WHERE id = ? AND revision = ?`,
+        )
+        .run(changes.synthesis, timestamp, id, changes.expectedRevision);
+      const saved = this.getMatrixCellSync(id);
+      if (!saved) throw new Error('Updated matrix cell could not be read');
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async deleteMatrixCell(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixCell>> {
+    return this.changeMatrixCellStatus(id, draft, 'deleted');
+  }
+
+  async restoreMatrixCell(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixCell>> {
+    return this.changeMatrixCellStatus(id, draft, 'active');
+  }
+
+  private changeMatrixCellStatus(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+    status: KnowledgeBasicStatus,
+  ): KnowledgeChangeResult<MatrixCell> {
+    try {
+      return this.sqlite.transaction((): KnowledgeChangeResult<MatrixCell> => {
+        const current = this.getMatrixCellSync(id);
+        if (!current) return { kind: 'not-found' };
+        const wrongState =
+          status === 'deleted' ? current.status === 'deleted' : current.status !== 'deleted';
+        if (current.revision !== draft.expectedRevision || wrongState) {
+          return { kind: 'conflict', current };
+        }
+        const structure = this.matrixCellStructure(
+          current.matrixId,
+          current.rowId,
+          current.columnId,
+        );
+        if (!structure || structure.matrix.status !== 'active') {
+          return { kind: 'source-not-found' };
+        }
+        const contextFailure = this.contextChangeFailure<MatrixCell>(
+          this.contextState(structure.matrix.contextId),
+        );
+        if (contextFailure) return contextFailure;
+        const timestamp = this.clock();
+        this.insertRevision(
+          'matrix-cell',
+          id,
+          current.revision,
+          current,
+          status === 'deleted' ? 'delete' : 'restore',
+          draft.revisionId,
+          timestamp,
+        );
+        this.sqlite
+          .prepare(
+            `UPDATE research_matrix_cells SET status = ?, deleted_at = ?,
+               revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ?`,
+          )
+          .run(
+            status,
+            status === 'deleted' ? timestamp : null,
+            timestamp,
+            id,
+            draft.expectedRevision,
+          );
+        const saved = this.getMatrixCellSync(id);
+        if (!saved) throw new Error('Changed matrix cell could not be read');
+        return { kind: 'saved', value: saved };
+      })();
+    } catch (error) {
+      if (isConstraintError(error)) {
+        const current = this.getMatrixCellSync(id);
+        return current ? { kind: 'conflict', current } : { kind: 'not-found' };
+      }
+      throw error;
+    }
+  }
+
+  async reviewMatrixCell(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixCell>> {
+    return this.sqlite.transaction((): KnowledgeChangeResult<MatrixCell> => {
+      const current = this.getMatrixCellSync(id);
+      if (!current) return { kind: 'not-found' };
+      if (current.revision !== draft.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const structure = this.matrixCellStructure(current.matrixId, current.rowId, current.columnId);
+      if (!structure || structure.matrix.status !== 'active') {
+        return { kind: 'source-not-found' };
+      }
+      const contextFailure = this.contextChangeFailure<MatrixCell>(
+        this.contextState(structure.matrix.contextId),
+      );
+      if (contextFailure) return contextFailure;
+      const baseline = this.matrixReviewBaseline(current.rowId, current.columnId, id);
+      const timestamp = this.clock();
+      this.insertRevision(
+        'matrix-cell',
+        id,
+        current.revision,
+        current,
+        'review',
+        draft.revisionId,
+        timestamp,
+      );
+      this.sqlite
+        .prepare(
+          `UPDATE research_matrix_cells SET review_baseline_json = ?, reviewed_at = ?,
+             revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`,
+        )
+        .run(JSON.stringify(baseline), timestamp, timestamp, id, draft.expectedRevision);
+      const saved = this.getMatrixCellSync(id);
+      if (!saved) throw new Error('Reviewed matrix cell could not be read');
+      return { kind: 'saved', value: saved };
+    })();
+  }
+
+  async getMatrixCandidates(
+    matrixId: string,
+    rowId: string,
+    columnId: string,
+  ): Promise<MatrixCandidates | null> {
+    const structure = this.matrixCellStructure(matrixId, rowId, columnId);
+    if (!structure) return null;
+    const cellRow = this.sqlite
+      .prepare(
+        `SELECT id FROM research_matrix_cells
+         WHERE row_id = ? AND column_id = ? AND status = 'active'`,
+      )
+      .get(rowId, columnId) as { id: string } | undefined;
+    const selectedRows = cellRow
+      ? (this.sqlite
+          .prepare(
+            `SELECT id, evidence_id, revision FROM research_matrix_cell_evidence
+             WHERE cell_id = ? AND status = 'active' ORDER BY evidence_id`,
+          )
+          .all(cellRow.id) as Array<{ id: string; evidence_id: string; revision: number }>)
+      : [];
+    const selected = new Map(
+      selectedRows.map((link) => [link.evidence_id, { id: link.id, revision: link.revision }]),
+    );
+    const candidateIds =
+      structure.row.kind === 'claim'
+        ? (
+            this.sqlite
+              .prepare(
+                `SELECT relation.evidence_id
+                 FROM research_claim_evidence relation
+                 JOIN research_evidence evidence ON evidence.id = relation.evidence_id
+                 WHERE relation.claim_id = ? AND relation.status = 'active'
+                   AND evidence.status = 'active' AND evidence.work_id = ?
+                 ORDER BY evidence.updated_at DESC, evidence.id DESC`,
+              )
+              .all(structure.row.claimId, structure.column.workId) as Array<{
+              evidence_id: string;
+            }>
+          ).map((row) => row.evidence_id)
+        : (
+            this.sqlite
+              .prepare(
+                `SELECT id AS evidence_id FROM research_evidence
+                 WHERE work_id = ? AND status = 'active' ORDER BY updated_at DESC, id DESC`,
+              )
+              .all(structure.column.workId) as Array<{ evidence_id: string }>
+          ).map((row) => row.evidence_id);
+    const ids = [...new Set([...selected.keys(), ...candidateIds])];
+    return {
+      matrixId,
+      rowId,
+      columnId,
+      cellId: cellRow?.id ?? null,
+      candidates: ids.flatMap((evidenceId) => {
+        const evidence = this.getEvidenceSync(evidenceId);
+        const selectedLink = selected.get(evidenceId) ?? null;
+        return evidence
+          ? [
+              {
+                evidence,
+                selectedLinkId: selectedLink?.id ?? null,
+                selectedLinkRevision: selectedLink?.revision ?? null,
+              },
+            ]
+          : [];
+      }),
+    };
+  }
+
+  async getMatrixCellEvidence(id: string): Promise<MatrixCellEvidence | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_matrix_cell_evidence WHERE id = ?')
+      .get(id) as Row | undefined;
+    return row ? toMatrixCellEvidence(row) : null;
+  }
+
+  async listMatrixCellEvidence(
+    cellId: string,
+    includeDeleted: boolean,
+  ): Promise<MatrixCellEvidence[] | null> {
+    if (!this.sqlite.prepare('SELECT 1 FROM research_matrix_cells WHERE id = ?').get(cellId)) {
+      return null;
+    }
+    return (
+      this.sqlite
+        .prepare(
+          `SELECT * FROM research_matrix_cell_evidence WHERE cell_id = ?
+           ${includeDeleted ? '' : "AND status = 'active'"}
+           ORDER BY updated_at DESC, id DESC`,
+        )
+        .all(cellId) as Row[]
+    ).map(toMatrixCellEvidence);
+  }
+
+  async createMatrixCellEvidence(
+    draft: MatrixCellEvidenceDraft,
+  ): Promise<KnowledgeCreateResult<MatrixCellEvidence>> {
+    const cell = this.getMatrixCellSync(draft.cellId);
+    if (!cell || cell.status === 'deleted') return { kind: 'source-not-found' };
+    const structure = this.matrixCellStructure(cell.matrixId, cell.rowId, cell.columnId);
+    if (!structure || structure.matrix.status !== 'active') return { kind: 'source-not-found' };
+    const contextFailure = this.contextFailure<MatrixCellEvidence>(
+      this.contextState(structure.matrix.contextId),
+    );
+    if (contextFailure) return contextFailure;
+    if (!this.evidenceCanEnterCell(structure.row, structure.column, draft.evidenceId)) {
+      return { kind: 'source-not-found' };
+    }
+    try {
+      const timestamp = this.clock();
+      const row = this.sqlite
+        .prepare(
+          `INSERT INTO research_matrix_cell_evidence
+           (id, cell_id, evidence_id, status, revision, created_at, updated_at, deleted_at)
+           VALUES (?, ?, ?, 'active', 1, ?, ?, NULL) RETURNING *`,
+        )
+        .get(draft.id, draft.cellId, draft.evidenceId, timestamp, timestamp) as Row;
+      return { kind: 'created', value: toMatrixCellEvidence(row) };
+    } catch (error) {
+      if (isConstraintError(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async deleteMatrixCellEvidence(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixCellEvidence>> {
+    return this.changeMatrixCellEvidenceStatus(id, draft, 'deleted');
+  }
+
+  async restoreMatrixCellEvidence(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+  ): Promise<KnowledgeChangeResult<MatrixCellEvidence>> {
+    return this.changeMatrixCellEvidenceStatus(id, draft, 'active');
+  }
+
+  private changeMatrixCellEvidenceStatus(
+    id: string,
+    draft: KnowledgeRevisionDraft,
+    status: KnowledgeBasicStatus,
+  ): KnowledgeChangeResult<MatrixCellEvidence> {
+    try {
+      return this.sqlite.transaction((): KnowledgeChangeResult<MatrixCellEvidence> => {
+        const current = this.sqlite
+          .prepare('SELECT * FROM research_matrix_cell_evidence WHERE id = ?')
+          .get(id) as Row | undefined;
+        if (!current) return { kind: 'not-found' };
+        const link = toMatrixCellEvidence(current);
+        const wrongState =
+          status === 'deleted' ? link.status === 'deleted' : link.status !== 'deleted';
+        if (link.revision !== draft.expectedRevision || wrongState) {
+          return { kind: 'conflict', current: link };
+        }
+        const cell = this.getMatrixCellSync(link.cellId);
+        if (!cell || cell.status === 'deleted') return { kind: 'source-not-found' };
+        const structure = this.matrixCellStructure(cell.matrixId, cell.rowId, cell.columnId);
+        if (!structure || structure.matrix.status !== 'active') {
+          return { kind: 'source-not-found' };
+        }
+        const contextFailure = this.contextChangeFailure<MatrixCellEvidence>(
+          this.contextState(structure.matrix.contextId),
+        );
+        if (contextFailure) return contextFailure;
+        if (
+          status === 'active' &&
+          !this.evidenceCanEnterCell(structure.row, structure.column, link.evidenceId)
+        ) {
+          return { kind: 'source-not-found' };
+        }
+        const timestamp = this.clock();
+        this.insertRevision(
+          'matrix-cell-evidence',
+          id,
+          link.revision,
+          link,
+          status === 'deleted' ? 'unlink' : 'link',
+          draft.revisionId,
+          timestamp,
+        );
+        const saved = this.sqlite
+          .prepare(
+            `UPDATE research_matrix_cell_evidence SET status = ?, deleted_at = ?,
+               revision = revision + 1, updated_at = ?
+             WHERE id = ? AND revision = ? RETURNING *`,
+          )
+          .get(
+            status,
+            status === 'deleted' ? timestamp : null,
+            timestamp,
+            id,
+            draft.expectedRevision,
+          ) as Row;
+        return { kind: 'saved', value: toMatrixCellEvidence(saved) };
+      })();
+    } catch (error) {
+      if (isConstraintError(error)) {
+        const current = this.sqlite
+          .prepare('SELECT * FROM research_matrix_cell_evidence WHERE id = ?')
+          .get(id) as Row | undefined;
+        return current
+          ? { kind: 'conflict', current: toMatrixCellEvidence(current) }
+          : { kind: 'not-found' };
+      }
+      throw error;
+    }
+  }
+
   async listNoteLinks(noteId: string, includeDeleted: boolean): Promise<NoteLink[] | null> {
     const note = this.sqlite.prepare('SELECT id FROM research_notes WHERE id = ?').get(noteId);
     if (!note) return null;
@@ -982,12 +2492,14 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
         workId: draft.target.kind === 'work' ? draft.target.workId : null,
         annotationId: draft.target.kind === 'annotation' ? draft.target.annotationId : null,
         evidenceId: draft.target.kind === 'evidence' ? draft.target.evidenceId : null,
+        claimId: draft.target.kind === 'claim' ? draft.target.claimId : null,
       };
       const row = this.sqlite
         .prepare(
           `INSERT INTO research_note_links
-           (id, note_id, work_id, annotation_id, evidence_id, status, revision, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 'active', 1, ?, ?) RETURNING *`,
+           (id, note_id, work_id, annotation_id, evidence_id, claim_id, status, revision,
+            created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'active', 1, ?, ?) RETURNING *`,
         )
         .get(
           draft.id,
@@ -995,6 +2507,7 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
           columns.workId,
           columns.annotationId,
           columns.evidenceId,
+          columns.claimId,
           timestamp,
           timestamp,
         ) as Row;
@@ -1083,7 +2596,7 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
   }
 
   async listRevisions(
-    entityType: 'note' | 'evidence' | 'note-link',
+    entityType: KnowledgeEntityType,
     entityId: string,
   ): Promise<KnowledgeRevision[]> {
     return (

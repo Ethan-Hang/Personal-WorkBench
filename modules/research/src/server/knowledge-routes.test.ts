@@ -3,7 +3,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '@workbench/server';
-import { RESEARCH_API_V1, evidenceDetailSchema, researchNoteSchema } from '../contract.js';
+import {
+  RESEARCH_API_V1,
+  claimEvidenceSchema,
+  claimSchema,
+  evidenceDetailSchema,
+  matrixCellEvidenceSchema,
+  matrixCellSchema,
+  matrixCellWindowSchema,
+  matrixDetailSchema,
+  researchNoteSchema,
+} from '../contract.js';
 import { makeResearchDatabase } from '../testing/harness.js';
 import { createResearchServerModule } from './index.js';
 
@@ -245,6 +255,222 @@ describe('research knowledge routes', () => {
           .prepare("SELECT COUNT(*) AS count FROM research_annotations WHERE id <> 'annotation-1'")
           .get(),
       ).toEqual({ count: 0 });
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('观点 API 覆盖无证据状态、关系编辑、解除和恢复', async () => {
+    const { app, sqlite } = await fixture();
+    try {
+      const evidenceResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.evidence,
+        payload: {
+          mode: 'annotation',
+          annotationId: 'annotation-1',
+          sourceKind: 'pdf',
+          summary: 'Robust evidence.',
+        },
+      });
+      const evidence = evidenceDetailSchema.parse(evidenceResponse.json());
+      const claimResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.claims,
+        payload: {
+          statement: 'The result is robust across specifications.',
+          status: 'active',
+        },
+      });
+      expect(claimResponse.statusCode).toBe(200);
+      const claim = claimSchema.parse(claimResponse.json());
+      expect(claim.evidenceCount).toBe(0);
+
+      const relationResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.claimEvidence(claim.id),
+        payload: { evidenceId: evidence.id, relation: 'supports', note: 'Primary result' },
+      });
+      expect(relationResponse.statusCode).toBe(200);
+      const relation = claimEvidenceSchema.parse(relationResponse.json());
+      expect(relation.relation).toBe('supports');
+
+      const changedResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.claimEvidenceItem(relation.id),
+        payload: { relation: 'qualifies', note: 'Only in the main sample', expectedRevision: 1 },
+      });
+      expect(changedResponse.statusCode).toBe(200);
+      expect(changedResponse.json()).toMatchObject({ relation: 'qualifies', revision: 2 });
+
+      const conflictResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.claimEvidenceItem(relation.id),
+        payload: { note: 'Stale', expectedRevision: 1 },
+      });
+      expect(conflictResponse.statusCode).toBe(409);
+      expect(conflictResponse.json()).toMatchObject({
+        code: 'KNOWLEDGE_CONFLICT',
+        details: { current: { revision: 2, note: 'Only in the main sample' } },
+      });
+
+      const deletedResponse = await app.inject({
+        method: 'DELETE',
+        url: RESEARCH_API_V1.claimEvidenceItem(relation.id),
+        payload: { expectedRevision: 2 },
+      });
+      expect(deletedResponse.json()).toMatchObject({ status: 'deleted', revision: 3 });
+      expect(
+        (
+          await app.inject({
+            method: 'GET',
+            url: RESEARCH_API_V1.claim(claim.id),
+          })
+        ).json(),
+      ).toMatchObject({ evidenceCount: 0 });
+
+      const restoredResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.claimEvidenceRestore(relation.id),
+        payload: { expectedRevision: 3 },
+      });
+      expect(restoredResponse.json()).toMatchObject({ status: 'active', revision: 4 });
+      expect(
+        (
+          await app.inject({
+            method: 'GET',
+            url: `${RESEARCH_API_V1.claimEvidence(claim.id)}?includeDeleted=true`,
+          })
+        ).json(),
+      ).toMatchObject([{ id: relation.id, status: 'active' }]);
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('矩阵 API 分离结构与单元格 revision，并返回可选择的候选证据', async () => {
+    const { app, sqlite } = await fixture();
+    try {
+      const evidence = evidenceDetailSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.evidence,
+            payload: {
+              mode: 'annotation',
+              annotationId: 'annotation-1',
+              sourceKind: 'pdf',
+              summary: 'Robust evidence.',
+            },
+          })
+        ).json(),
+      );
+      const claim = claimSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.claims,
+            payload: { statement: 'The result is robust.', status: 'active' },
+          })
+        ).json(),
+      );
+      await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.claimEvidence(claim.id),
+        payload: { evidenceId: evidence.id, relation: 'supports' },
+      });
+      const matrix = matrixDetailSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.matrices,
+            payload: { title: 'Robustness matrix' },
+          })
+        ).json(),
+      );
+      const structureResponse = await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.matrixStructure(matrix.id),
+        payload: {
+          expectedStructureRevision: 1,
+          columns: [{ workId: 'work-1', position: 0 }],
+          rows: [
+            { kind: 'claim', claimId: claim.id, position: 0 },
+            { kind: 'dimension', title: 'Sample', position: 1 },
+          ],
+        },
+      });
+      expect(structureResponse.statusCode).toBe(200);
+      const structured = matrixDetailSchema.parse(structureResponse.json());
+      expect(structured).toMatchObject({ revision: 1, structureRevision: 2 });
+
+      const claimRow = structured.rows[0]!;
+      const column = structured.columns[0]!;
+      const candidatesResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.matrixCandidates(matrix.id)}?rowId=${claimRow.id}&columnId=${column.id}`,
+      });
+      expect(candidatesResponse.statusCode).toBe(200);
+      expect(candidatesResponse.json()).toMatchObject({
+        candidates: [{ evidence: { id: evidence.id }, selectedLinkId: null }],
+      });
+
+      const cell = matrixCellSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.matrixCells(matrix.id),
+            payload: {
+              rowId: claimRow.id,
+              columnId: column.id,
+              synthesis: 'The paper supports the claim.',
+            },
+          })
+        ).json(),
+      );
+      const linkResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.matrixCellEvidence(cell.id),
+        payload: { evidenceId: evidence.id },
+      });
+      expect(linkResponse.statusCode).toBe(200);
+      const link = matrixCellEvidenceSchema.parse(linkResponse.json());
+      const reviewedResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.matrixCellReview(cell.id),
+        payload: { expectedRevision: 1 },
+      });
+      expect(reviewedResponse.statusCode).toBe(200);
+      expect(reviewedResponse.json()).toMatchObject({ reviewState: 'current', revision: 2 });
+      const windowResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.matrixCells(matrix.id)}?columnOffset=0&columnLimit=1`,
+      });
+      expect(windowResponse.statusCode, windowResponse.body).toBe(200);
+      expect(matrixCellWindowSchema.parse(windowResponse.json())).toMatchObject({
+        matrixId: matrix.id,
+        columnIds: [column.id],
+        rowIds: structured.rows.map((row) => row.id),
+        cells: [{ id: cell.id, reviewState: 'current' }],
+      });
+
+      const staleResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.matrixCell(cell.id),
+        payload: { synthesis: 'Stale', expectedRevision: 1 },
+      });
+      expect(staleResponse.statusCode).toBe(409);
+      expect(staleResponse.json()).toMatchObject({
+        details: { current: { revision: 2, synthesis: 'The paper supports the claim.' } },
+      });
+      const deleteLinkResponse = await app.inject({
+        method: 'DELETE',
+        url: RESEARCH_API_V1.matrixCellEvidenceItem(link.id),
+        payload: { expectedRevision: 1 },
+      });
+      expect(deleteLinkResponse.json()).toMatchObject({ status: 'deleted', revision: 2 });
     } finally {
       await app.close();
       sqlite.close();

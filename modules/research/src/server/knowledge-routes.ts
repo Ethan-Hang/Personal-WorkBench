@@ -1,14 +1,29 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
+  CLAIM_STATUSES,
   GENERAL_READING_CONTEXT_ID,
   KNOWLEDGE_BASIC_STATUSES,
+  MATRIX_STATUSES,
   RESEARCH_API_V1,
+  createClaimEvidenceInputSchema,
+  createClaimInputSchema,
+  createMatrixCellEvidenceInputSchema,
+  createMatrixCellInputSchema,
+  createMatrixInputSchema,
   createEvidenceRequestSchema,
   createNoteInputSchema,
   createNoteLinkInputSchema,
   evidenceRebindRequestSchema,
   knowledgeRevisionInputSchema,
+  matrixCandidatesQuerySchema,
+  matrixCellWindowQuerySchema,
+  reviewMatrixCellInputSchema,
+  updateClaimEvidenceInputSchema,
+  updateClaimInputSchema,
+  updateMatrixCellInputSchema,
+  updateMatrixInputSchema,
+  updateMatrixStructureInputSchema,
   updateEvidenceInputSchema,
   updateNoteInputSchema,
 } from '../contract.js';
@@ -33,6 +48,18 @@ const evidenceListQuery = listQuery.extend({
       'source-unavailable',
     ])
     .optional(),
+});
+const claimListQuery = z.object({
+  contextId: z.string().min(1).optional(),
+  status: z.enum(CLAIM_STATUSES).default('active'),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+const matrixListQuery = z.object({
+  contextId: z.string().min(1).optional(),
+  status: z.enum(MATRIX_STATUSES).default('active'),
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
 });
 const linkListQuery = z.object({
   includeDeleted: z.enum(['true', 'false']).default('false'),
@@ -246,5 +273,274 @@ export function registerResearchKnowledgeRoutes(
     const id = parseId(request.params, reply);
     if (typeof id !== 'string') return id;
     return knowledgeRequest(reply, () => service.listRevisions('evidence', id));
+  });
+
+  app.get(RESEARCH_API_V1.claims, async (request, reply) => {
+    const parsed = claimListQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '筛选无效');
+    const contextId = parsedContextId(parsed.data.contextId);
+    return knowledgeRequest(reply, () =>
+      service.listClaims({
+        ...(contextId !== undefined ? { contextId } : {}),
+        status: parsed.data.status,
+        cursor: parsed.data.cursor ?? null,
+        limit: parsed.data.limit,
+      }),
+    );
+  });
+
+  app.post(RESEARCH_API_V1.claims, async (request, reply) => {
+    const input = parseBody(createClaimInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.createClaim(input));
+  });
+
+  app.get(RESEARCH_API_V1.claim(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    return knowledgeRequest(reply, () => service.getClaim(id));
+  });
+
+  app.patch(RESEARCH_API_V1.claim(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateClaimInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateClaim(id, input));
+  });
+
+  app.delete(RESEARCH_API_V1.claim(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.deleteClaim(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.claimRestore(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.restoreClaim(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.claimRevisions(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    return knowledgeRequest(reply, () => service.listRevisions('claim', id));
+  });
+
+  app.get(RESEARCH_API_V1.claimEvidence(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const parsed = linkListQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '筛选无效');
+    return knowledgeRequest(reply, () =>
+      service.listClaimEvidence(id, parsed.data.includeDeleted === 'true'),
+    );
+  });
+
+  app.post(RESEARCH_API_V1.claimEvidence(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(createClaimEvidenceInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.createClaimEvidence(id, input));
+  });
+
+  app.patch(RESEARCH_API_V1.claimEvidenceItem(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateClaimEvidenceInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateClaimEvidence(id, input));
+  });
+
+  app.delete(RESEARCH_API_V1.claimEvidenceItem(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.deleteClaimEvidence(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.claimEvidenceRestore(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.restoreClaimEvidence(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.matrices, async (request, reply) => {
+    const parsed = matrixListQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '筛选无效');
+    const contextId = parsedContextId(parsed.data.contextId);
+    return knowledgeRequest(reply, () =>
+      service.listMatrices({
+        ...(contextId !== undefined ? { contextId } : {}),
+        status: parsed.data.status,
+        cursor: parsed.data.cursor ?? null,
+        limit: parsed.data.limit,
+      }),
+    );
+  });
+
+  app.post(RESEARCH_API_V1.matrices, async (request, reply) => {
+    const input = parseBody(createMatrixInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.createMatrix(input));
+  });
+
+  app.get(RESEARCH_API_V1.matrix(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const parsed = linkListQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '筛选无效');
+    return knowledgeRequest(reply, () =>
+      service.getMatrix(id, parsed.data.includeDeleted === 'true'),
+    );
+  });
+
+  app.patch(RESEARCH_API_V1.matrix(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateMatrixInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateMatrix(id, input));
+  });
+
+  app.delete(RESEARCH_API_V1.matrix(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.deleteMatrix(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.matrixRestore(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.restoreMatrix(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.matrixRevisions(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    return knowledgeRequest(reply, () => service.listRevisions('matrix', id));
+  });
+
+  app.put(RESEARCH_API_V1.matrixStructure(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateMatrixStructureInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateMatrixStructure(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.matrixCandidates(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = matrixCandidatesQuerySchema.safeParse(request.query ?? {});
+    if (!input.success)
+      return invalidRequest(reply, input.error.issues[0]?.message ?? '矩阵行列无效');
+    return knowledgeRequest(reply, () => service.getMatrixCandidates(id, input.data));
+  });
+
+  app.post(RESEARCH_API_V1.matrixCells(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(createMatrixCellInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.createMatrixCell(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.matrixCells(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = matrixCellWindowQuerySchema.safeParse(request.query ?? {});
+    if (!input.success)
+      return invalidRequest(reply, input.error.issues[0]?.message ?? '矩阵窗口无效');
+    return knowledgeRequest(reply, () => service.getMatrixCellWindow(id, input.data));
+  });
+
+  app.get(RESEARCH_API_V1.matrixCell(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    return knowledgeRequest(reply, () => service.getMatrixCell(id));
+  });
+
+  app.patch(RESEARCH_API_V1.matrixCell(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(updateMatrixCellInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.updateMatrixCell(id, input));
+  });
+
+  app.delete(RESEARCH_API_V1.matrixCell(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.deleteMatrixCell(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.matrixCellRestore(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.restoreMatrixCell(id, input));
+  });
+
+  app.get(RESEARCH_API_V1.matrixCellEvidence(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const parsed = linkListQuery.safeParse(request.query ?? {});
+    if (!parsed.success)
+      return invalidRequest(reply, parsed.error.issues[0]?.message ?? '筛选无效');
+    return knowledgeRequest(reply, () =>
+      service.listMatrixCellEvidence(id, parsed.data.includeDeleted === 'true'),
+    );
+  });
+
+  app.post(RESEARCH_API_V1.matrixCellEvidence(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(createMatrixCellEvidenceInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.createMatrixCellEvidence(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.matrixCellReview(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(reviewMatrixCellInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.reviewMatrixCell(id, input));
+  });
+
+  app.delete(RESEARCH_API_V1.matrixCellEvidenceItem(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.deleteMatrixCellEvidence(id, input));
+  });
+
+  app.post(RESEARCH_API_V1.matrixCellEvidenceRestore(':id'), async (request, reply) => {
+    const id = parseId(request.params, reply);
+    if (typeof id !== 'string') return id;
+    const input = parseBody(knowledgeRevisionInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return knowledgeRequest(reply, () => service.restoreMatrixCellEvidence(id, input));
   });
 }

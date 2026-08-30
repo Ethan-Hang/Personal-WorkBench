@@ -16,6 +16,8 @@ import {
   ASSET_STATES,
   ATTACHMENT_ROLES,
   ATTACHMENT_STATUSES,
+  CLAIM_EVIDENCE_RELATIONS,
+  CLAIM_STATUSES,
   DERIVED_JOB_STATUSES,
   EDITION_KINDS,
   IMPORT_ITEM_STAGES,
@@ -23,6 +25,8 @@ import {
   KNOWLEDGE_BASIC_STATUSES,
   KNOWLEDGE_ENTITY_TYPES,
   KNOWLEDGE_REVISION_REASONS,
+  MATRIX_ROW_KINDS,
+  MATRIX_STATUSES,
   EVIDENCE_SOURCE_KINDS,
   EVIDENCE_SOURCE_STATES,
   LOCATION_STATES,
@@ -948,6 +952,92 @@ export const researchEvidence = sqliteTable(
   ],
 );
 
+export const researchClaims = sqliteTable(
+  'research_claims',
+  {
+    id: text('id').primaryKey(),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    statement: text('statement').notNull(),
+    rationale: text('rationale'),
+    status: text('status').notNull().default('draft'),
+    statusBeforeDelete: text('status_before_delete'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    archivedAt: text('archived_at'),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_claims_statement', sql`length(trim(${table.statement})) > 0`),
+    check('ck_research_claims_status', enumSql('status', CLAIM_STATUSES)),
+    check(
+      'ck_research_claims_previous_status',
+      sql`${table.statusBeforeDelete} IS NULL OR ${enumSql('status_before_delete', ['draft', 'active', 'archived'])}`,
+    ),
+    check(
+      'ck_research_claims_delete_state',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL) AND (${table.status} = 'deleted') = (${table.statusBeforeDelete} IS NOT NULL)`,
+    ),
+    check(
+      'ck_research_claims_archive_state',
+      sql`(${table.status} = 'archived' OR (${table.status} = 'deleted' AND ${table.statusBeforeDelete} = 'archived')) = (${table.archivedAt} IS NOT NULL)`,
+    ),
+    check('ck_research_claims_revision', sql`${table.revision} >= 1`),
+    index('idx_research_claims_context_status').on(
+      table.contextId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+  ],
+);
+
+export const researchClaimEvidence = sqliteTable(
+  'research_claim_evidence',
+  {
+    id: text('id').primaryKey(),
+    claimId: text('claim_id')
+      .notNull()
+      .references(() => researchClaims.id, { onDelete: 'restrict' }),
+    evidenceId: text('evidence_id')
+      .notNull()
+      .references(() => researchEvidence.id, { onDelete: 'restrict' }),
+    relation: text('relation').notNull(),
+    note: text('note'),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_claim_evidence_relation', enumSql('relation', CLAIM_EVIDENCE_RELATIONS)),
+    check('ck_research_claim_evidence_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_claim_evidence_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_claim_evidence_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_claim_evidence_claim').on(
+      table.claimId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+    index('idx_research_claim_evidence_evidence').on(
+      table.evidenceId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+    uniqueIndex('uq_research_claim_evidence_active')
+      .on(table.claimId, table.evidenceId)
+      .where(sql`${table.status} = 'active'`),
+  ],
+);
+
 export const researchNoteLinks = sqliteTable(
   'research_note_links',
   {
@@ -962,6 +1052,7 @@ export const researchNoteLinks = sqliteTable(
     evidenceId: text('evidence_id').references(() => researchEvidence.id, {
       onDelete: 'restrict',
     }),
+    claimId: text('claim_id').references(() => researchClaims.id, { onDelete: 'restrict' }),
     status: text('status').notNull().default('active'),
     revision: integer('revision').notNull().default(1),
     createdAt: text('created_at').notNull().default(now),
@@ -971,7 +1062,7 @@ export const researchNoteLinks = sqliteTable(
   (table) => [
     check(
       'ck_research_note_links_target',
-      sql`(${table.workId} IS NOT NULL) + (${table.annotationId} IS NOT NULL) + (${table.evidenceId} IS NOT NULL) = 1`,
+      sql`(${table.workId} IS NOT NULL) + (${table.annotationId} IS NOT NULL) + (${table.evidenceId} IS NOT NULL) + (${table.claimId} IS NOT NULL) = 1`,
     ),
     check('ck_research_note_links_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
     check('ck_research_note_links_revision', sql`${table.revision} >= 1`),
@@ -989,6 +1080,209 @@ export const researchNoteLinks = sqliteTable(
     uniqueIndex('uq_research_note_links_active_evidence')
       .on(table.noteId, table.evidenceId)
       .where(sql`${table.status} = 'active' AND ${table.evidenceId} IS NOT NULL`),
+    uniqueIndex('uq_research_note_links_active_claim')
+      .on(table.noteId, table.claimId)
+      .where(sql`${table.status} = 'active' AND ${table.claimId} IS NOT NULL`),
+  ],
+);
+
+export const researchMatrices = sqliteTable(
+  'research_matrices',
+  {
+    id: text('id').primaryKey(),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    title: text('title').notNull(),
+    description: text('description'),
+    status: text('status').notNull().default('active'),
+    statusBeforeDelete: text('status_before_delete'),
+    structureRevision: integer('structure_revision').notNull().default(1),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    archivedAt: text('archived_at'),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_matrices_title', sql`length(trim(${table.title})) > 0`),
+    check('ck_research_matrices_status', enumSql('status', MATRIX_STATUSES)),
+    check(
+      'ck_research_matrices_previous_status',
+      sql`${table.statusBeforeDelete} IS NULL OR ${enumSql('status_before_delete', ['active', 'archived'])}`,
+    ),
+    check(
+      'ck_research_matrices_delete_state',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL) AND (${table.status} = 'deleted') = (${table.statusBeforeDelete} IS NOT NULL)`,
+    ),
+    check(
+      'ck_research_matrices_archive_state',
+      sql`(${table.status} = 'archived' OR (${table.status} = 'deleted' AND ${table.statusBeforeDelete} = 'archived')) = (${table.archivedAt} IS NOT NULL)`,
+    ),
+    check('ck_research_matrices_structure_revision', sql`${table.structureRevision} >= 1`),
+    check('ck_research_matrices_revision', sql`${table.revision} >= 1`),
+    index('idx_research_matrices_context_status').on(
+      table.contextId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+  ],
+);
+
+export const researchMatrixColumns = sqliteTable(
+  'research_matrix_columns',
+  {
+    id: text('id').primaryKey(),
+    matrixId: text('matrix_id')
+      .notNull()
+      .references(() => researchMatrices.id, { onDelete: 'restrict' }),
+    workId: text('work_id')
+      .notNull()
+      .references(() => researchWorks.id, { onDelete: 'restrict' }),
+    position: integer('position').notNull(),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_matrix_columns_position', sql`${table.position} >= 0`),
+    check('ck_research_matrix_columns_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_matrix_columns_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_matrix_columns_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_matrix_columns_order').on(
+      table.matrixId,
+      table.status,
+      table.position,
+      table.id,
+    ),
+    uniqueIndex('uq_research_matrix_columns_active_work')
+      .on(table.matrixId, table.workId)
+      .where(sql`${table.status} = 'active'`),
+  ],
+);
+
+export const researchMatrixRows = sqliteTable(
+  'research_matrix_rows',
+  {
+    id: text('id').primaryKey(),
+    matrixId: text('matrix_id')
+      .notNull()
+      .references(() => researchMatrices.id, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    claimId: text('claim_id').references(() => researchClaims.id, { onDelete: 'restrict' }),
+    title: text('title'),
+    question: text('question'),
+    position: integer('position').notNull(),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_matrix_rows_kind', enumSql('kind', MATRIX_ROW_KINDS)),
+    check(
+      'ck_research_matrix_rows_target',
+      sql`(${table.kind} = 'claim' AND ${table.claimId} IS NOT NULL AND ${table.title} IS NULL AND ${table.question} IS NULL) OR (${table.kind} = 'dimension' AND ${table.claimId} IS NULL AND ((${table.title} IS NOT NULL AND length(trim(${table.title})) > 0) OR (${table.question} IS NOT NULL AND length(trim(${table.question})) > 0)))`,
+    ),
+    check('ck_research_matrix_rows_position', sql`${table.position} >= 0`),
+    check('ck_research_matrix_rows_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_matrix_rows_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_matrix_rows_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_matrix_rows_order').on(
+      table.matrixId,
+      table.status,
+      table.position,
+      table.id,
+    ),
+    uniqueIndex('uq_research_matrix_rows_active_claim')
+      .on(table.matrixId, table.claimId)
+      .where(sql`${table.status} = 'active' AND ${table.claimId} IS NOT NULL`),
+  ],
+);
+
+export const researchMatrixCells = sqliteTable(
+  'research_matrix_cells',
+  {
+    id: text('id').primaryKey(),
+    matrixId: text('matrix_id')
+      .notNull()
+      .references(() => researchMatrices.id, { onDelete: 'restrict' }),
+    rowId: text('row_id')
+      .notNull()
+      .references(() => researchMatrixRows.id, { onDelete: 'restrict' }),
+    columnId: text('column_id')
+      .notNull()
+      .references(() => researchMatrixColumns.id, { onDelete: 'restrict' }),
+    synthesis: text('synthesis').notNull().default(''),
+    reviewBaselineJson: text('review_baseline_json'),
+    reviewedAt: text('reviewed_at'),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_matrix_cells_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_matrix_cells_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_matrix_cells_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_matrix_cells_matrix').on(
+      table.matrixId,
+      table.status,
+      table.rowId,
+      table.columnId,
+    ),
+    uniqueIndex('uq_research_matrix_cells_active')
+      .on(table.rowId, table.columnId)
+      .where(sql`${table.status} = 'active'`),
+  ],
+);
+
+export const researchMatrixCellEvidence = sqliteTable(
+  'research_matrix_cell_evidence',
+  {
+    id: text('id').primaryKey(),
+    cellId: text('cell_id')
+      .notNull()
+      .references(() => researchMatrixCells.id, { onDelete: 'restrict' }),
+    evidenceId: text('evidence_id')
+      .notNull()
+      .references(() => researchEvidence.id, { onDelete: 'restrict' }),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_matrix_cell_evidence_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
+    check('ck_research_matrix_cell_evidence_revision', sql`${table.revision} >= 1`),
+    check(
+      'ck_research_matrix_cell_evidence_deleted_at',
+      sql`(${table.status} = 'deleted') = (${table.deletedAt} IS NOT NULL)`,
+    ),
+    index('idx_research_matrix_cell_evidence_cell').on(
+      table.cellId,
+      table.status,
+      table.updatedAt,
+      table.id,
+    ),
+    uniqueIndex('uq_research_matrix_cell_evidence_active')
+      .on(table.cellId, table.evidenceId)
+      .where(sql`${table.status} = 'active'`),
   ],
 );
 

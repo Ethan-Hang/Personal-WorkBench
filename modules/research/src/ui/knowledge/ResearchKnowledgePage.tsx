@@ -19,6 +19,8 @@ import {
   postRestoreKnowledgeNote,
 } from '../api.js';
 import { ResearchSectionNav } from '../components/ResearchSectionNav.js';
+import { ClaimBoard } from './ClaimBoard.js';
+import { MatrixEditor } from './MatrixEditor.js';
 import { NoteEditor } from './NoteEditor.js';
 import { SourceStatus, sourceStateDescription } from './SourceStatus.js';
 
@@ -213,6 +215,7 @@ function EvidenceInspector({
 
 export function ResearchKnowledgePage() {
   const queryClient = useQueryClient();
+  const [mode, setMode] = useState<'sources' | 'claims' | 'matrices'>('sources');
   const [context, setContext] = useState<ContextSelection>('all');
   const [status, setStatus] = useState<'active' | 'deleted'>('active');
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -417,207 +420,273 @@ export function ResearchKnowledgePage() {
         <div>
           <h1 className="text-base font-semibold text-ink">研究知识</h1>
           <p className="mt-1 text-xs text-secondary">
-            {notes.length} 条笔记 · {evidence.length} 条证据
+            {mode === 'sources'
+              ? `${notes.length} 条笔记 · ${evidence.length} 条证据`
+              : mode === 'claims'
+                ? '组织可追溯的观点与证据关系'
+                : '按论文和问题比较证据'}
           </p>
         </div>
-        <div className="flex items-center gap-1 border border-line p-0.5">
-          {(['active', 'deleted'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setStatus(value)}
-              className={`px-2.5 py-1 text-xs font-semibold ${
-                status === value ? 'bg-surface-2 text-ink' : 'text-muted hover:text-secondary'
-              }`}
-            >
-              {value === 'active' ? '当前' : '回收站'}
-            </button>
-          ))}
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <select
+            aria-label="研究上下文"
+            value={context}
+            onChange={(event) => setContextAndReset(event.target.value as ContextSelection)}
+            className="max-w-44 border border-line bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:border-accent"
+          >
+            <option value="all">全部上下文</option>
+            <option value="general">通用研究</option>
+            {contexts.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+                {item.status === 'archived' ? '（已归档）' : ''}
+              </option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1 border border-line p-0.5">
+            {(
+              [
+                ['sources', '资料'],
+                ['claims', '观点'],
+                ['matrices', '矩阵'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                className={`px-2.5 py-1 text-xs font-semibold ${mode === value ? 'bg-surface-2 text-ink' : 'text-muted hover:text-secondary'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {mode === 'sources' && (
+            <div className="flex items-center gap-1 border border-line p-0.5">
+              {(['active', 'deleted'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStatus(value)}
+                  className={`px-2.5 py-1 text-xs font-semibold ${
+                    status === value ? 'bg-surface-2 text-ink' : 'text-muted hover:text-secondary'
+                  }`}
+                >
+                  {value === 'active' ? '当前' : '回收站'}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
-      <div className="grid shrink-0 grid-cols-3 border-b border-line lg:hidden" role="tablist">
-        {(
-          [
-            ['notes', '笔记'],
-            ['evidence', '证据'],
-            ['inspect', '检查'],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            role="tab"
-            aria-selected={mobilePane === value}
-            onClick={() => setMobilePane(value)}
-            className={`py-2 text-xs font-semibold ${
-              mobilePane === value ? 'bg-surface-2 text-ink' : 'text-muted'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+      {mode === 'sources' ? (
+        <>
+          <div className="grid shrink-0 grid-cols-3 border-b border-line lg:hidden" role="tablist">
+            {(
+              [
+                ['notes', '笔记'],
+                ['evidence', '证据'],
+                ['inspect', '检查'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === value}
+                onClick={() => setMobilePane(value)}
+                className={`py-2 text-xs font-semibold ${
+                  mobilePane === value ? 'bg-surface-2 text-ink' : 'text-muted'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
-      <div className="min-h-0 flex-1 lg:grid lg:grid-cols-[15rem_minmax(20rem,1fr)_minmax(19rem,0.82fr)]">
-        <aside
-          className={`${mobilePane === 'notes' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-line lg:flex`}
-        >
-          <div className="shrink-0 border-b border-line px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">上下文</p>
-            <select
-              value={context}
-              onChange={(event) => setContextAndReset(event.target.value as ContextSelection)}
-              className="mt-2 w-full rounded-control border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-accent"
+          <div className="min-h-0 flex-1 lg:grid lg:grid-cols-[15rem_minmax(20rem,1fr)_minmax(19rem,0.82fr)]">
+            <aside
+              className={`${mobilePane === 'notes' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-line lg:flex`}
             >
-              <option value="all">全部上下文</option>
-              <option value="general">通用研究</option>
-              {contexts.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                  {item.status === 'archived' ? '（已归档）' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex shrink-0 items-center justify-between px-3 py-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">笔记</p>
-            {status === 'active' && !selectedContextArchived && (
-              <Button
-                size="sm"
-                icon={<IconPlus size={12} />}
-                disabled={busy}
-                onClick={() => noteMutation.mutate({ kind: 'create' })}
-              >
-                新建
-              </Button>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-            {notes.map((note) => (
-              <button
-                key={note.id}
-                type="button"
-                onClick={() => {
-                  setSelectedNoteId(note.id);
-                  setSelectionKind('note');
-                  setMobilePane('inspect');
-                }}
-                className={`w-full border-l-2 px-3 py-2.5 text-left transition ${
-                  note.id === selectedNoteId
-                    ? 'border-accent bg-surface-2'
-                    : 'border-transparent hover:border-line hover:bg-surface-2/60'
-                }`}
-              >
-                <span className="block truncate text-xs font-semibold text-ink">{note.title}</span>
-                <span className="mt-1 block line-clamp-2 text-[10px] leading-4 text-muted">
-                  {note.body || '空白笔记'}
-                </span>
-              </button>
-            ))}
-            {!notesQuery.isLoading && notes.length === 0 && (
-              <p className="px-3 py-8 text-center text-xs leading-5 text-muted">
-                {status === 'deleted' ? '回收站里没有笔记。' : '这个范围还没有笔记。'}
-              </p>
-            )}
-          </div>
-        </aside>
-
-        <main
-          className={`${mobilePane === 'evidence' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-line lg:flex`}
-        >
-          <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">证据流</p>
-              <p className="mt-1 text-xs text-secondary">从阅读器提炼，保留来源快照</p>
-            </div>
-            <span className="font-mono text-[10px] text-muted">{evidence.length}</span>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {evidence.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  setSelectedEvidenceId(item.id);
-                  setSelectionKind('evidence');
-                  setMobilePane('inspect');
-                }}
-                className={`block w-full border-b border-line px-4 py-4 text-left transition ${
-                  selectedEvidenceId === item.id ? 'bg-surface-2' : 'hover:bg-surface-2/60'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <p className="min-w-0 truncate text-xs font-semibold text-ink">
-                    {item.title || item.sourceSnapshot.workTitle}
+              <div className="shrink-0 border-b border-line px-3 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                  上下文
+                </p>
+                <select
+                  value={context}
+                  onChange={(event) => setContextAndReset(event.target.value as ContextSelection)}
+                  className="mt-2 w-full rounded-control border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-accent"
+                >
+                  <option value="all">全部上下文</option>
+                  <option value="general">通用研究</option>
+                  {contexts.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                      {item.status === 'archived' ? '（已归档）' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex shrink-0 items-center justify-between px-3 py-3">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">笔记</p>
+                {status === 'active' && !selectedContextArchived && (
+                  <Button
+                    size="sm"
+                    icon={<IconPlus size={12} />}
+                    disabled={busy}
+                    onClick={() => noteMutation.mutate({ kind: 'create' })}
+                  >
+                    新建
+                  </Button>
+                )}
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+                {notes.map((note) => (
+                  <button
+                    key={note.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedNoteId(note.id);
+                      setSelectionKind('note');
+                      setMobilePane('inspect');
+                    }}
+                    className={`w-full border-l-2 px-3 py-2.5 text-left transition ${
+                      note.id === selectedNoteId
+                        ? 'border-accent bg-surface-2'
+                        : 'border-transparent hover:border-line hover:bg-surface-2/60'
+                    }`}
+                  >
+                    <span className="block truncate text-xs font-semibold text-ink">
+                      {note.title}
+                    </span>
+                    <span className="mt-1 block line-clamp-2 text-[10px] leading-4 text-muted">
+                      {note.body || '空白笔记'}
+                    </span>
+                  </button>
+                ))}
+                {!notesQuery.isLoading && notes.length === 0 && (
+                  <p className="px-3 py-8 text-center text-xs leading-5 text-muted">
+                    {status === 'deleted' ? '回收站里没有笔记。' : '这个范围还没有笔记。'}
                   </p>
-                  <SourceStatus state={item.sourceState} compact />
-                </div>
-                <p className="mt-2 line-clamp-3 text-xs leading-5 text-secondary">
-                  {item.summary || item.sourceSnapshot.anchor.textQuote?.exact || '区域证据'}
-                </p>
-                <p className="mt-2 text-[10px] text-muted">
-                  {item.contextId === null
-                    ? '通用证据'
-                    : (contexts.find((entry) => entry.id === item.contextId)?.name ?? '研究上下文')}
-                  {' · 来源：'}
-                  {item.sourceSnapshot.contextId === null
-                    ? '通用批注'
-                    : (contexts.find((entry) => entry.id === item.sourceSnapshot.contextId)?.name ??
-                      '已归档上下文')}
-                  {' · 第 '}
-                  {item.sourceSnapshot.pageNumber} 页
-                </p>
-              </button>
-            ))}
-            {!evidenceQuery.isLoading && evidence.length === 0 && (
-              <EmptyPane>
-                {status === 'deleted'
-                  ? '回收站里没有证据。'
-                  : '还没有证据。打开一篇 PDF，选择文字或区域后提炼。'}
-              </EmptyPane>
-            )}
-          </div>
-        </main>
+                )}
+              </div>
+            </aside>
 
-        <aside
-          className={`${mobilePane === 'inspect' ? 'block' : 'hidden'} h-full min-h-0 lg:block`}
-        >
-          {selectionKind === 'evidence' ? (
-            <EvidenceInspector
-              evidence={selectedEvidence}
-              busy={busy}
-              linkedNote={selectedNote}
-              noteLink={selectedEvidenceLink}
-              sourceContextName={
-                selectedEvidence?.sourceSnapshot.contextId === null
-                  ? '通用批注'
-                  : (contexts.find(
-                      (entry) => entry.id === selectedEvidence?.sourceSnapshot.contextId,
-                    )?.name ?? '已归档上下文')
-              }
-              onSave={(item, changes) =>
-                evidenceMutation.mutate({ kind: 'update', evidence: item, ...changes })
-              }
-              onDelete={(item) => evidenceMutation.mutate({ kind: 'delete', evidence: item })}
-              onRestore={(item) => evidenceMutation.mutate({ kind: 'restore', evidence: item })}
-              onLink={(note, item) =>
-                noteLinkMutation.mutate({ kind: 'link', note, evidence: item })
-              }
-              onUnlink={(link) => noteLinkMutation.mutate({ kind: 'unlink', link })}
-            />
-          ) : (
-            <NoteEditor
-              note={selectedNote}
-              contextName={contextName}
-              busy={busy}
-              onSave={(note, changes) => noteMutation.mutate({ kind: 'update', note, ...changes })}
-              onDelete={(note) => noteMutation.mutate({ kind: 'delete', note })}
-              onRestore={(note) => noteMutation.mutate({ kind: 'restore', note })}
-            />
-          )}
-        </aside>
-      </div>
+            <main
+              className={`${mobilePane === 'evidence' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-line lg:flex`}
+            >
+              <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">
+                    证据流
+                  </p>
+                  <p className="mt-1 text-xs text-secondary">从阅读器提炼，保留来源快照</p>
+                </div>
+                <span className="font-mono text-[10px] text-muted">{evidence.length}</span>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {evidence.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedEvidenceId(item.id);
+                      setSelectionKind('evidence');
+                      setMobilePane('inspect');
+                    }}
+                    className={`block w-full border-b border-line px-4 py-4 text-left transition ${
+                      selectedEvidenceId === item.id ? 'bg-surface-2' : 'hover:bg-surface-2/60'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="min-w-0 truncate text-xs font-semibold text-ink">
+                        {item.title || item.sourceSnapshot.workTitle}
+                      </p>
+                      <SourceStatus state={item.sourceState} compact />
+                    </div>
+                    <p className="mt-2 line-clamp-3 text-xs leading-5 text-secondary">
+                      {item.summary || item.sourceSnapshot.anchor.textQuote?.exact || '区域证据'}
+                    </p>
+                    <p className="mt-2 text-[10px] text-muted">
+                      {item.contextId === null
+                        ? '通用证据'
+                        : (contexts.find((entry) => entry.id === item.contextId)?.name ??
+                          '研究上下文')}
+                      {' · 来源：'}
+                      {item.sourceSnapshot.contextId === null
+                        ? '通用批注'
+                        : (contexts.find((entry) => entry.id === item.sourceSnapshot.contextId)
+                            ?.name ?? '已归档上下文')}
+                      {' · 第 '}
+                      {item.sourceSnapshot.pageNumber} 页
+                    </p>
+                  </button>
+                ))}
+                {!evidenceQuery.isLoading && evidence.length === 0 && (
+                  <EmptyPane>
+                    {status === 'deleted'
+                      ? '回收站里没有证据。'
+                      : '还没有证据。打开一篇 PDF，选择文字或区域后提炼。'}
+                  </EmptyPane>
+                )}
+              </div>
+            </main>
+
+            <aside
+              className={`${mobilePane === 'inspect' ? 'block' : 'hidden'} h-full min-h-0 lg:block`}
+            >
+              {selectionKind === 'evidence' ? (
+                <EvidenceInspector
+                  evidence={selectedEvidence}
+                  busy={busy}
+                  linkedNote={selectedNote}
+                  noteLink={selectedEvidenceLink}
+                  sourceContextName={
+                    selectedEvidence?.sourceSnapshot.contextId === null
+                      ? '通用批注'
+                      : (contexts.find(
+                          (entry) => entry.id === selectedEvidence?.sourceSnapshot.contextId,
+                        )?.name ?? '已归档上下文')
+                  }
+                  onSave={(item, changes) =>
+                    evidenceMutation.mutate({ kind: 'update', evidence: item, ...changes })
+                  }
+                  onDelete={(item) => evidenceMutation.mutate({ kind: 'delete', evidence: item })}
+                  onRestore={(item) => evidenceMutation.mutate({ kind: 'restore', evidence: item })}
+                  onLink={(note, item) =>
+                    noteLinkMutation.mutate({ kind: 'link', note, evidence: item })
+                  }
+                  onUnlink={(link) => noteLinkMutation.mutate({ kind: 'unlink', link })}
+                />
+              ) : (
+                <NoteEditor
+                  note={selectedNote}
+                  contextName={contextName}
+                  busy={busy}
+                  onSave={(note, changes) =>
+                    noteMutation.mutate({ kind: 'update', note, ...changes })
+                  }
+                  onDelete={(note) => noteMutation.mutate({ kind: 'delete', note })}
+                  onRestore={(note) => noteMutation.mutate({ kind: 'restore', note })}
+                />
+              )}
+            </aside>
+          </div>
+        </>
+      ) : mode === 'claims' ? (
+        <ClaimBoard
+          contextId={context === 'all' ? undefined : context === 'general' ? null : context}
+          contextArchived={selectedContextArchived}
+          onMessage={setMessage}
+        />
+      ) : (
+        <MatrixEditor
+          contextId={context === 'all' ? undefined : context === 'general' ? null : context}
+          contextArchived={selectedContextArchived}
+          onMessage={setMessage}
+        />
+      )}
 
       {message && (
         <div className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2 border border-line bg-surface px-3 py-2 text-xs text-secondary shadow-lg">

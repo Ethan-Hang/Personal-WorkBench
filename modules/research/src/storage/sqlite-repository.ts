@@ -91,6 +91,7 @@ import type {
   StorageMode,
   WorkStatus,
   WorkType,
+  WorkMergeMatrixImpact,
   WorkRelationKind,
 } from '../contract.js';
 import {
@@ -4068,7 +4069,68 @@ export class SqliteResearchRepository
     })();
   }
 
+  async getWorkMergeMatrixImpact(
+    survivorId: string,
+    mergedId: string,
+  ): Promise<WorkMergeMatrixImpact> {
+    const affected = this.sqlite
+      .prepare(
+        `SELECT COUNT(DISTINCT matrix_id) AS count FROM research_matrix_columns
+         WHERE work_id IN (?, ?) AND status = 'active'`,
+      )
+      .get(survivorId, mergedId) as { count: number };
+    const duplicateColumns = this.sqlite
+      .prepare(
+        `SELECT survivor.matrix_id, survivor.id AS survivor_column_id,
+                merged.id AS merged_column_id
+         FROM research_matrix_columns survivor
+         JOIN research_matrix_columns merged ON merged.matrix_id = survivor.matrix_id
+         WHERE survivor.work_id = ? AND merged.work_id = ?
+           AND survivor.status = 'active' AND merged.status = 'active'
+         ORDER BY survivor.matrix_id`,
+      )
+      .all(survivorId, mergedId) as Array<{
+      matrix_id: string;
+      survivor_column_id: string;
+      merged_column_id: string;
+    }>;
+    const conflicts = duplicateColumns.flatMap((pair) =>
+      (
+        this.sqlite
+          .prepare(
+            `SELECT survivor.row_id, survivor.id AS survivor_cell_id,
+                    merged.id AS merged_cell_id
+             FROM research_matrix_cells survivor
+             JOIN research_matrix_cells merged ON merged.row_id = survivor.row_id
+             WHERE survivor.column_id = ? AND merged.column_id = ?
+               AND survivor.status = 'active' AND merged.status = 'active'
+               AND length(trim(survivor.synthesis)) > 0
+               AND length(trim(merged.synthesis)) > 0
+               AND survivor.synthesis <> merged.synthesis
+             ORDER BY survivor.row_id`,
+          )
+          .all(pair.survivor_column_id, pair.merged_column_id) as Array<{
+          row_id: string;
+          survivor_cell_id: string;
+          merged_cell_id: string;
+        }>
+      ).map((row) => ({
+        matrixId: pair.matrix_id,
+        rowId: row.row_id,
+        survivorCellId: row.survivor_cell_id,
+        mergedCellId: row.merged_cell_id,
+      })),
+    );
+    return {
+      affectedMatrixCount: affected.count,
+      duplicateColumnCount: duplicateColumns.length,
+      conflicts,
+    };
+  }
+
   async mergeWorks(draft: WorkMergeDraft): Promise<MergeRecord | null> {
+    const matrixImpact = await this.getWorkMergeMatrixImpact(draft.survivorId, draft.mergedId);
+    if (matrixImpact.conflicts.length > 0) return null;
     return this.sqlite.transaction(() => {
       const works = this.sqlite
         .prepare('SELECT * FROM research_works WHERE id IN (?, ?) ORDER BY id')
@@ -4134,6 +4196,25 @@ export class SqliteResearchRepository
           .all(draft.survivorId, draft.mergedId) as Row[],
         importItems: queryScoped('research_import_items', 'work_id IN (?, ?)'),
         evidence: queryScoped('research_evidence', 'work_id IN (?, ?)'),
+        matrixColumns: queryScoped('research_matrix_columns', 'work_id IN (?, ?)'),
+        matrixCells: this.sqlite
+          .prepare(
+            `SELECT * FROM research_matrix_cells
+             WHERE column_id IN (
+               SELECT id FROM research_matrix_columns WHERE work_id IN (?, ?)
+             ) ORDER BY id`,
+          )
+          .all(draft.survivorId, draft.mergedId) as Row[],
+        matrixCellEvidence: this.sqlite
+          .prepare(
+            `SELECT * FROM research_matrix_cell_evidence
+             WHERE cell_id IN (
+               SELECT cell.id FROM research_matrix_cells cell
+               JOIN research_matrix_columns column ON column.id = cell.column_id
+               WHERE column.work_id IN (?, ?)
+             ) ORDER BY id`,
+          )
+          .all(draft.survivorId, draft.mergedId) as Row[],
       };
       const timestamp = this.clock();
 
@@ -4166,6 +4247,169 @@ export class SqliteResearchRepository
         );
         moveEvidenceWork.run(draft.survivorId, timestamp, evidenceId, revision);
         moveEvidenceSearch.run(draft.survivorId, timestamp, evidenceId);
+      }
+
+      const insertMatrixRevision = this.sqlite.prepare(
+        `INSERT INTO research_knowledge_revisions
+         (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      let matrixRevisionSequence = 0;
+      const reviseMatrixEntity = (
+        entityType: 'matrix-column' | 'matrix-cell' | 'matrix-cell-evidence',
+        row: Row,
+        reason: 'update' | 'delete' | 'rebind',
+      ) => {
+        insertMatrixRevision.run(
+          `${draft.id}:matrix:${matrixRevisionSequence++}`,
+          entityType,
+          text(row, 'id'),
+          integer(row, 'revision'),
+          JSON.stringify(row),
+          reason,
+          timestamp,
+        );
+      };
+      const activeColumns = before.matrixColumns.filter((row) => text(row, 'status') === 'active');
+      const survivorColumns = new Map(
+        activeColumns
+          .filter((row) => text(row, 'work_id') === draft.survivorId)
+          .map((row) => [text(row, 'matrix_id'), row] as const),
+      );
+      const mergedColumns = activeColumns.filter((row) => text(row, 'work_id') === draft.mergedId);
+      const affectedMatrixIds = new Set(activeColumns.map((row) => text(row, 'matrix_id')));
+      for (const mergedColumn of mergedColumns) {
+        const matrixId = text(mergedColumn, 'matrix_id');
+        const survivorColumn = survivorColumns.get(matrixId);
+        if (!survivorColumn) {
+          for (const cell of before.matrixCells.filter(
+            (row) =>
+              text(row, 'column_id') === text(mergedColumn, 'id') &&
+              text(row, 'status') === 'active',
+          )) {
+            reviseMatrixEntity('matrix-cell', cell, 'rebind');
+            this.sqlite
+              .prepare(
+                `UPDATE research_matrix_cells SET review_baseline_json = NULL,
+                   reviewed_at = NULL, revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(timestamp, text(cell, 'id'));
+          }
+          reviseMatrixEntity('matrix-column', mergedColumn, 'rebind');
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_columns SET work_id = ?, revision = revision + 1,
+                 updated_at = ? WHERE id = ?`,
+            )
+            .run(draft.survivorId, timestamp, text(mergedColumn, 'id'));
+          continue;
+        }
+
+        const survivorColumnId = text(survivorColumn, 'id');
+        const mergedColumnId = text(mergedColumn, 'id');
+        const survivorCells = new Map(
+          before.matrixCells
+            .filter(
+              (row) =>
+                text(row, 'column_id') === survivorColumnId && text(row, 'status') === 'active',
+            )
+            .map((row) => [text(row, 'row_id'), row] as const),
+        );
+        const mergedCells = before.matrixCells.filter(
+          (row) => text(row, 'column_id') === mergedColumnId && text(row, 'status') === 'active',
+        );
+        for (const mergedCell of mergedCells) {
+          const targetCell = survivorCells.get(text(mergedCell, 'row_id'));
+          if (!targetCell) {
+            reviseMatrixEntity('matrix-cell', mergedCell, 'rebind');
+            this.sqlite
+              .prepare(
+                `UPDATE research_matrix_cells SET column_id = ?, review_baseline_json = NULL,
+                   reviewed_at = NULL, revision = revision + 1, updated_at = ? WHERE id = ?`,
+              )
+              .run(survivorColumnId, timestamp, text(mergedCell, 'id'));
+            continue;
+          }
+
+          const targetCellId = text(targetCell, 'id');
+          const mergedCellId = text(mergedCell, 'id');
+          const targetLinks = new Map(
+            before.matrixCellEvidence
+              .filter(
+                (row) => text(row, 'cell_id') === targetCellId && text(row, 'status') === 'active',
+              )
+              .map((row) => [text(row, 'evidence_id'), row] as const),
+          );
+          const mergedLinks = before.matrixCellEvidence.filter(
+            (row) => text(row, 'cell_id') === mergedCellId && text(row, 'status') === 'active',
+          );
+          for (const link of mergedLinks) {
+            reviseMatrixEntity(
+              'matrix-cell-evidence',
+              link,
+              targetLinks.has(text(link, 'evidence_id')) ? 'delete' : 'rebind',
+            );
+            if (targetLinks.has(text(link, 'evidence_id'))) {
+              this.sqlite
+                .prepare(
+                  `UPDATE research_matrix_cell_evidence SET status = 'deleted', deleted_at = ?,
+                     revision = revision + 1, updated_at = ? WHERE id = ?`,
+                )
+                .run(timestamp, timestamp, text(link, 'id'));
+            } else {
+              this.sqlite
+                .prepare(
+                  `UPDATE research_matrix_cell_evidence SET cell_id = ?,
+                     revision = revision + 1, updated_at = ? WHERE id = ?`,
+                )
+                .run(targetCellId, timestamp, text(link, 'id'));
+            }
+          }
+          reviseMatrixEntity('matrix-cell', targetCell, 'update');
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_cells SET synthesis = ?, review_baseline_json = NULL,
+                 reviewed_at = NULL, revision = revision + 1, updated_at = ? WHERE id = ?`,
+            )
+            .run(
+              text(targetCell, 'synthesis').trim().length > 0
+                ? text(targetCell, 'synthesis')
+                : text(mergedCell, 'synthesis'),
+              timestamp,
+              targetCellId,
+            );
+          reviseMatrixEntity('matrix-cell', mergedCell, 'delete');
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_cells SET status = 'deleted', deleted_at = ?,
+                 revision = revision + 1, updated_at = ? WHERE id = ?`,
+            )
+            .run(timestamp, timestamp, mergedCellId);
+        }
+        if (integer(survivorColumn, 'position') > integer(mergedColumn, 'position')) {
+          reviseMatrixEntity('matrix-column', survivorColumn, 'update');
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_columns SET position = ?, revision = revision + 1,
+                 updated_at = ? WHERE id = ?`,
+            )
+            .run(integer(mergedColumn, 'position'), timestamp, survivorColumnId);
+        }
+        reviseMatrixEntity('matrix-column', mergedColumn, 'delete');
+        this.sqlite
+          .prepare(
+            `UPDATE research_matrix_columns SET status = 'deleted', deleted_at = ?,
+               revision = revision + 1, updated_at = ? WHERE id = ?`,
+          )
+          .run(timestamp, timestamp, mergedColumnId);
+      }
+      for (const matrixId of affectedMatrixIds) {
+        this.sqlite
+          .prepare(
+            `UPDATE research_matrices SET structure_revision = structure_revision + 1,
+               updated_at = ? WHERE id = ?`,
+          )
+          .run(timestamp, matrixId);
       }
 
       this.sqlite
@@ -4297,6 +4541,17 @@ export class SqliteResearchRepository
         this.sqlite
           .prepare(`SELECT * FROM ${table} WHERE ${predicate} ORDER BY id`)
           .all(...params) as Row[];
+      const matrixColumnIds = before.matrixColumns.map((row) => text(row, 'id'));
+      const matrixCellIds = before.matrixCells.map((row) => text(row, 'id'));
+      const matrixCellEvidenceIds = before.matrixCellEvidence.map((row) => text(row, 'id'));
+      const queryIds = (table: string, ids: string[]) =>
+        ids.length === 0
+          ? []
+          : (this.sqlite
+              .prepare(
+                `SELECT * FROM ${table} WHERE id IN (${ids.map(() => '?').join(', ')}) ORDER BY id`,
+              )
+              .all(...ids) as Row[]);
       const applied = {
         works: queryApplied('research_works', 'id IN (?, ?)', draft.survivorId, draft.mergedId),
         editions:
@@ -4353,6 +4608,9 @@ export class SqliteResearchRepository
           draft.survivorId,
           draft.mergedId,
         ),
+        matrixColumns: queryIds('research_matrix_columns', matrixColumnIds),
+        matrixCells: queryIds('research_matrix_cells', matrixCellIds),
+        matrixCellEvidence: queryIds('research_matrix_cell_evidence', matrixCellEvidenceIds),
       };
       const snapshotJson = JSON.stringify({ version: 1, entityType: 'work', before, applied });
       const record = this.sqlite
@@ -4468,6 +4726,9 @@ export class SqliteResearchRepository
             identifiers: Row[];
             importItems: Row[];
             evidence: Row[];
+            matrixColumns?: Row[];
+            matrixCells?: Row[];
+            matrixCellEvidence?: Row[];
           };
           applied: {
             works: Row[];
@@ -4480,6 +4741,9 @@ export class SqliteResearchRepository
             identifiers: Row[];
             importItems: Row[];
             evidence: Row[];
+            matrixColumns?: Row[];
+            matrixCells?: Row[];
+            matrixCellEvidence?: Row[];
           };
         };
         const editionIds = snapshot.before.editions.map((edition) => text(edition, 'id'));
@@ -4488,6 +4752,19 @@ export class SqliteResearchRepository
           this.sqlite
             .prepare(`SELECT * FROM ${table} WHERE ${predicate} ORDER BY id`)
             .all(...params) as Row[];
+        const beforeMatrixColumns = snapshot.before.matrixColumns ?? [];
+        const beforeMatrixCells = snapshot.before.matrixCells ?? [];
+        const beforeMatrixCellEvidence = snapshot.before.matrixCellEvidence ?? [];
+        const queryIds = (table: string, rows: Row[]) => {
+          const ids = rows.map((row) => text(row, 'id'));
+          return ids.length === 0
+            ? []
+            : (this.sqlite
+                .prepare(
+                  `SELECT * FROM ${table} WHERE id IN (${ids.map(() => '?').join(', ')}) ORDER BY id`,
+                )
+                .all(...ids) as Row[]);
+        };
         const current = {
           works: query('research_works', 'id IN (?, ?)', record.survivorId, record.mergedId),
           editions:
@@ -4544,10 +4821,19 @@ export class SqliteResearchRepository
             record.survivorId,
             record.mergedId,
           ),
+          matrixColumns: queryIds('research_matrix_columns', beforeMatrixColumns),
+          matrixCells: queryIds('research_matrix_cells', beforeMatrixCells),
+          matrixCellEvidence: queryIds('research_matrix_cell_evidence', beforeMatrixCellEvidence),
+        };
+        const applied = {
+          ...snapshot.applied,
+          matrixColumns: snapshot.applied.matrixColumns ?? [],
+          matrixCells: snapshot.applied.matrixCells ?? [],
+          matrixCellEvidence: snapshot.applied.matrixCellEvidence ?? [],
         };
         if (
           (Object.keys(current) as Array<keyof typeof current>).some(
-            (key) => !same(current[key], snapshot.applied[key]),
+            (key) => !same(current[key], applied[key]),
           )
         ) {
           return null;
@@ -4586,6 +4872,98 @@ export class SqliteResearchRepository
           );
           restoreEvidence.run(text(before, 'work_id'), restoreTimestamp, evidenceId, revision);
           restoreEvidenceSearch.run(text(before, 'work_id'), restoreTimestamp, evidenceId);
+        }
+
+        const insertMatrixRevision = this.sqlite.prepare(
+          `INSERT INTO research_knowledge_revisions
+           (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+           VALUES (?, ?, ?, ?, ?, 'rebind', ?)`,
+        );
+        let undoMatrixSequence = 0;
+        const reviseMatrixEntity = (
+          entityType: 'matrix-column' | 'matrix-cell' | 'matrix-cell-evidence',
+          row: Row,
+        ) =>
+          insertMatrixRevision.run(
+            `${id}:undo-matrix:${undoMatrixSequence++}`,
+            entityType,
+            text(row, 'id'),
+            integer(row, 'revision'),
+            JSON.stringify(row),
+            restoreTimestamp,
+          );
+        const beforeColumnById = new Map(
+          beforeMatrixColumns.map((row) => [text(row, 'id'), row] as const),
+        );
+        for (const row of current.matrixColumns) {
+          const before = beforeColumnById.get(text(row, 'id'));
+          if (!before) return null;
+          reviseMatrixEntity('matrix-column', row);
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_columns SET work_id = ?, position = ?, status = ?,
+                 deleted_at = ?, revision = revision + 1, updated_at = ? WHERE id = ?`,
+            )
+            .run(
+              text(before, 'work_id'),
+              integer(before, 'position'),
+              text(before, 'status'),
+              nullableText(before, 'deleted_at'),
+              restoreTimestamp,
+              text(row, 'id'),
+            );
+        }
+        const beforeCellById = new Map(
+          beforeMatrixCells.map((row) => [text(row, 'id'), row] as const),
+        );
+        for (const row of current.matrixCells) {
+          const before = beforeCellById.get(text(row, 'id'));
+          if (!before) return null;
+          reviseMatrixEntity('matrix-cell', row);
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_cells SET column_id = ?, synthesis = ?,
+                 review_baseline_json = ?, reviewed_at = ?, status = ?, deleted_at = ?,
+                 revision = revision + 1, updated_at = ? WHERE id = ?`,
+            )
+            .run(
+              text(before, 'column_id'),
+              text(before, 'synthesis'),
+              nullableText(before, 'review_baseline_json'),
+              nullableText(before, 'reviewed_at'),
+              text(before, 'status'),
+              nullableText(before, 'deleted_at'),
+              restoreTimestamp,
+              text(row, 'id'),
+            );
+        }
+        const beforeLinkById = new Map(
+          beforeMatrixCellEvidence.map((row) => [text(row, 'id'), row] as const),
+        );
+        for (const row of current.matrixCellEvidence) {
+          const before = beforeLinkById.get(text(row, 'id'));
+          if (!before) return null;
+          reviseMatrixEntity('matrix-cell-evidence', row);
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrix_cell_evidence SET cell_id = ?, status = ?, deleted_at = ?,
+                 revision = revision + 1, updated_at = ? WHERE id = ?`,
+            )
+            .run(
+              text(before, 'cell_id'),
+              text(before, 'status'),
+              nullableText(before, 'deleted_at'),
+              restoreTimestamp,
+              text(row, 'id'),
+            );
+        }
+        for (const matrixId of new Set(beforeMatrixColumns.map((row) => text(row, 'matrix_id')))) {
+          this.sqlite
+            .prepare(
+              `UPDATE research_matrices SET structure_revision = structure_revision + 1,
+                 updated_at = ? WHERE id = ?`,
+            )
+            .run(restoreTimestamp, matrixId);
         }
 
         for (const [table, predicate] of [

@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §11.2、§16“切片 C”、§17.8–§17.9。
 
-**Status:** 已确认，实施中。C1 已完成，下一步进入 C2。
+**Status:** 已确认，实施中。C1 和 C2 已完成，下一步进入 C3 写作与交付。
 
 ## 执行方式
 
@@ -316,13 +316,13 @@ Windows 11 x64 的 C1 领域与 UI 模块保持 `not-run`，运行同一命令�
 
 **提交：** `feat(research): connect claims and evidence`
 
-- [ ] `0007` 建立观点、观点证据、矩阵、行、列、单元格和单元格证据表，所有状态、目标类型和排序值有约束。
-- [ ] `0007` 同步扩展笔记资源链接的 Claim 目标约束，迁移保留 C1 已有 Work、Annotation 和 Evidence 链接。
-- [ ] Repository 和 Service 实现观点 CRUD、草稿/使用中/归档、revision、tombstone 与三类证据关系。
-- [ ] 一张证据可服务多个观点和上下文；建立关系时不修改证据来源上下文或内容。
-- [ ] 无证据观点可以保存但始终返回 `evidenceCount: 0`；转为使用中不伪造“已支持”状态。
-- [ ] API 覆盖关系创建、改类型、改说明、解除与恢复；并发更新返回当前关系。
-- [ ] 搜索内容表开始接收观点正文和说明，删除/恢复后 FTS 同步。
+- [x] `0007` 建立观点、观点证据、矩阵、行、列、单元格和单元格证据表，所有状态、目标类型和排序值有约束。
+- [x] `0007` 同步扩展笔记资源链接的 Claim 目标约束，迁移保留 C1 已有 Work、Annotation 和 Evidence 链接。
+- [x] Repository 和 Service 实现观点 CRUD、草稿/使用中/归档、revision、tombstone 与三类证据关系。
+- [x] 一张证据可服务多个观点和上下文；建立关系时不修改证据来源上下文或内容。
+- [x] 无证据观点可以保存但始终返回 `evidenceCount: 0`；转为使用中不伪造“已支持”状态。
+- [x] API 覆盖关系创建、改类型、改说明、解除与恢复；并发更新返回当前关系。
+- [x] 搜索内容表开始接收观点正文和说明，删除/恢复后 FTS 同步。
 
 **验证：**
 
@@ -330,16 +330,18 @@ Windows 11 x64 的 C1 领域与 UI 模块保持 `not-run`，运行同一命令�
 npx vitest run modules/research/src/storage/knowledge-migrations.test.ts modules/research/src/storage/knowledge-repository.test.ts modules/research/src/knowledge/service.test.ts modules/research/src/server/knowledge-routes.test.ts
 ```
 
+macOS arm64 定向验证通过：4 个文件、20 项测试通过；`typecheck`、`eslint --quiet` 和 `git diff --check` 通过。Windows 11 x64 保持 `not-run`，按 C2 模块脚本统一补测。
+
 ### Task 7：实现混合跨论文矩阵和复核状态
 
 **提交：** `feat(research): compare evidence across papers`
 
-- [ ] 实现矩阵创建、标题说明、归档恢复、Work 列、观点/比较维度行、排序和结构 revision。
-- [ ] 行列组合保持唯一单元格；单元格人工综合与证据选择分别保存，候选证据动态计算。
-- [ ] 观点行候选来自该观点关系和当前 Work；比较维度行候选来自用户在该单元格已选证据及同 Work 可用证据。
-- [ ] 保存复核基线并计算 `current / needs-review`；证据、观点 revision 或来源状态变化都会使相关单元格过期。
-- [ ] Work 合并合并重复列并保留顺序与单元格内容；无法无损合并的两个非空单元格进入影响预览，不静默覆盖。
-- [ ] 结构更新和单元格更新分别使用 revision，避免编辑一个单元格锁住整个最大矩阵。
+- [x] 实现矩阵创建、标题说明、归档恢复、Work 列、观点/比较维度行、排序和结构 revision。
+- [x] 行列组合保持唯一单元格；单元格人工综合与证据选择分别保存，候选证据动态计算。
+- [x] 观点行候选来自该观点关系和当前 Work；比较维度行候选来自用户在该单元格已选证据及同 Work 可用证据。
+- [x] 保存复核基线并计算 `current / needs-review`；证据、观点 revision 或来源状态变化都会使相关单元格过期。
+- [x] Work 合并合并重复列并保留顺序与单元格内容；无法无损合并的两个非空单元格进入影响预览，不静默覆盖。
+- [x] 结构更新和单元格更新分别使用 revision，避免编辑一个单元格锁住整个最大矩阵。
 
 **验证：**
 
@@ -347,22 +349,31 @@ npx vitest run modules/research/src/storage/knowledge-migrations.test.ts modules
 npx vitest run modules/research/src/storage/knowledge-repository.test.ts modules/research/src/knowledge/service.test.ts modules/research/src/server/knowledge-routes.test.ts
 ```
 
+macOS arm64 定向验证通过：矩阵三组 19 项测试通过；连同作品合并、治理路由和 A 验收回归共 6 个文件、25 项测试通过。`typecheck`、`eslint --quiet` 和 `git diff --check` 通过。Windows 11 x64 保持 `not-run`。
+
 ### Task 8：完成观点板、矩阵编辑器和 C2 验收
 
 **提交：** `test(research): verify comparison milestone`
 
-- [ ] 观点板支持草稿、说明、三类证据关系、来源展开、解除和恢复；不同关系使用文字和图标，不只靠颜色。
-- [ ] 矩阵编辑器支持选 Work、添加两类行、固定表头/首列、编辑综合、选择候选证据、复核和来源回跳。
-- [ ] 200 列不一次挂载全部单元格；横纵窗口化保持键盘导航、表头对齐和当前编辑单元格稳定。
-- [ ] 390 像素切换为“选择行 → 逐论文单元格”流程，不强行压缩完整二维表。
-- [ ] 自动覆盖设计 C-04、C-05；来源变化后矩阵 `needs-review` 与 C1 状态一致。
-- [ ] 四宽度真实浏览器完成多作品、多关系、长标题、空单元格、过期复核和来源回跳；执行 `git fetch origin --prune`。
+- [x] 观点板支持草稿、说明、三类证据关系、来源展开、解除和恢复；不同关系使用文字和图标，不只靠颜色。
+- [x] 矩阵编辑器支持选 Work、添加两类行、固定表头/首列、编辑综合、选择候选证据、复核和来源回跳。
+- [x] 200 列不一次挂载全部单元格；横纵窗口化保持键盘导航、表头对齐和当前编辑单元格稳定。
+- [x] 390 像素切换为“选择行 → 逐论文单元格”流程，不强行压缩完整二维表。
+- [x] 自动覆盖设计 C-04、C-05；来源变化后矩阵 `needs-review` 与 C1 状态一致。
+- [x] 四宽度真实浏览器完成多作品、多关系、长标题、空单元格、过期复核和来源回跳；执行 `git fetch origin --prune`。
 
 **验证：**
 
 ```bash
 node scripts/research-knowledge-compat.mjs --phase c2 --browser
 npm run check
+```
+
+**阶段记录（2026-08-30，macOS arm64）：** C2 模块脚本的 7 个文件、40 项测试通过；Microsoft Edge 152 在 1440、1024、768 和 390 像素的全新 profile 中完成观点板、矩阵、长标题、空单元格、`needs-review` 和来源回跳检查，无水平页面溢出。全仓库 `npm run check` 通过：186 个测试文件通过、4 个跳过，1537 项测试通过、4 项跳过。兼容脚本已为 DevTools 和本地 HTTP 设置超时，浏览器异常时会回收本轮进程。Windows 11 x64 的 C2 领域与 UI 模块均保持 `not-run`，命令与 macOS 相同：
+
+```powershell
+npm run setup
+node .\scripts\research-knowledge-compat.mjs --phase c2 --browser
 ```
 
 ## C3：写作与交付

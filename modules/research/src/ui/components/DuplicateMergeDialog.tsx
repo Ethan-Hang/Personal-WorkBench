@@ -189,10 +189,39 @@ export function DuplicateMergeDialog({
               </Field>
             </div>
 
+            {preview.matrixImpact.affectedMatrixCount > 0 && (
+              <section
+                className={`rounded-panel border p-4 ${
+                  preview.matrixImpact.conflicts.length > 0
+                    ? 'border-critical/35 bg-critical-soft'
+                    : 'border-line bg-surface-2/30'
+                }`}
+              >
+                <h3 className="text-xs font-semibold text-ink">跨论文矩阵</h3>
+                <p className="mt-2 text-xs leading-5 text-secondary">
+                  将更新 {preview.matrixImpact.affectedMatrixCount} 个矩阵；其中{' '}
+                  {preview.matrixImpact.duplicateColumnCount} 个矩阵包含两条待合并列。
+                </p>
+                {preview.matrixImpact.conflicts.length > 0 && (
+                  <div className="mt-3 space-y-1 text-xs text-critical">
+                    <p className="font-semibold">
+                      有 {preview.matrixImpact.conflicts.length}{' '}
+                      个单元格两侧都有不同的综合内容，请先在矩阵中处理。
+                    </p>
+                    {preview.matrixImpact.conflicts.map((item) => (
+                      <p key={`${item.matrixId}:${item.rowId}`} className="font-mono text-[10px]">
+                        {item.matrixId} · {item.rowId}
+                      </p>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="primary"
-                disabled={busy}
+                disabled={busy || preview.matrixImpact.conflicts.length > 0}
                 onClick={() =>
                   void run(async () => {
                     if (!window.confirm('执行合并并保存可撤销快照吗？')) return;

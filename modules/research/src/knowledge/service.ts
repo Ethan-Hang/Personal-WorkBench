@@ -1,14 +1,28 @@
 import { randomUUID } from 'node:crypto';
 import {
+  claimEvidenceSchema,
+  claimsPageSchema,
+  claimSchema,
   evidenceDetailSchema,
   evidencePageSchema,
   evidenceRebindPreviewSchema,
   evidenceSchema,
   evidenceSourceSnapshotSchema,
+  matricesPageSchema,
+  matrixCandidatesSchema,
+  matrixCellEvidenceSchema,
+  matrixCellSchema,
+  matrixCellWindowSchema,
+  matrixDetailSchema,
   noteLinkSchema,
   notesPageSchema,
   researchNoteSchema,
   type CreateDirectEvidenceInput,
+  type CreateClaimEvidenceInput,
+  type CreateClaimInput,
+  type CreateMatrixCellEvidenceInput,
+  type CreateMatrixCellInput,
+  type CreateMatrixInput,
   type CreateEvidenceInput,
   type CreateNoteInput,
   type CreateNoteLinkInput,
@@ -18,14 +32,33 @@ import {
   type EvidencePage,
   type EvidenceRebindPreview,
   type KnowledgeRevision,
+  type KnowledgeEntityType,
   type KnowledgeRevisionInput,
+  type ListMatricesQuery,
   type ListEvidenceQuery,
+  type ListClaimsQuery,
   type ListNotesQuery,
   type NoteLink,
   type NotesPage,
+  type MatricesPage,
+  type MatrixCandidates,
+  type MatrixCandidatesQuery,
+  type MatrixCell,
+  type MatrixCellEvidence,
+  type MatrixCellWindow,
+  type MatrixCellWindowQuery,
+  type MatrixDetail,
   type ResearchNote,
+  type Claim,
+  type ClaimEvidence,
+  type ClaimsPage,
   type PreviewEvidenceRebindInput,
   type UpdateEvidenceInput,
+  type UpdateClaimEvidenceInput,
+  type UpdateClaimInput,
+  type UpdateMatrixCellInput,
+  type UpdateMatrixInput,
+  type UpdateMatrixStructureInput,
   type UpdateNoteInput,
 } from '../contract.js';
 import { KnowledgeError } from './errors.js';
@@ -81,7 +114,14 @@ function createResult<T>(result: KnowledgeCreateResult<T>): T {
 
 function changeResult<T>(
   result: KnowledgeChangeResult<T>,
-  notFoundCode: 'KNOWLEDGE_NOTE_NOT_FOUND' | 'KNOWLEDGE_EVIDENCE_NOT_FOUND',
+  notFoundCode:
+    | 'KNOWLEDGE_NOTE_NOT_FOUND'
+    | 'KNOWLEDGE_EVIDENCE_NOT_FOUND'
+    | 'KNOWLEDGE_CLAIM_NOT_FOUND'
+    | 'KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND'
+    | 'KNOWLEDGE_MATRIX_NOT_FOUND'
+    | 'KNOWLEDGE_MATRIX_CELL_NOT_FOUND'
+    | 'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
   label: string,
 ): T {
   if (result.kind === 'saved') return result.value;
@@ -540,8 +580,431 @@ export class ResearchKnowledgeService {
     return this.getEvidence(saved.id);
   }
 
+  async listClaims(input: ListClaimsQuery): Promise<ClaimsPage> {
+    const page = await this.repository.listClaims({
+      ...('contextId' in input ? { contextId: input.contextId } : {}),
+      status: input.status,
+      before: decodeCursor(input.cursor),
+      limit: input.limit,
+    });
+    return claimsPageSchema.parse({ claims: page.items, nextCursor: encodeCursor(page.next) });
+  }
+
+  async getClaim(id: string): Promise<Claim> {
+    const claim = await this.repository.getClaim(id);
+    if (!claim) throw new KnowledgeError('KNOWLEDGE_CLAIM_NOT_FOUND', '观点不存在', 404);
+    return claimSchema.parse(claim);
+  }
+
+  async createClaim(input: CreateClaimInput): Promise<Claim> {
+    return claimSchema.parse(
+      createResult(
+        await this.repository.createClaim({
+          id: this.createId(),
+          contextId: input.contextId,
+          statement: input.statement.trim(),
+          rationale: input.rationale,
+          status: input.status,
+        }),
+      ),
+    );
+  }
+
+  async updateClaim(id: string, input: UpdateClaimInput): Promise<Claim> {
+    const current = await this.getClaim(id);
+    return claimSchema.parse(
+      changeResult(
+        await this.repository.updateClaim(id, {
+          contextId: input.contextId === undefined ? current.contextId : input.contextId,
+          statement: input.statement?.trim() ?? current.statement,
+          rationale: input.rationale === undefined ? current.rationale : input.rationale,
+          status: input.status ?? (current.status === 'deleted' ? 'draft' : current.status),
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_CLAIM_NOT_FOUND',
+        '观点',
+      ),
+    );
+  }
+
+  async deleteClaim(id: string, input: KnowledgeRevisionInput): Promise<Claim> {
+    return claimSchema.parse(
+      changeResult(
+        await this.repository.deleteClaim(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_CLAIM_NOT_FOUND',
+        '观点',
+      ),
+    );
+  }
+
+  async restoreClaim(id: string, input: KnowledgeRevisionInput): Promise<Claim> {
+    return claimSchema.parse(
+      changeResult(
+        await this.repository.restoreClaim(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_CLAIM_NOT_FOUND',
+        '观点',
+      ),
+    );
+  }
+
+  async listClaimEvidence(claimId: string, includeDeleted: boolean): Promise<ClaimEvidence[]> {
+    const relations = await this.repository.listClaimEvidence(claimId, includeDeleted);
+    if (!relations) throw new KnowledgeError('KNOWLEDGE_CLAIM_NOT_FOUND', '观点不存在', 404);
+    return relations.map((relation) => claimEvidenceSchema.parse(relation));
+  }
+
+  async createClaimEvidence(
+    claimId: string,
+    input: CreateClaimEvidenceInput,
+  ): Promise<ClaimEvidence> {
+    return claimEvidenceSchema.parse(
+      createResult(
+        await this.repository.createClaimEvidence({
+          id: this.createId(),
+          claimId,
+          evidenceId: input.evidenceId,
+          relation: input.relation,
+          note: input.note,
+        }),
+      ),
+    );
+  }
+
+  async updateClaimEvidence(id: string, input: UpdateClaimEvidenceInput): Promise<ClaimEvidence> {
+    const current = await this.findClaimEvidence(id);
+    return claimEvidenceSchema.parse(
+      changeResult(
+        await this.repository.updateClaimEvidence(id, {
+          relation: input.relation ?? current.relation,
+          note: input.note === undefined ? current.note : input.note,
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND',
+        '观点证据关系',
+      ),
+    );
+  }
+
+  private async findClaimEvidence(id: string): Promise<ClaimEvidence> {
+    const relation = await this.repository.getClaimEvidence(id);
+    if (!relation) {
+      throw new KnowledgeError('KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND', '观点证据关系不存在', 404);
+    }
+    return claimEvidenceSchema.parse(relation);
+  }
+
+  async deleteClaimEvidence(id: string, input: KnowledgeRevisionInput): Promise<ClaimEvidence> {
+    return claimEvidenceSchema.parse(
+      changeResult(
+        await this.repository.deleteClaimEvidence(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND',
+        '观点证据关系',
+      ),
+    );
+  }
+
+  async restoreClaimEvidence(id: string, input: KnowledgeRevisionInput): Promise<ClaimEvidence> {
+    return claimEvidenceSchema.parse(
+      changeResult(
+        await this.repository.restoreClaimEvidence(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND',
+        '观点证据关系',
+      ),
+    );
+  }
+
+  async listMatrices(input: ListMatricesQuery): Promise<MatricesPage> {
+    const page = await this.repository.listMatrices({
+      ...('contextId' in input ? { contextId: input.contextId } : {}),
+      status: input.status,
+      before: decodeCursor(input.cursor),
+      limit: input.limit,
+    });
+    return matricesPageSchema.parse({ matrices: page.items, nextCursor: encodeCursor(page.next) });
+  }
+
+  async getMatrix(id: string, includeDeletedStructure = false): Promise<MatrixDetail> {
+    const matrix = await this.repository.getMatrix(id, includeDeletedStructure);
+    if (!matrix) throw new KnowledgeError('KNOWLEDGE_MATRIX_NOT_FOUND', '矩阵不存在', 404);
+    return matrixDetailSchema.parse(matrix);
+  }
+
+  async createMatrix(input: CreateMatrixInput): Promise<MatrixDetail> {
+    return matrixDetailSchema.parse(
+      createResult(
+        await this.repository.createMatrix({
+          id: this.createId(),
+          contextId: input.contextId,
+          title: input.title.trim(),
+          description: input.description,
+        }),
+      ),
+    );
+  }
+
+  async updateMatrix(id: string, input: UpdateMatrixInput): Promise<MatrixDetail> {
+    const current = await this.getMatrix(id);
+    return matrixDetailSchema.parse(
+      changeResult(
+        await this.repository.updateMatrix(id, {
+          contextId: input.contextId === undefined ? current.contextId : input.contextId,
+          title: input.title?.trim() ?? current.title,
+          description: input.description === undefined ? current.description : input.description,
+          status: input.status ?? (current.status === 'archived' ? 'archived' : 'active'),
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_NOT_FOUND',
+        '矩阵',
+      ),
+    );
+  }
+
+  async deleteMatrix(id: string, input: KnowledgeRevisionInput): Promise<MatrixDetail> {
+    return matrixDetailSchema.parse(
+      changeResult(
+        await this.repository.deleteMatrix(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_NOT_FOUND',
+        '矩阵',
+      ),
+    );
+  }
+
+  async restoreMatrix(id: string, input: KnowledgeRevisionInput): Promise<MatrixDetail> {
+    return matrixDetailSchema.parse(
+      changeResult(
+        await this.repository.restoreMatrix(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_NOT_FOUND',
+        '矩阵',
+      ),
+    );
+  }
+
+  async updateMatrixStructure(
+    id: string,
+    input: UpdateMatrixStructureInput,
+  ): Promise<MatrixDetail> {
+    const columns = input.columns.map((column) => ({
+      id: column.id ?? this.createId(),
+      workId: column.workId,
+      position: column.position,
+    }));
+    const rows = input.rows.map((row) =>
+      row.kind === 'claim'
+        ? {
+            id: row.id ?? this.createId(),
+            kind: 'claim' as const,
+            claimId: row.claimId,
+            title: null,
+            question: null,
+            position: row.position,
+          }
+        : {
+            id: row.id ?? this.createId(),
+            kind: 'dimension' as const,
+            claimId: null,
+            title: row.title,
+            question: row.question,
+            position: row.position,
+          },
+    );
+    return matrixDetailSchema.parse(
+      changeResult(
+        await this.repository.updateMatrixStructure(id, {
+          expectedStructureRevision: input.expectedStructureRevision,
+          revisionId: this.createId(),
+          columns,
+          rows,
+        }),
+        'KNOWLEDGE_MATRIX_NOT_FOUND',
+        '矩阵结构',
+      ),
+    );
+  }
+
+  async getMatrixCandidates(
+    matrixId: string,
+    input: MatrixCandidatesQuery,
+  ): Promise<MatrixCandidates> {
+    const candidates = await this.repository.getMatrixCandidates(
+      matrixId,
+      input.rowId,
+      input.columnId,
+    );
+    if (!candidates) {
+      throw new KnowledgeError('KNOWLEDGE_MATRIX_NOT_FOUND', '矩阵行列不存在', 404);
+    }
+    return matrixCandidatesSchema.parse(candidates);
+  }
+
+  async getMatrixCell(id: string): Promise<MatrixCell> {
+    const cell = await this.repository.getMatrixCell(id);
+    if (!cell) throw new KnowledgeError('KNOWLEDGE_MATRIX_CELL_NOT_FOUND', '矩阵单元格不存在', 404);
+    return matrixCellSchema.parse(cell);
+  }
+
+  async getMatrixCellWindow(
+    matrixId: string,
+    input: MatrixCellWindowQuery,
+  ): Promise<MatrixCellWindow> {
+    const window = await this.repository.getMatrixCellWindow(
+      matrixId,
+      input.columnOffset,
+      input.columnLimit,
+      input.rowOffset,
+      input.rowLimit,
+    );
+    if (!window) throw new KnowledgeError('KNOWLEDGE_MATRIX_NOT_FOUND', '矩阵不存在', 404);
+    return matrixCellWindowSchema.parse(window);
+  }
+
+  async createMatrixCell(matrixId: string, input: CreateMatrixCellInput): Promise<MatrixCell> {
+    return matrixCellSchema.parse(
+      createResult(
+        await this.repository.createMatrixCell({
+          id: this.createId(),
+          matrixId,
+          rowId: input.rowId,
+          columnId: input.columnId,
+          synthesis: input.synthesis,
+        }),
+      ),
+    );
+  }
+
+  async updateMatrixCell(id: string, input: UpdateMatrixCellInput): Promise<MatrixCell> {
+    return matrixCellSchema.parse(
+      changeResult(
+        await this.repository.updateMatrixCell(id, {
+          synthesis: input.synthesis,
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_CELL_NOT_FOUND',
+        '矩阵单元格',
+      ),
+    );
+  }
+
+  async deleteMatrixCell(id: string, input: KnowledgeRevisionInput): Promise<MatrixCell> {
+    return matrixCellSchema.parse(
+      changeResult(
+        await this.repository.deleteMatrixCell(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_CELL_NOT_FOUND',
+        '矩阵单元格',
+      ),
+    );
+  }
+
+  async restoreMatrixCell(id: string, input: KnowledgeRevisionInput): Promise<MatrixCell> {
+    return matrixCellSchema.parse(
+      changeResult(
+        await this.repository.restoreMatrixCell(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_CELL_NOT_FOUND',
+        '矩阵单元格',
+      ),
+    );
+  }
+
+  async reviewMatrixCell(id: string, input: KnowledgeRevisionInput): Promise<MatrixCell> {
+    return matrixCellSchema.parse(
+      changeResult(
+        await this.repository.reviewMatrixCell(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_CELL_NOT_FOUND',
+        '矩阵单元格',
+      ),
+    );
+  }
+
+  async listMatrixCellEvidence(
+    cellId: string,
+    includeDeleted: boolean,
+  ): Promise<MatrixCellEvidence[]> {
+    const links = await this.repository.listMatrixCellEvidence(cellId, includeDeleted);
+    if (!links) {
+      throw new KnowledgeError('KNOWLEDGE_MATRIX_CELL_NOT_FOUND', '矩阵单元格不存在', 404);
+    }
+    return links.map((link) => matrixCellEvidenceSchema.parse(link));
+  }
+
+  async createMatrixCellEvidence(
+    cellId: string,
+    input: CreateMatrixCellEvidenceInput,
+  ): Promise<MatrixCellEvidence> {
+    return matrixCellEvidenceSchema.parse(
+      createResult(
+        await this.repository.createMatrixCellEvidence({
+          id: this.createId(),
+          cellId,
+          evidenceId: input.evidenceId,
+        }),
+      ),
+    );
+  }
+
+  async deleteMatrixCellEvidence(
+    id: string,
+    input: KnowledgeRevisionInput,
+  ): Promise<MatrixCellEvidence> {
+    return matrixCellEvidenceSchema.parse(
+      changeResult(
+        await this.repository.deleteMatrixCellEvidence(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
+        '矩阵证据关系',
+      ),
+    );
+  }
+
+  async restoreMatrixCellEvidence(
+    id: string,
+    input: KnowledgeRevisionInput,
+  ): Promise<MatrixCellEvidence> {
+    return matrixCellEvidenceSchema.parse(
+      changeResult(
+        await this.repository.restoreMatrixCellEvidence(id, {
+          expectedRevision: input.expectedRevision,
+          revisionId: this.createId(),
+        }),
+        'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
+        '矩阵证据关系',
+      ),
+    );
+  }
+
   async listRevisions(
-    entityType: 'note' | 'evidence' | 'note-link',
+    entityType: KnowledgeEntityType,
     entityId: string,
   ): Promise<KnowledgeRevision[]> {
     return this.repository.listRevisions(entityType, entityId);

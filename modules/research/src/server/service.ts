@@ -2032,11 +2032,12 @@ export class ResearchService {
 
   async previewWorkMerge(survivorId: string, mergedWorkId: string) {
     if (survivorId === mergedWorkId) throw invalid('作品不能与自己合并');
-    const [survivor, merged, survivorEditions, mergedEditions] = await Promise.all([
+    const [survivor, merged, survivorEditions, mergedEditions, matrixImpact] = await Promise.all([
       this.repository.getWork(survivorId),
       this.repository.getWork(mergedWorkId),
       this.repository.listEditions(survivorId),
       this.repository.listEditions(mergedWorkId),
+      this.repository.getWorkMergeMatrixImpact(survivorId, mergedWorkId),
     ]);
     if (!survivor || !merged) throw notFound('待合并作品不存在');
     if (survivor.status !== 'active' || merged.status !== 'active') {
@@ -2061,11 +2062,15 @@ export class ResearchService {
         fields: fields(merged),
         editionIds: mergedEditions.map((edition) => edition.id),
       },
+      matrixImpact,
     };
   }
 
   async mergeWorks(survivorId: string, input: MergeWorksInput) {
     const preview = await this.previewWorkMerge(survivorId, input.mergedWorkId);
+    if (preview.matrixImpact.conflicts.length > 0) {
+      throw conflict('矩阵中存在两个非空单元格，请先在合并预览中处理冲突');
+    }
     const requiredEditions = [...preview.merged.editionIds].sort();
     const requestedEditions = [...new Set(input.editionIdsToMove)].sort();
     if (JSON.stringify(requiredEditions) !== JSON.stringify(requestedEditions)) {

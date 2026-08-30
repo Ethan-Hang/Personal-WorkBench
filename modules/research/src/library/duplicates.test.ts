@@ -153,4 +153,77 @@ describe('重复作品治理', () => {
     await service.setWorkTags(survivor.work.id, [tag.id]);
     await expect(service.undoMerge(record.id)).rejects.toThrow('不能覆盖后续修改');
   });
+
+  it('合并预览列出无法无损合并的矩阵单元格，并在处理前拒绝合并', async () => {
+    const { service, knowledgeRepo } = fixture();
+    const survivor = await manual(service, 'Survivor with matrix', 2024);
+    const merged = await manual(service, 'Merged with matrix', 2024);
+    await knowledgeRepo.createMatrix({
+      id: 'matrix-conflict',
+      contextId: null,
+      title: 'Conflicting matrix',
+      description: null,
+    });
+    await knowledgeRepo.updateMatrixStructure('matrix-conflict', {
+      expectedStructureRevision: 1,
+      revisionId: 'matrix-conflict-structure',
+      columns: [
+        { id: 'matrix-column-survivor', workId: survivor.work.id, position: 0 },
+        { id: 'matrix-column-merged', workId: merged.work.id, position: 1 },
+      ],
+      rows: [
+        {
+          id: 'matrix-row-conflict',
+          kind: 'dimension',
+          claimId: null,
+          title: 'Outcome',
+          question: null,
+          position: 0,
+        },
+      ],
+    });
+    await knowledgeRepo.createMatrixCell({
+      id: 'matrix-cell-survivor',
+      matrixId: 'matrix-conflict',
+      rowId: 'matrix-row-conflict',
+      columnId: 'matrix-column-survivor',
+      synthesis: 'Positive effect',
+    });
+    await knowledgeRepo.createMatrixCell({
+      id: 'matrix-cell-merged',
+      matrixId: 'matrix-conflict',
+      rowId: 'matrix-row-conflict',
+      columnId: 'matrix-column-merged',
+      synthesis: 'No effect',
+    });
+
+    const preview = await service.previewWorkMerge(survivor.work.id, merged.work.id);
+    expect(preview.matrixImpact).toEqual({
+      affectedMatrixCount: 1,
+      duplicateColumnCount: 1,
+      conflicts: [
+        {
+          matrixId: 'matrix-conflict',
+          rowId: 'matrix-row-conflict',
+          survivorCellId: 'matrix-cell-survivor',
+          mergedCellId: 'matrix-cell-merged',
+        },
+      ],
+    });
+    await expect(
+      service.mergeWorks(survivor.work.id, {
+        mergedWorkId: merged.work.id,
+        expectedSurvivorRevision: preview.survivor.revision,
+        expectedMergedRevision: preview.merged.revision,
+        fieldChoices: {
+          title: 'survivor',
+          type: 'survivor',
+          abstract: 'survivor',
+          year: 'survivor',
+        },
+        editionIdsToMove: preview.merged.editionIds,
+        preferredEditionId: preview.survivor.editionIds[0]!,
+      }),
+    ).rejects.toThrow('请先在合并预览中处理冲突');
+  });
 });

@@ -11,6 +11,9 @@ import {
   bulkWorkResultSchema,
   attachmentDeletionPreviewSchema,
   collectionViewSchema,
+  claimEvidenceSchema,
+  claimSchema,
+  claimsPageSchema,
   collectionDeletionPreviewSchema,
   collectionsResponseSchema,
   deletionPreviewSchema,
@@ -22,6 +25,12 @@ import {
   importSessionViewSchema,
   managedRootMigrationJobSchema,
   managedStorageStatusSchema,
+  matricesPageSchema,
+  matrixCandidatesSchema,
+  matrixCellEvidenceSchema,
+  matrixCellSchema,
+  matrixCellWindowSchema,
+  matrixDetailSchema,
   importSessionsResponseSchema,
   mergeRecordViewSchema,
   noteLinkSchema,
@@ -55,10 +64,15 @@ import {
   type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateAnnotationInput,
+  type CreateClaimEvidenceInput,
+  type CreateClaimInput,
   type CreateEvidenceRequest,
   type CreateNoteInput,
   type CreateReadingContextInput,
   type CreateManualWorkInput,
+  type CreateMatrixCellEvidenceInput,
+  type CreateMatrixCellInput,
+  type CreateMatrixInput,
   type CreateNoteLinkInput,
   type CreateSavedQueryInput,
   type CreateTagInput,
@@ -97,12 +111,26 @@ import {
   type SystemView,
   type UpdateAnnotationInput,
   type UpdateEvidenceInput,
+  type UpdateClaimEvidenceInput,
+  type UpdateClaimInput,
+  type UpdateMatrixCellInput,
+  type UpdateMatrixInput,
+  type UpdateMatrixStructureInput,
   type UpdateNoteInput,
   type UpdateCollectionInput,
   type UpdateTagInput,
   type UpdateWorkMetadataInput,
   type WorkStatus,
   type NoteLink,
+  type Claim,
+  type ClaimEvidence,
+  type ClaimStatus,
+  type MatrixCandidates,
+  type MatrixCell,
+  type MatrixCellEvidence,
+  type MatrixCellWindow,
+  type MatrixDetail,
+  type MatrixStatus,
 } from '../contract.js';
 
 export type WorksPage = z.infer<typeof worksPageResponseSchema>;
@@ -129,6 +157,8 @@ export type KnowledgeNotesPage = z.infer<typeof notesPageSchema>;
 export type KnowledgeEvidencePage = z.infer<typeof evidencePageSchema>;
 export type EvidenceDetail = z.infer<typeof evidenceDetailSchema>;
 export type EvidenceRebindPreview = z.infer<typeof evidenceRebindPreviewSchema>;
+export type KnowledgeClaimsPage = z.infer<typeof claimsPageSchema>;
+export type KnowledgeMatricesPage = z.infer<typeof matricesPageSchema>;
 
 export async function fetchReaderManifest(assetId: string): Promise<ReaderManifest> {
   return readerManifestSchema.parse(await apiRequest(RESEARCH_API_V1.readerManifest(assetId)));
@@ -342,7 +372,7 @@ export async function fetchAnnotationRevisions(id: string): Promise<AnnotationRe
 
 function knowledgeListParams(options: {
   contextId?: string | null;
-  status?: 'active' | 'deleted';
+  status?: string;
   cursor?: string | null;
   limit?: number;
 }): URLSearchParams {
@@ -479,6 +509,262 @@ export async function postConfirmEvidenceRebind(
     await apiRequest(
       RESEARCH_API_V1.evidenceRebind(id),
       jsonBody('POST', { mode: 'confirm', ...input }),
+    ),
+  );
+}
+
+export async function fetchKnowledgeClaims(
+  options: {
+    contextId?: string | null;
+    status?: ClaimStatus;
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<KnowledgeClaimsPage> {
+  const params = knowledgeListParams(options);
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  return claimsPageSchema.parse(await apiRequest(`${RESEARCH_API_V1.claims}${suffix}`));
+}
+
+export async function postKnowledgeClaim(input: CreateClaimInput): Promise<Claim> {
+  return claimSchema.parse(await apiRequest(RESEARCH_API_V1.claims, jsonBody('POST', input)));
+}
+
+export async function patchKnowledgeClaim(id: string, input: UpdateClaimInput): Promise<Claim> {
+  return claimSchema.parse(await apiRequest(RESEARCH_API_V1.claim(id), jsonBody('PATCH', input)));
+}
+
+export async function deleteKnowledgeClaim(id: string, expectedRevision: number): Promise<Claim> {
+  return claimSchema.parse(
+    await apiRequest(RESEARCH_API_V1.claim(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreKnowledgeClaim(
+  id: string,
+  expectedRevision: number,
+): Promise<Claim> {
+  return claimSchema.parse(
+    await apiRequest(RESEARCH_API_V1.claimRestore(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function fetchClaimEvidence(
+  claimId: string,
+  includeDeleted = false,
+): Promise<ClaimEvidence[]> {
+  const params = new URLSearchParams({ includeDeleted: String(includeDeleted) });
+  return claimEvidenceSchema
+    .array()
+    .parse(await apiRequest(`${RESEARCH_API_V1.claimEvidence(claimId)}?${params.toString()}`));
+}
+
+export async function postClaimEvidence(
+  claimId: string,
+  input: CreateClaimEvidenceInput,
+): Promise<ClaimEvidence> {
+  return claimEvidenceSchema.parse(
+    await apiRequest(RESEARCH_API_V1.claimEvidence(claimId), jsonBody('POST', input)),
+  );
+}
+
+export async function patchClaimEvidence(
+  id: string,
+  input: UpdateClaimEvidenceInput,
+): Promise<ClaimEvidence> {
+  return claimEvidenceSchema.parse(
+    await apiRequest(RESEARCH_API_V1.claimEvidenceItem(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function deleteClaimEvidence(
+  id: string,
+  expectedRevision: number,
+): Promise<ClaimEvidence> {
+  return claimEvidenceSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.claimEvidenceItem(id),
+      jsonBody('DELETE', { expectedRevision }),
+    ),
+  );
+}
+
+export async function postRestoreClaimEvidence(
+  id: string,
+  expectedRevision: number,
+): Promise<ClaimEvidence> {
+  return claimEvidenceSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.claimEvidenceRestore(id),
+      jsonBody('POST', { expectedRevision }),
+    ),
+  );
+}
+
+export async function fetchKnowledgeMatrices(
+  options: {
+    contextId?: string | null;
+    status?: MatrixStatus;
+    cursor?: string | null;
+    limit?: number;
+  } = {},
+): Promise<KnowledgeMatricesPage> {
+  const params = knowledgeListParams(options);
+  const suffix = params.size > 0 ? `?${params.toString()}` : '';
+  return matricesPageSchema.parse(await apiRequest(`${RESEARCH_API_V1.matrices}${suffix}`));
+}
+
+export async function fetchKnowledgeMatrix(
+  id: string,
+  includeDeleted = false,
+): Promise<MatrixDetail> {
+  const params = new URLSearchParams({ includeDeleted: String(includeDeleted) });
+  return matrixDetailSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.matrix(id)}?${params.toString()}`),
+  );
+}
+
+export async function postKnowledgeMatrix(input: CreateMatrixInput): Promise<MatrixDetail> {
+  return matrixDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrices, jsonBody('POST', input)),
+  );
+}
+
+export async function patchKnowledgeMatrix(
+  id: string,
+  input: UpdateMatrixInput,
+): Promise<MatrixDetail> {
+  return matrixDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrix(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function deleteKnowledgeMatrix(
+  id: string,
+  expectedRevision: number,
+): Promise<MatrixDetail> {
+  return matrixDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrix(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreKnowledgeMatrix(
+  id: string,
+  expectedRevision: number,
+): Promise<MatrixDetail> {
+  return matrixDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrixRestore(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function putKnowledgeMatrixStructure(
+  id: string,
+  input: UpdateMatrixStructureInput,
+): Promise<MatrixDetail> {
+  return matrixDetailSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrixStructure(id), jsonBody('PUT', input)),
+  );
+}
+
+export async function fetchMatrixCandidates(
+  matrixId: string,
+  rowId: string,
+  columnId: string,
+): Promise<MatrixCandidates> {
+  const params = new URLSearchParams({ rowId, columnId });
+  return matrixCandidatesSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.matrixCandidates(matrixId)}?${params.toString()}`),
+  );
+}
+
+export async function postMatrixCell(
+  matrixId: string,
+  input: CreateMatrixCellInput,
+): Promise<MatrixCell> {
+  return matrixCellSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrixCells(matrixId), jsonBody('POST', input)),
+  );
+}
+
+export async function fetchMatrixCell(id: string): Promise<MatrixCell> {
+  return matrixCellSchema.parse(await apiRequest(RESEARCH_API_V1.matrixCell(id)));
+}
+
+export async function fetchMatrixCellWindow(
+  matrixId: string,
+  columnOffset: number,
+  columnLimit: number,
+  rowOffset: number,
+  rowLimit: number,
+): Promise<MatrixCellWindow> {
+  const params = new URLSearchParams({
+    columnOffset: String(columnOffset),
+    columnLimit: String(columnLimit),
+    rowOffset: String(rowOffset),
+    rowLimit: String(rowLimit),
+  });
+  return matrixCellWindowSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.matrixCells(matrixId)}?${params.toString()}`),
+  );
+}
+
+export async function patchMatrixCell(
+  id: string,
+  input: UpdateMatrixCellInput,
+): Promise<MatrixCell> {
+  return matrixCellSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrixCell(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function postReviewMatrixCell(
+  id: string,
+  expectedRevision: number,
+): Promise<MatrixCell> {
+  return matrixCellSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrixCellReview(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function fetchMatrixCellEvidence(
+  cellId: string,
+  includeDeleted = false,
+): Promise<MatrixCellEvidence[]> {
+  const params = new URLSearchParams({ includeDeleted: String(includeDeleted) });
+  return matrixCellEvidenceSchema
+    .array()
+    .parse(await apiRequest(`${RESEARCH_API_V1.matrixCellEvidence(cellId)}?${params.toString()}`));
+}
+
+export async function postMatrixCellEvidence(
+  cellId: string,
+  input: CreateMatrixCellEvidenceInput,
+): Promise<MatrixCellEvidence> {
+  return matrixCellEvidenceSchema.parse(
+    await apiRequest(RESEARCH_API_V1.matrixCellEvidence(cellId), jsonBody('POST', input)),
+  );
+}
+
+export async function deleteMatrixCellEvidence(
+  id: string,
+  expectedRevision: number,
+): Promise<MatrixCellEvidence> {
+  return matrixCellEvidenceSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.matrixCellEvidenceItem(id),
+      jsonBody('DELETE', { expectedRevision }),
+    ),
+  );
+}
+
+export async function postRestoreMatrixCellEvidence(
+  id: string,
+  expectedRevision: number,
+): Promise<MatrixCellEvidence> {
+  return matrixCellEvidenceSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.matrixCellEvidenceRestore(id),
+      jsonBody('POST', { expectedRevision }),
     ),
   );
 }

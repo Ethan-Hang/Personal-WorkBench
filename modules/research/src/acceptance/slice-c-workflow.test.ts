@@ -4,9 +4,15 @@ import { runMigrationsFrom } from '@workbench/data';
 import {
   RESEARCH_API_V1,
   annotationSchema,
+  claimEvidenceSchema,
+  claimSchema,
   evidenceDetailSchema,
   evidenceRebindPreviewSchema,
   knowledgeRevisionSchema,
+  matrixCellEvidenceSchema,
+  matrixCellSchema,
+  matrixCellWindowSchema,
+  matrixDetailSchema,
   noteLinkSchema,
   researchNoteSchema,
   type AnnotationAnchor,
@@ -411,6 +417,226 @@ describe('slice C source and evidence workflow', () => {
       expect(ftsCount.count).toBe(searchCount.count);
       expect(notes).toHaveLength(2);
       expect(areaEvidence.sourceSnapshot.sourceKind).toBe('pdf');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('贯通无证据观点、三类关系、跨论文矩阵和来源变更复核', async () => {
+    const database = makeResearchDatabase(() => NOW);
+    roots.push(database);
+    seedPaper(database);
+    database.sqlite
+      .prepare(
+        `INSERT INTO research_works (id, type, title, title_sort, status)
+         VALUES ('work-2', 'article', 'Counter Evidence', 'counter evidence', 'active')`,
+      )
+      .run();
+    database.sqlite
+      .prepare(
+        `INSERT INTO research_editions (id, work_id, kind, title)
+         VALUES ('edition-2', 'work-2', 'journal', 'Counter Evidence, journal edition')`,
+      )
+      .run();
+    database.sqlite
+      .prepare(
+        `INSERT INTO research_assets
+         (id, hash_algorithm, content_hash, byte_size, mime_type, state)
+         VALUES ('asset-2', 'sha256', ?, 4096, 'application/pdf', 'active')`,
+      )
+      .run('d'.repeat(64));
+    database.sqlite
+      .prepare(
+        `INSERT INTO research_asset_locations
+         (id, asset_id, mode, original_path, resolved_path, state, last_checked_at)
+         VALUES ('location-2', 'asset-2', 'linked', '/private/counter.pdf',
+                 '/private/counter.pdf', 'available', ?)`,
+      )
+      .run(NOW);
+    database.sqlite
+      .prepare(
+        `INSERT INTO research_attachments
+         (id, edition_id, asset_id, role, display_name, status)
+         VALUES ('attachment-2', 'edition-2', 'asset-2', 'primary-pdf', 'counter.pdf', 'active')`,
+      )
+      .run();
+    const app = await makeApp(database);
+    try {
+      const firstAnnotation = await createAnnotation(app, {
+        contextId: null,
+        kind: 'highlight',
+        anchor: textAnchor(1, 'supporting result'),
+      });
+      const secondAnchor = {
+        ...textAnchor(2, 'contradictory result'),
+        assetHash: 'd'.repeat(64),
+        editionId: 'edition-2',
+      };
+      const secondAnnotationResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.assetAnnotations('asset-2'),
+        payload: {
+          contextId: null,
+          kind: 'highlight',
+          anchor: secondAnchor,
+          body: null,
+          color: '#60a5fa',
+        },
+      });
+      expect(secondAnnotationResponse.statusCode, secondAnnotationResponse.body).toBe(200);
+      const secondAnnotation = annotationSchema.parse(secondAnnotationResponse.json());
+
+      const createEvidence = async (annotationId: string, summary: string) => {
+        const response = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.evidence,
+          payload: {
+            mode: 'annotation',
+            contextId: null,
+            annotationId,
+            sourceKind: 'pdf',
+            title: null,
+            summary,
+            notes: null,
+          },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        return evidenceDetailSchema.parse(response.json());
+      };
+      const supportingEvidence = await createEvidence(firstAnnotation.id, 'Supports the result.');
+      const counterEvidence = await createEvidence(secondAnnotation.id, 'Limits the result.');
+
+      const claimResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.claims,
+        payload: { statement: 'The effect generalizes across samples.', status: 'active' },
+      });
+      expect(claimResponse.statusCode, claimResponse.body).toBe(200);
+      const emptyClaim = claimSchema.parse(claimResponse.json());
+      expect(emptyClaim.evidenceCount).toBe(0);
+
+      const relations = [];
+      for (const [evidenceId, relation] of [
+        [supportingEvidence.id, 'supports'],
+        [counterEvidence.id, 'refutes'],
+      ] as const) {
+        const response = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.claimEvidence(emptyClaim.id),
+          payload: { evidenceId, relation },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        relations.push(claimEvidenceSchema.parse(response.json()));
+      }
+      const relationUpdate = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.claimEvidenceItem(relations[1]!.id),
+        payload: { relation: 'qualifies', expectedRevision: 1 },
+      });
+      expect(relationUpdate.statusCode, relationUpdate.body).toBe(200);
+      expect(relationUpdate.json()).toMatchObject({ relation: 'qualifies', revision: 2 });
+
+      const matrixResponse = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.matrices,
+        payload: { title: 'Generalization comparison', description: 'Two-paper synthesis' },
+      });
+      const matrix = matrixDetailSchema.parse(matrixResponse.json());
+      const structureResponse = await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.matrixStructure(matrix.id),
+        payload: {
+          expectedStructureRevision: matrix.structureRevision,
+          columns: [
+            { workId: 'work-1', position: 0 },
+            { workId: 'work-2', position: 1 },
+          ],
+          rows: [
+            { kind: 'claim', claimId: emptyClaim.id, position: 0 },
+            { kind: 'dimension', title: 'Sample', position: 1 },
+          ],
+        },
+      });
+      expect(structureResponse.statusCode, structureResponse.body).toBe(200);
+      const structured = matrixDetailSchema.parse(structureResponse.json());
+      const claimRow = structured.rows[0]!;
+      const firstColumn = structured.columns[0]!;
+      const secondColumn = structured.columns[1]!;
+
+      const createdCells = [];
+      for (const [column, evidence, synthesis] of [
+        [firstColumn, supportingEvidence, 'The first paper supports generalization.'],
+        [secondColumn, counterEvidence, 'The second paper narrows the claim.'],
+      ] as const) {
+        const cellResponse = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.matrixCells(matrix.id),
+          payload: { rowId: claimRow.id, columnId: column.id, synthesis },
+        });
+        expect(cellResponse.statusCode, cellResponse.body).toBe(200);
+        const cell = matrixCellSchema.parse(cellResponse.json());
+        const linkResponse = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.matrixCellEvidence(cell.id),
+          payload: { evidenceId: evidence.id },
+        });
+        expect(linkResponse.statusCode, linkResponse.body).toBe(200);
+        matrixCellEvidenceSchema.parse(linkResponse.json());
+        const reviewResponse = await app.inject({
+          method: 'POST',
+          url: RESEARCH_API_V1.matrixCellReview(cell.id),
+          payload: { expectedRevision: cell.revision },
+        });
+        expect(reviewResponse.statusCode, reviewResponse.body).toBe(200);
+        createdCells.push(matrixCellSchema.parse(reviewResponse.json()));
+      }
+
+      const firstWindowResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.matrixCells(matrix.id)}?columnOffset=0&columnLimit=1`,
+      });
+      const firstWindow = matrixCellWindowSchema.parse(firstWindowResponse.json());
+      expect(firstWindow.columnIds).toEqual([firstColumn.id]);
+      expect(firstWindow.rowIds).toEqual(structured.rows.map((row) => row.id));
+      expect(firstWindow.cells).toMatchObject([
+        { id: createdCells[0]!.id, reviewState: 'current', selectedEvidenceCount: 1 },
+      ]);
+      const secondWindowResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.matrixCells(matrix.id)}?columnOffset=1&columnLimit=1`,
+      });
+      expect(matrixCellWindowSchema.parse(secondWindowResponse.json()).columnIds).toEqual([
+        secondColumn.id,
+      ]);
+
+      const reviseSourceResponse = await app.inject({
+        method: 'PATCH',
+        url: RESEARCH_API_V1.annotation(firstAnnotation.id),
+        payload: { body: 'source changed after synthesis', expectedRevision: 1 },
+      });
+      expect(reviseSourceResponse.statusCode, reviseSourceResponse.body).toBe(200);
+      const staleWindowResponse = await app.inject({
+        method: 'GET',
+        url: `${RESEARCH_API_V1.matrixCells(matrix.id)}?columnOffset=0&columnLimit=1`,
+      });
+      expect(matrixCellWindowSchema.parse(staleWindowResponse.json()).cells[0]).toMatchObject({
+        id: createdCells[0]!.id,
+        reviewState: 'needs-review',
+      });
+
+      const unlinkResponse = await app.inject({
+        method: 'DELETE',
+        url: RESEARCH_API_V1.claimEvidenceItem(relations[0]!.id),
+        payload: { expectedRevision: 1 },
+      });
+      expect(unlinkResponse.statusCode, unlinkResponse.body).toBe(200);
+      expect(unlinkResponse.json()).toMatchObject({ status: 'deleted' });
+      expect((await evidenceDetail(app, supportingEvidence.id)).status).toBe('active');
+      expect(
+        database.sqlite
+          .prepare('SELECT status FROM research_claims WHERE id = ?')
+          .get(emptyClaim.id),
+      ).toEqual({ status: 'active' });
     } finally {
       await app.close();
     }

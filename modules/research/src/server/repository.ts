@@ -16,6 +16,7 @@ import type {
   WorkRelationKind,
   WorkStatus,
   WorkType,
+  WorkMergeMatrixImpact,
 } from '../contract.js';
 import type { CanonicalResearchLibrary } from '../interop/canonical.js';
 
@@ -755,6 +756,7 @@ export interface ResearchRepository {
   restoreTag(id: string): Promise<boolean>;
   deleteTagPermanently(id: string): Promise<boolean>;
   mergeTags(draft: TagMergeDraft): Promise<MergeRecord | null>;
+  getWorkMergeMatrixImpact(survivorId: string, mergedId: string): Promise<WorkMergeMatrixImpact>;
   mergeWorks(draft: WorkMergeDraft): Promise<MergeRecord | null>;
   getMergeRecord(id: string): Promise<MergeRecord | null>;
   revertMerge(id: string): Promise<MergeRecord | null>;

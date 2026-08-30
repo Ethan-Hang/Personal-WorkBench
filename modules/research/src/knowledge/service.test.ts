@@ -70,6 +70,59 @@ function seedAnnotation(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite'
     .run(JSON.stringify(textAnchor), NOW, NOW);
 }
 
+function seedSecondPaper(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite']): void {
+  const secondHash = 'f'.repeat(64);
+  const secondAnchor = {
+    ...textAnchor,
+    pageNumber: 7,
+    assetHash: secondHash,
+    editionId: 'edition-2',
+  };
+  sqlite
+    .prepare(
+      `INSERT INTO research_works (id, type, title, title_sort, status)
+       VALUES ('work-2', 'article', 'Replication', 'replication', 'active')`,
+    )
+    .run();
+  sqlite
+    .prepare(
+      `INSERT INTO research_editions (id, work_id, kind, title)
+       VALUES ('edition-2', 'work-2', 'journal', 'Replication edition')`,
+    )
+    .run();
+  sqlite
+    .prepare(
+      `INSERT INTO research_assets
+       (id, hash_algorithm, content_hash, byte_size, mime_type, state)
+       VALUES ('asset-2', 'sha256', ?, 2048, 'application/pdf', 'active')`,
+    )
+    .run(secondHash);
+  sqlite
+    .prepare(
+      `INSERT INTO research_asset_locations
+       (id, asset_id, mode, original_path, resolved_path, state)
+       VALUES ('location-2', 'asset-2', 'linked', '/private/replication.pdf',
+               '/private/replication.pdf', 'available')`,
+    )
+    .run();
+  sqlite
+    .prepare(
+      `INSERT INTO research_attachments
+       (id, edition_id, asset_id, role, display_name, status)
+       VALUES ('attachment-2', 'edition-2', 'asset-2', 'primary-pdf', 'replication.pdf', 'active')`,
+    )
+    .run();
+  sqlite
+    .prepare(
+      `INSERT INTO research_annotations
+       (id, asset_id, edition_id, context_id, kind, page_number, anchor_json, body, color,
+        status, revision, created_at, updated_at)
+       VALUES ('annotation-work-2', 'asset-2', 'edition-2', NULL, 'highlight', 7, ?, NULL,
+               '#fde047', 'active', 1, ?, ?)`,
+    )
+    .run(JSON.stringify(secondAnchor), NOW, NOW);
+}
+
 function serviceFixture() {
   const database = makeResearchDatabase(() => NOW);
   let sequence = 0;
@@ -320,6 +373,406 @@ describe('ResearchKnowledgeService', () => {
           snapshot: { sourceSnapshot: { annotationId: 'annotation-1' } },
         },
       ]);
+    } finally {
+      fixture.sqlite.close();
+    }
+  });
+
+  it('观点允许无证据，并独立维护支持、反驳、限定关系与 tombstone', async () => {
+    const fixture = serviceFixture();
+    try {
+      seedPaper(fixture.sqlite);
+      seedAnnotation(fixture.sqlite);
+      fixture.sqlite
+        .prepare(
+          `INSERT INTO research_reading_contexts
+           (id, name, normalized_name, status) VALUES ('context-claim', 'Synthesis', 'synthesis', 'active')`,
+        )
+        .run();
+      for (const [id, page] of [
+        ['annotation-2', 4],
+        ['annotation-3', 5],
+      ] as const) {
+        fixture.sqlite
+          .prepare(
+            `INSERT INTO research_annotations
+             (id, asset_id, edition_id, context_id, kind, page_number, anchor_json, body, color,
+              status, revision, created_at, updated_at)
+             VALUES (?, 'asset-1', 'edition-1', NULL, 'highlight', ?, ?, NULL,
+                     '#fde047', 'active', 1, ?, ?)`,
+          )
+          .run(id, page, JSON.stringify({ ...textAnchor, pageNumber: page }), NOW, NOW);
+      }
+      const evidence = await Promise.all(
+        ['annotation-1', 'annotation-2', 'annotation-3'].map((annotationId, index) =>
+          fixture.service.createEvidence({
+            contextId: null,
+            annotationId,
+            sourceKind: 'pdf',
+            title: `Evidence ${index + 1}`,
+            summary: `Evidence summary ${index + 1}`,
+            notes: null,
+          }),
+        ),
+      );
+
+      const draft = await fixture.service.createClaim({
+        contextId: 'context-claim',
+        statement: '  The intervention has a durable effect.  ',
+        rationale: null,
+        status: 'draft',
+      });
+      expect(draft).toMatchObject({
+        statement: 'The intervention has a durable effect.',
+        status: 'draft',
+        evidenceCount: 0,
+      });
+      const active = await fixture.service.updateClaim(draft.id, {
+        status: 'active',
+        expectedRevision: 1,
+      });
+      expect(active).toMatchObject({ status: 'active', evidenceCount: 0, revision: 2 });
+
+      const relations = await Promise.all(
+        (['supports', 'refutes', 'qualifies'] as const).map((relation, index) =>
+          fixture.service.createClaimEvidence(draft.id, {
+            evidenceId: evidence[index]!.id,
+            relation,
+            note: `${relation} note`,
+          }),
+        ),
+      );
+      expect(await fixture.service.listClaimEvidence(draft.id, false)).toMatchObject([
+        { relation: 'qualifies' },
+        { relation: 'refutes' },
+        { relation: 'supports' },
+      ]);
+      expect(await fixture.service.getClaim(draft.id)).toMatchObject({ evidenceCount: 3 });
+      const reusedClaim = await fixture.service.createClaim({
+        contextId: null,
+        statement: 'The first estimate remains useful in the general workspace.',
+        rationale: null,
+        status: 'draft',
+      });
+      await fixture.service.createClaimEvidence(reusedClaim.id, {
+        evidenceId: evidence[0]!.id,
+        relation: 'supports',
+        note: null,
+      });
+      expect(await fixture.service.getClaim(reusedClaim.id)).toMatchObject({ evidenceCount: 1 });
+      expect(await fixture.service.getEvidence(evidence[0]!.id)).toMatchObject({
+        contextId: null,
+        revision: 1,
+      });
+
+      const changed = await fixture.service.updateClaimEvidence(relations[0]!.id, {
+        relation: 'qualifies',
+        note: 'Limits the population.',
+        expectedRevision: 1,
+      });
+      expect(changed).toMatchObject({ relation: 'qualifies', revision: 2 });
+      await expect(
+        fixture.service.updateClaimEvidence(relations[0]!.id, {
+          note: 'Stale',
+          expectedRevision: 1,
+        }),
+      ).rejects.toMatchObject({
+        code: 'KNOWLEDGE_CONFLICT',
+        details: { current: { revision: 2, note: 'Limits the population.' } },
+      });
+
+      const deletedRelation = await fixture.service.deleteClaimEvidence(relations[1]!.id, {
+        expectedRevision: 1,
+      });
+      expect(deletedRelation.status).toBe('deleted');
+      expect(await fixture.service.getClaim(draft.id)).toMatchObject({ evidenceCount: 2 });
+      expect(await fixture.service.getEvidence(evidence[1]!.id)).toMatchObject({
+        status: 'active',
+      });
+      await fixture.service.restoreClaimEvidence(relations[1]!.id, { expectedRevision: 2 });
+      expect(await fixture.service.getClaim(draft.id)).toMatchObject({ evidenceCount: 3 });
+
+      const note = await fixture.service.createNote({
+        contextId: 'context-claim',
+        title: 'Claim note',
+        body: '',
+      });
+      await expect(
+        fixture.service.createNoteLink(note.id, {
+          target: { kind: 'claim', claimId: draft.id },
+        }),
+      ).resolves.toMatchObject({ target: { kind: 'claim', claimId: draft.id } });
+
+      const deletedClaim = await fixture.service.deleteClaim(draft.id, { expectedRevision: 2 });
+      expect(deletedClaim.status).toBe('deleted');
+      expect(
+        fixture.sqlite
+          .prepare(
+            `SELECT search.status FROM research_knowledge_search_fts fts
+             JOIN research_knowledge_search search ON search.rowid = fts.rowid
+             WHERE research_knowledge_search_fts MATCH 'durable' AND search.entity_id = ?`,
+          )
+          .get(draft.id),
+      ).toEqual({ status: 'deleted' });
+      const restoredClaim = await fixture.service.restoreClaim(draft.id, { expectedRevision: 3 });
+      expect(restoredClaim).toMatchObject({ status: 'active', evidenceCount: 3, revision: 4 });
+    } finally {
+      fixture.sqlite.close();
+    }
+  });
+
+  it('混合矩阵归集跨论文候选，并以独立 revision 跟踪结构、单元格和复核基线', async () => {
+    const fixture = serviceFixture();
+    try {
+      seedPaper(fixture.sqlite);
+      seedAnnotation(fixture.sqlite);
+      seedSecondPaper(fixture.sqlite);
+      const firstEvidence = await fixture.service.createEvidence({
+        contextId: null,
+        annotationId: 'annotation-1',
+        sourceKind: 'pdf',
+        title: 'Original estimate',
+        summary: 'The original estimate is positive.',
+        notes: null,
+      });
+      const secondEvidence = await fixture.service.createEvidence({
+        contextId: null,
+        annotationId: 'annotation-work-2',
+        sourceKind: 'pdf',
+        title: 'Replication estimate',
+        summary: 'The replication estimate is smaller.',
+        notes: null,
+      });
+      const claim = await fixture.service.createClaim({
+        contextId: null,
+        statement: 'The effect replicates across samples.',
+        rationale: null,
+        status: 'active',
+      });
+      const firstRelation = await fixture.service.createClaimEvidence(claim.id, {
+        evidenceId: firstEvidence.id,
+        relation: 'supports',
+        note: null,
+      });
+      await fixture.service.createClaimEvidence(claim.id, {
+        evidenceId: secondEvidence.id,
+        relation: 'qualifies',
+        note: null,
+      });
+
+      const matrix = await fixture.service.createMatrix({
+        contextId: null,
+        title: 'Cross-paper comparison',
+        description: 'Compare estimates and samples.',
+      });
+      const structured = await fixture.service.updateMatrixStructure(matrix.id, {
+        expectedStructureRevision: 1,
+        columns: [
+          { workId: 'work-1', position: 0 },
+          { workId: 'work-2', position: 1 },
+        ],
+        rows: [
+          { kind: 'claim', claimId: claim.id, position: 0 },
+          {
+            kind: 'dimension',
+            title: 'Sample',
+            question: 'Who was included?',
+            position: 1,
+          },
+        ],
+      });
+      expect(structured).toMatchObject({ structureRevision: 2, revision: 1 });
+      expect(structured.columns.map((column) => column.workId)).toEqual(['work-1', 'work-2']);
+      expect(structured.rows.map((row) => row.kind)).toEqual(['claim', 'dimension']);
+      const firstColumn = structured.columns[0]!;
+      const secondColumn = structured.columns[1]!;
+      const claimRow = structured.rows[0]!;
+      const dimensionRow = structured.rows[1]!;
+
+      await expect(
+        fixture.service.getMatrixCandidates(matrix.id, {
+          rowId: claimRow.id,
+          columnId: firstColumn.id,
+        }),
+      ).resolves.toMatchObject({
+        candidates: [{ evidence: { id: firstEvidence.id }, selectedLinkId: null }],
+      });
+      await expect(
+        fixture.service.getMatrixCandidates(matrix.id, {
+          rowId: claimRow.id,
+          columnId: secondColumn.id,
+        }),
+      ).resolves.toMatchObject({ candidates: [{ evidence: { id: secondEvidence.id } }] });
+      await expect(
+        fixture.service.getMatrixCandidates(matrix.id, {
+          rowId: dimensionRow.id,
+          columnId: firstColumn.id,
+        }),
+      ).resolves.toMatchObject({ candidates: [{ evidence: { id: firstEvidence.id } }] });
+
+      const cell = await fixture.service.createMatrixCell(matrix.id, {
+        rowId: claimRow.id,
+        columnId: firstColumn.id,
+        synthesis: 'The original paper supports the claim.',
+      });
+      expect(cell).toMatchObject({ revision: 1, reviewState: 'needs-review' });
+      const selected = await fixture.service.createMatrixCellEvidence(cell.id, {
+        evidenceId: firstEvidence.id,
+      });
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        selectedEvidenceCount: 1,
+        reviewState: 'needs-review',
+        revision: 1,
+      });
+      const reviewed = await fixture.service.reviewMatrixCell(cell.id, { expectedRevision: 1 });
+      expect(reviewed).toMatchObject({ reviewState: 'current', revision: 2 });
+
+      await fixture.service.updateEvidence(firstEvidence.id, {
+        summary: 'The original estimate is positive and precisely estimated.',
+        expectedRevision: 1,
+      });
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        reviewState: 'needs-review',
+        revision: 2,
+      });
+      const reviewedEvidence = await fixture.service.reviewMatrixCell(cell.id, {
+        expectedRevision: 2,
+      });
+      expect(reviewedEvidence).toMatchObject({ reviewState: 'current', revision: 3 });
+
+      fixture.sqlite
+        .prepare("UPDATE research_annotations SET revision = 2 WHERE id = 'annotation-1'")
+        .run();
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        reviewState: 'needs-review',
+      });
+      const reviewedSource = await fixture.service.reviewMatrixCell(cell.id, {
+        expectedRevision: 3,
+      });
+      expect(reviewedSource).toMatchObject({ reviewState: 'current', revision: 4 });
+      fixture.sqlite
+        .prepare("UPDATE research_annotations SET revision = 1 WHERE id = 'annotation-1'")
+        .run();
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        reviewState: 'needs-review',
+      });
+      const restoredSource = await fixture.service.reviewMatrixCell(cell.id, {
+        expectedRevision: 4,
+      });
+      expect(restoredSource).toMatchObject({ reviewState: 'current', revision: 5 });
+
+      await fixture.service.updateClaim(claim.id, {
+        rationale: 'The replication changes the estimated magnitude.',
+        expectedRevision: 1,
+      });
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        reviewState: 'needs-review',
+      });
+      const reviewedClaim = await fixture.service.reviewMatrixCell(cell.id, {
+        expectedRevision: 5,
+      });
+      expect(reviewedClaim).toMatchObject({ reviewState: 'current', revision: 6 });
+      await fixture.service.updateClaimEvidence(firstRelation.id, {
+        note: 'Main specification only',
+        expectedRevision: 1,
+      });
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        reviewState: 'needs-review',
+      });
+
+      const reordered = await fixture.service.updateMatrixStructure(matrix.id, {
+        expectedStructureRevision: 2,
+        columns: [
+          { id: secondColumn.id, workId: 'work-2', position: 0 },
+          { id: firstColumn.id, workId: 'work-1', position: 1 },
+        ],
+        rows: [
+          {
+            id: dimensionRow.id,
+            kind: 'dimension',
+            title: 'Sample and setting',
+            question: 'Who was included?',
+            position: 0,
+          },
+          { id: claimRow.id, kind: 'claim', claimId: claim.id, position: 1 },
+        ],
+      });
+      expect(reordered).toMatchObject({ structureRevision: 3, revision: 1 });
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({ revision: 6 });
+      const renamed = await fixture.service.updateMatrix(matrix.id, {
+        title: 'Replication comparison',
+        expectedRevision: 1,
+      });
+      expect(renamed).toMatchObject({ revision: 2, structureRevision: 3 });
+
+      const removed = await fixture.service.deleteMatrixCellEvidence(selected.id, {
+        expectedRevision: 1,
+      });
+      expect(removed.status).toBe('deleted');
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        selectedEvidenceCount: 0,
+        revision: 6,
+      });
+      await fixture.service.restoreMatrixCellEvidence(selected.id, { expectedRevision: 2 });
+      expect(await fixture.service.getMatrixCell(cell.id)).toMatchObject({
+        selectedEvidenceCount: 1,
+        revision: 6,
+      });
+
+      const reduced = await fixture.service.updateMatrixStructure(matrix.id, {
+        expectedStructureRevision: 3,
+        columns: [{ id: firstColumn.id, workId: 'work-1', position: 0 }],
+        rows: [{ id: claimRow.id, kind: 'claim', claimId: claim.id, position: 0 }],
+      });
+      expect(reduced).toMatchObject({ structureRevision: 4, revision: 2 });
+      const withDeletedStructure = await fixture.service.getMatrix(matrix.id, true);
+      expect(withDeletedStructure.columns).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: secondColumn.id, status: 'deleted' }),
+          expect.objectContaining({ id: firstColumn.id, status: 'active' }),
+        ]),
+      );
+      expect(withDeletedStructure.rows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: dimensionRow.id, status: 'deleted' }),
+          expect.objectContaining({ id: claimRow.id, status: 'active' }),
+        ]),
+      );
+      const restoredStructure = await fixture.service.updateMatrixStructure(matrix.id, {
+        expectedStructureRevision: 4,
+        columns: [
+          { id: secondColumn.id, workId: 'work-2', position: 0 },
+          { id: firstColumn.id, workId: 'work-1', position: 1 },
+        ],
+        rows: [
+          {
+            id: dimensionRow.id,
+            kind: 'dimension',
+            title: 'Sample and setting',
+            question: 'Who was included?',
+            position: 0,
+          },
+          { id: claimRow.id, kind: 'claim', claimId: claim.id, position: 1 },
+        ],
+      });
+      expect(restoredStructure).toMatchObject({ structureRevision: 5, revision: 2 });
+
+      const archived = await fixture.service.updateMatrix(matrix.id, {
+        status: 'archived',
+        expectedRevision: 2,
+      });
+      expect(archived).toMatchObject({ status: 'archived', revision: 3 });
+      const unarchived = await fixture.service.updateMatrix(matrix.id, {
+        status: 'active',
+        expectedRevision: 3,
+      });
+      expect(unarchived).toMatchObject({ status: 'active', revision: 4 });
+      const deletedMatrix = await fixture.service.deleteMatrix(matrix.id, { expectedRevision: 4 });
+      expect(deletedMatrix).toMatchObject({ status: 'deleted', revision: 5 });
+      const restoredMatrix = await fixture.service.restoreMatrix(matrix.id, {
+        expectedRevision: 5,
+      });
+      expect(restoredMatrix).toMatchObject({ status: 'active', revision: 6 });
     } finally {
       fixture.sqlite.close();
     }

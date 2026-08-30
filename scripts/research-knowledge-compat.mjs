@@ -20,7 +20,7 @@ function parseArgs(argv) {
       console.log(`Research knowledge compatibility runner
 
 Usage:
-  node scripts/research-knowledge-compat.mjs --phase c1 [--browser]
+  node scripts/research-knowledge-compat.mjs --phase c1|c2|all [--browser]
 
 The runner records results by module and current platform. It never marks an untested
 platform as passed.`);
@@ -29,8 +29,8 @@ platform as passed.`);
       throw new Error(`unknown argument: ${value}`);
     }
   }
-  if (options.phase !== 'c1') {
-    throw new Error('--phase currently supports c1; c2, c3, and all are enabled with their slices');
+  if (!['c1', 'c2', 'all'].includes(options.phase)) {
+    throw new Error('--phase supports c1, c2, or all; c3 is enabled with its slice');
   }
   return options;
 }
@@ -95,7 +95,8 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const stamp = new Date().toISOString().replaceAll(/[^0-9A-Za-z]+/g, '-');
   const outputRoot = path.resolve(
-    options.output ?? path.join(repoRoot, 'test-results', 'research-knowledge', `c1-${stamp}`),
+    options.output ??
+      path.join(repoRoot, 'test-results', 'research-knowledge', `${options.phase}-${stamp}`),
   );
   await mkdir(outputRoot, { recursive: true });
 
@@ -118,7 +119,7 @@ async function main() {
     visualRun = await run(process.execPath, [
       path.join(scriptDir, 'research-knowledge-visual-qa.mjs'),
       '--phase',
-      'c1',
+      options.phase,
       '--output',
       visualOutput,
     ]);
@@ -129,16 +130,17 @@ async function main() {
   const otherPlatforms = ['darwin-arm64', 'win32-x64'].filter(
     (platform) => platform !== currentPlatform,
   );
+  const phaseLabel = options.phase === 'c1' ? 'c1-source-evidence' : 'c2-claims-matrices';
   const modules = [
     {
-      id: 'c1-source-evidence-domain-and-integrity',
+      id: `${phaseLabel}-domain-and-integrity`,
       platform: currentPlatform,
       status: 'passed',
       durationMs: moduleRun.durationMs,
       evidence: 'modules/research/src/acceptance/slice-c-workflow.test.ts',
     },
     {
-      id: 'c1-reader-evidence-and-knowledge-ui',
+      id: `${phaseLabel}-ui`,
       platform: currentPlatform,
       status: options.browser ? 'passed' : 'not-run',
       durationMs: visualRun?.durationMs ?? null,
@@ -146,14 +148,14 @@ async function main() {
     },
     ...otherPlatforms.flatMap((platform) => [
       {
-        id: 'c1-source-evidence-domain-and-integrity',
+        id: `${phaseLabel}-domain-and-integrity`,
         platform,
         status: 'not-run',
         durationMs: null,
         evidence: null,
       },
       {
-        id: 'c1-reader-evidence-and-knowledge-ui',
+        id: `${phaseLabel}-ui`,
         platform,
         status: 'not-run',
         durationMs: null,
@@ -182,6 +184,9 @@ async function main() {
       'local OCR cache proxy',
       'source revision and deletion',
       'asset mismatch and unavailable source',
+      ...(options.phase === 'c1'
+        ? []
+        : ['claims with and without evidence', 'cross-paper matrix and review baseline']),
     ],
     conditions: {
       visualProfiles: options.browser ? 'fresh profile per viewport and state' : 'not-run',

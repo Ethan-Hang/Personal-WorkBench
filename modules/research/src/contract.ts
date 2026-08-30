@@ -115,6 +115,26 @@ export const RESEARCH_API_V1 = {
   evidenceRebind: (id: string) => `${API_ROOT}/evidence/${id}/rebind`,
   evidenceRestore: (id: string) => `${API_ROOT}/evidence/${id}/restore`,
   evidenceRevisions: (id: string) => `${API_ROOT}/evidence/${id}/revisions`,
+  claims: `${API_ROOT}/claims`,
+  claim: (id: string) => `${API_ROOT}/claims/${id}`,
+  claimRestore: (id: string) => `${API_ROOT}/claims/${id}/restore`,
+  claimRevisions: (id: string) => `${API_ROOT}/claims/${id}/revisions`,
+  claimEvidence: (id: string) => `${API_ROOT}/claims/${id}/evidence`,
+  claimEvidenceItem: (id: string) => `${API_ROOT}/claim-evidence/${id}`,
+  claimEvidenceRestore: (id: string) => `${API_ROOT}/claim-evidence/${id}/restore`,
+  matrices: `${API_ROOT}/matrices`,
+  matrix: (id: string) => `${API_ROOT}/matrices/${id}`,
+  matrixRestore: (id: string) => `${API_ROOT}/matrices/${id}/restore`,
+  matrixRevisions: (id: string) => `${API_ROOT}/matrices/${id}/revisions`,
+  matrixStructure: (id: string) => `${API_ROOT}/matrices/${id}/structure`,
+  matrixCandidates: (id: string) => `${API_ROOT}/matrices/${id}/candidates`,
+  matrixCells: (id: string) => `${API_ROOT}/matrices/${id}/cells`,
+  matrixCell: (id: string) => `${API_ROOT}/matrix-cells/${id}`,
+  matrixCellRestore: (id: string) => `${API_ROOT}/matrix-cells/${id}/restore`,
+  matrixCellEvidence: (id: string) => `${API_ROOT}/matrix-cells/${id}/evidence`,
+  matrixCellReview: (id: string) => `${API_ROOT}/matrix-cells/${id}/review`,
+  matrixCellEvidenceItem: (id: string) => `${API_ROOT}/matrix-cell-evidence/${id}`,
+  matrixCellEvidenceRestore: (id: string) => `${API_ROOT}/matrix-cell-evidence/${id}/restore`,
 } as const;
 
 export const WORK_TYPES = [
@@ -278,6 +298,11 @@ export const RESEARCH_ERROR_CODES = [
   'KNOWLEDGE_CONTEXT_ARCHIVED',
   'KNOWLEDGE_NOTE_NOT_FOUND',
   'KNOWLEDGE_EVIDENCE_NOT_FOUND',
+  'KNOWLEDGE_CLAIM_NOT_FOUND',
+  'KNOWLEDGE_CLAIM_EVIDENCE_NOT_FOUND',
+  'KNOWLEDGE_MATRIX_NOT_FOUND',
+  'KNOWLEDGE_MATRIX_CELL_NOT_FOUND',
+  'KNOWLEDGE_MATRIX_CELL_EVIDENCE_NOT_FOUND',
   'KNOWLEDGE_SOURCE_NOT_FOUND',
   'KNOWLEDGE_CONFLICT',
   'KNOWLEDGE_INVALID',
@@ -318,6 +343,24 @@ export type AnnotationStatus = (typeof ANNOTATION_STATUSES)[number];
 
 export const KNOWLEDGE_BASIC_STATUSES = ['active', 'deleted'] as const;
 export type KnowledgeBasicStatus = (typeof KNOWLEDGE_BASIC_STATUSES)[number];
+
+export const CLAIM_STATUSES = ['draft', 'active', 'archived', 'deleted'] as const;
+export type ClaimStatus = (typeof CLAIM_STATUSES)[number];
+
+export const CLAIM_EDITABLE_STATUSES = ['draft', 'active', 'archived'] as const;
+export type ClaimEditableStatus = (typeof CLAIM_EDITABLE_STATUSES)[number];
+
+export const CLAIM_EVIDENCE_RELATIONS = ['supports', 'refutes', 'qualifies'] as const;
+export type ClaimEvidenceRelation = (typeof CLAIM_EVIDENCE_RELATIONS)[number];
+
+export const MATRIX_STATUSES = ['active', 'archived', 'deleted'] as const;
+export type MatrixStatus = (typeof MATRIX_STATUSES)[number];
+
+export const MATRIX_ROW_KINDS = ['claim', 'dimension'] as const;
+export type MatrixRowKind = (typeof MATRIX_ROW_KINDS)[number];
+
+export const MATRIX_REVIEW_STATES = ['current', 'needs-review'] as const;
+export type MatrixReviewState = (typeof MATRIX_REVIEW_STATES)[number];
 
 export const EVIDENCE_SOURCE_KINDS = ['pdf', 'ocr'] as const;
 export type EvidenceSourceKind = (typeof EVIDENCE_SOURCE_KINDS)[number];
@@ -760,10 +803,166 @@ export const evidenceSchema = z.object({
 });
 export type Evidence = z.infer<typeof evidenceSchema>;
 
+export const claimSchema = z.object({
+  id: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  statement: z.string().trim().min(1).max(10_000),
+  rationale: z.string().max(100_000).nullable(),
+  status: z.enum(CLAIM_STATUSES),
+  evidenceCount: z.number().int().nonnegative(),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  archivedAt: instantSchema.nullable(),
+  deletedAt: instantSchema.nullable(),
+});
+export type Claim = z.infer<typeof claimSchema>;
+
+export const claimEvidenceSchema = z.object({
+  id: researchIdSchema,
+  claimId: researchIdSchema,
+  evidenceId: researchIdSchema,
+  relation: z.enum(CLAIM_EVIDENCE_RELATIONS),
+  note: z.string().max(10_000).nullable(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type ClaimEvidence = z.infer<typeof claimEvidenceSchema>;
+
+export const comparisonMatrixSchema = z.object({
+  id: researchIdSchema,
+  contextId: researchIdSchema.nullable(),
+  title: z.string().trim().min(1).max(500),
+  description: z.string().max(100_000).nullable(),
+  status: z.enum(MATRIX_STATUSES),
+  structureRevision: z.number().int().positive(),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  archivedAt: instantSchema.nullable(),
+  deletedAt: instantSchema.nullable(),
+});
+export type ComparisonMatrix = z.infer<typeof comparisonMatrixSchema>;
+
+export const matrixColumnSchema = z.object({
+  id: researchIdSchema,
+  matrixId: researchIdSchema,
+  workId: researchIdSchema,
+  workTitle: z.string().max(1_000),
+  position: z.number().int().nonnegative(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type MatrixColumn = z.infer<typeof matrixColumnSchema>;
+
+const matrixRowBaseSchema = z.object({
+  id: researchIdSchema,
+  matrixId: researchIdSchema,
+  position: z.number().int().nonnegative(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+
+export const matrixRowSchema = z
+  .discriminatedUnion('kind', [
+    matrixRowBaseSchema.extend({
+      kind: z.literal('claim'),
+      claimId: researchIdSchema,
+      title: z.null(),
+      question: z.null(),
+    }),
+    matrixRowBaseSchema.extend({
+      kind: z.literal('dimension'),
+      claimId: z.null(),
+      title: z.string().trim().min(1).max(500).nullable(),
+      question: z.string().trim().min(1).max(2_000).nullable(),
+    }),
+  ])
+  .refine(
+    (value) => value.kind === 'claim' || value.title !== null || value.question !== null,
+    '比较维度需要标题或问题',
+  );
+export type MatrixRow = z.infer<typeof matrixRowSchema>;
+
+export const matrixDetailSchema = comparisonMatrixSchema.extend({
+  columns: z.array(matrixColumnSchema),
+  rows: z.array(matrixRowSchema),
+});
+export type MatrixDetail = z.infer<typeof matrixDetailSchema>;
+
+export const matrixReviewBaselineSchema = z.object({
+  claimRevision: z.number().int().positive().nullable(),
+  candidateSignature: z.string(),
+  evidence: z.array(
+    z.object({
+      id: researchIdSchema,
+      revision: z.number().int().positive(),
+      sourceState: z.enum(EVIDENCE_SOURCE_STATES),
+    }),
+  ),
+});
+export type MatrixReviewBaseline = z.infer<typeof matrixReviewBaselineSchema>;
+
+export const matrixCellSchema = z.object({
+  id: researchIdSchema,
+  matrixId: researchIdSchema,
+  rowId: researchIdSchema,
+  columnId: researchIdSchema,
+  synthesis: z.string().max(100_000),
+  reviewBaseline: matrixReviewBaselineSchema.nullable(),
+  reviewState: z.enum(MATRIX_REVIEW_STATES),
+  selectedEvidenceCount: z.number().int().nonnegative(),
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  reviewedAt: instantSchema.nullable(),
+  deletedAt: instantSchema.nullable(),
+});
+export type MatrixCell = z.infer<typeof matrixCellSchema>;
+
+export const matrixCellEvidenceSchema = z.object({
+  id: researchIdSchema,
+  cellId: researchIdSchema,
+  evidenceId: researchIdSchema,
+  status: z.enum(KNOWLEDGE_BASIC_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type MatrixCellEvidence = z.infer<typeof matrixCellEvidenceSchema>;
+
+export const matrixCandidateSchema = z.object({
+  evidence: evidenceSchema,
+  selectedLinkId: researchIdSchema.nullable(),
+  selectedLinkRevision: z.number().int().positive().nullable(),
+});
+export type MatrixCandidate = z.infer<typeof matrixCandidateSchema>;
+
+export const matrixCandidatesSchema = z.object({
+  matrixId: researchIdSchema,
+  rowId: researchIdSchema,
+  columnId: researchIdSchema,
+  cellId: researchIdSchema.nullable(),
+  candidates: z.array(matrixCandidateSchema),
+});
+export type MatrixCandidates = z.infer<typeof matrixCandidatesSchema>;
+
 export const noteLinkTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('work'), workId: researchIdSchema }),
   z.object({ kind: z.literal('annotation'), annotationId: researchIdSchema }),
   z.object({ kind: z.literal('evidence'), evidenceId: researchIdSchema }),
+  z.object({ kind: z.literal('claim'), claimId: researchIdSchema }),
 ]);
 export type NoteLinkTarget = z.infer<typeof noteLinkTargetSchema>;
 
@@ -826,6 +1025,30 @@ export const evidencePageSchema = z.object({
 });
 export type EvidencePage = z.infer<typeof evidencePageSchema>;
 
+export const listClaimsQuerySchema = knowledgePageInputSchema.extend({
+  contextId: researchIdSchema.nullable().optional(),
+  status: z.enum(CLAIM_STATUSES).default('active'),
+});
+export type ListClaimsQuery = z.infer<typeof listClaimsQuerySchema>;
+
+export const claimsPageSchema = z.object({
+  claims: z.array(claimSchema),
+  nextCursor: z.string().nullable(),
+});
+export type ClaimsPage = z.infer<typeof claimsPageSchema>;
+
+export const listMatricesQuerySchema = knowledgePageInputSchema.extend({
+  contextId: researchIdSchema.nullable().optional(),
+  status: z.enum(MATRIX_STATUSES).default('active'),
+});
+export type ListMatricesQuery = z.infer<typeof listMatricesQuerySchema>;
+
+export const matricesPageSchema = z.object({
+  matrices: z.array(comparisonMatrixSchema),
+  nextCursor: z.string().nullable(),
+});
+export type MatricesPage = z.infer<typeof matricesPageSchema>;
+
 export const createNoteInputSchema = z.object({
   contextId: researchIdSchema.nullable().default(null),
   title: z.string().trim().min(1).max(500),
@@ -884,6 +1107,138 @@ export const updateEvidenceInputSchema = z
   })
   .refine((value) => Object.keys(value).some((key) => key !== 'expectedRevision'), '没有证据变更');
 export type UpdateEvidenceInput = z.infer<typeof updateEvidenceInputSchema>;
+
+export const createClaimInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  statement: z.string().trim().min(1).max(10_000),
+  rationale: z.string().max(100_000).nullable().default(null),
+  status: z.enum(CLAIM_EDITABLE_STATUSES).default('draft'),
+});
+export type CreateClaimInput = z.infer<typeof createClaimInputSchema>;
+
+export const updateClaimInputSchema = z
+  .object({
+    contextId: researchIdSchema.nullable().optional(),
+    statement: z.string().trim().min(1).max(10_000).optional(),
+    rationale: z.string().max(100_000).nullable().optional(),
+    status: z.enum(CLAIM_EDITABLE_STATUSES).optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine((value) => Object.keys(value).some((key) => key !== 'expectedRevision'), '没有观点变更');
+export type UpdateClaimInput = z.infer<typeof updateClaimInputSchema>;
+
+export const createClaimEvidenceInputSchema = z.object({
+  evidenceId: researchIdSchema,
+  relation: z.enum(CLAIM_EVIDENCE_RELATIONS),
+  note: z.string().max(10_000).nullable().default(null),
+});
+export type CreateClaimEvidenceInput = z.infer<typeof createClaimEvidenceInputSchema>;
+
+export const updateClaimEvidenceInputSchema = z
+  .object({
+    relation: z.enum(CLAIM_EVIDENCE_RELATIONS).optional(),
+    note: z.string().max(10_000).nullable().optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine(
+    (value) => Object.keys(value).some((key) => key !== 'expectedRevision'),
+    '没有观点证据关系变更',
+  );
+export type UpdateClaimEvidenceInput = z.infer<typeof updateClaimEvidenceInputSchema>;
+
+export const createMatrixInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  title: z.string().trim().min(1).max(500),
+  description: z.string().max(100_000).nullable().default(null),
+});
+export type CreateMatrixInput = z.infer<typeof createMatrixInputSchema>;
+
+export const updateMatrixInputSchema = z
+  .object({
+    contextId: researchIdSchema.nullable().optional(),
+    title: z.string().trim().min(1).max(500).optional(),
+    description: z.string().max(100_000).nullable().optional(),
+    status: z.enum(['active', 'archived']).optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine((value) => Object.keys(value).some((key) => key !== 'expectedRevision'), '没有矩阵变更');
+export type UpdateMatrixInput = z.infer<typeof updateMatrixInputSchema>;
+
+export const matrixStructureColumnInputSchema = z.object({
+  id: researchIdSchema.optional(),
+  workId: researchIdSchema,
+  position: z.number().int().min(0).max(199),
+});
+
+export const matrixStructureRowInputSchema = z.discriminatedUnion('kind', [
+  z.object({
+    id: researchIdSchema.optional(),
+    kind: z.literal('claim'),
+    claimId: researchIdSchema,
+    position: z.number().int().min(0).max(49),
+  }),
+  z
+    .object({
+      id: researchIdSchema.optional(),
+      kind: z.literal('dimension'),
+      title: z.string().trim().min(1).max(500).nullable().default(null),
+      question: z.string().trim().min(1).max(2_000).nullable().default(null),
+      position: z.number().int().min(0).max(49),
+    })
+    .refine((value) => value.title !== null || value.question !== null, '比较维度需要标题或问题'),
+]);
+
+export const updateMatrixStructureInputSchema = z.object({
+  expectedStructureRevision: z.number().int().positive(),
+  columns: z.array(matrixStructureColumnInputSchema).max(200),
+  rows: z.array(matrixStructureRowInputSchema).max(50),
+});
+export type UpdateMatrixStructureInput = z.infer<typeof updateMatrixStructureInputSchema>;
+
+export const matrixCandidatesQuerySchema = z.object({
+  rowId: researchIdSchema,
+  columnId: researchIdSchema,
+});
+export type MatrixCandidatesQuery = z.infer<typeof matrixCandidatesQuerySchema>;
+
+export const createMatrixCellInputSchema = z.object({
+  rowId: researchIdSchema,
+  columnId: researchIdSchema,
+  synthesis: z.string().max(100_000).default(''),
+});
+export type CreateMatrixCellInput = z.infer<typeof createMatrixCellInputSchema>;
+
+export const matrixCellWindowQuerySchema = z.object({
+  columnOffset: z.coerce.number().int().min(0).max(199).default(0),
+  columnLimit: z.coerce.number().int().min(1).max(20).default(12),
+  rowOffset: z.coerce.number().int().min(0).max(49).default(0),
+  rowLimit: z.coerce.number().int().min(1).max(25).default(20),
+});
+export type MatrixCellWindowQuery = z.infer<typeof matrixCellWindowQuerySchema>;
+
+export const matrixCellWindowSchema = z.object({
+  matrixId: researchIdSchema,
+  columnIds: z.array(researchIdSchema),
+  rowIds: z.array(researchIdSchema),
+  cells: z.array(matrixCellSchema),
+});
+export type MatrixCellWindow = z.infer<typeof matrixCellWindowSchema>;
+
+export const updateMatrixCellInputSchema = z.object({
+  synthesis: z.string().max(100_000),
+  expectedRevision: z.number().int().positive(),
+});
+export type UpdateMatrixCellInput = z.infer<typeof updateMatrixCellInputSchema>;
+
+export const createMatrixCellEvidenceInputSchema = z.object({
+  evidenceId: researchIdSchema,
+});
+export type CreateMatrixCellEvidenceInput = z.infer<typeof createMatrixCellEvidenceInputSchema>;
+
+export const reviewMatrixCellInputSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+export type ReviewMatrixCellInput = z.infer<typeof reviewMatrixCellInputSchema>;
 
 export const previewEvidenceRebindInputSchema = z.object({
   annotationId: researchIdSchema,
@@ -1857,7 +2212,20 @@ export const workMergePreviewSchema = z.object({
     fields: mergeWorkFieldsSchema,
     editionIds: z.array(researchIdSchema),
   }),
+  matrixImpact: z.object({
+    affectedMatrixCount: z.number().int().nonnegative(),
+    duplicateColumnCount: z.number().int().nonnegative(),
+    conflicts: z.array(
+      z.object({
+        matrixId: researchIdSchema,
+        rowId: researchIdSchema,
+        survivorCellId: researchIdSchema,
+        mergedCellId: researchIdSchema,
+      }),
+    ),
+  }),
 });
+export type WorkMergeMatrixImpact = z.infer<typeof workMergePreviewSchema>['matrixImpact'];
 
 export const mergeWorksInputSchema = z.object({
   mergedWorkId: researchIdSchema,

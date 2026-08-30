@@ -25,7 +25,7 @@ function parseArgs(argv) {
       console.log(`Research knowledge visual QA
 
 Usage:
-  node scripts/research-knowledge-visual-qa.mjs --phase c1 [--output PATH] [--keep-data]
+  node scripts/research-knowledge-visual-qa.mjs --phase c1|c2|all [--output PATH] [--keep-data]
 
 Environment:
   RESEARCH_KNOWLEDGE_BROWSER  Edge/Chrome executable override`);
@@ -34,7 +34,9 @@ Environment:
       throw new Error(`unknown argument: ${value}`);
     }
   }
-  if (options.phase !== 'c1') throw new Error('--phase currently supports c1');
+  if (!['c1', 'c2', 'all'].includes(options.phase)) {
+    throw new Error('--phase supports c1, c2, or all');
+  }
   return options;
 }
 
@@ -137,7 +139,9 @@ async function waitForUrl(url, processInfo, timeoutMs = 30_000) {
       throw new Error(`process exited before ${url} was ready:\n${processInfo.output()}`);
     }
     try {
-      const response = await globalThis.fetch(url);
+      const response = await globalThis.fetch(url, {
+        signal: globalThis.AbortSignal.timeout(5_000),
+      });
       if (response.ok) return;
       lastError = new Error(`${url} returned ${response.status}`);
     } catch (error) {
@@ -149,7 +153,10 @@ async function waitForUrl(url, processInfo, timeoutMs = 30_000) {
 }
 
 async function requestJson(url, init) {
-  const response = await globalThis.fetch(url, init);
+  const response = await globalThis.fetch(url, {
+    ...init,
+    signal: init?.signal ?? globalThis.AbortSignal.timeout(30_000),
+  });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(`${init?.method ?? 'GET'} ${url}: ${body.error ?? response.status}`);
@@ -329,6 +336,114 @@ async function seedSourceStates(apiBase, databasePath, assets) {
   }
 }
 
+async function seedClaimsAndMatrix(apiBase, assets) {
+  const supportingAnnotation = await createAnnotation(
+    apiBase,
+    assets.current,
+    'The primary paper supports a durable effect.',
+  );
+  const qualifyingAnnotation = await createAnnotation(
+    apiBase,
+    assets.revised,
+    'The comparison paper narrows the effect to one sample.',
+  );
+  const supportingEvidence = await createEvidence(
+    apiBase,
+    supportingAnnotation.id,
+    'Durable effect',
+    'The main estimate remains stable across specifications.',
+  );
+  const qualifyingEvidence = await createEvidence(
+    apiBase,
+    qualifyingAnnotation.id,
+    'Sample boundary',
+    'The effect weakens outside the original sample.',
+  );
+  await requestJson(`${apiBase}/api/research/v1/claims`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      statement: 'Open question awaiting evidence.',
+      rationale: 'This stays visible without forcing a premature link.',
+      status: 'active',
+    }),
+  });
+  const claim = await requestJson(`${apiBase}/api/research/v1/claims`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      statement: 'The effect is durable but sample-dependent.',
+      rationale: 'Compare robustness with external validity.',
+      status: 'active',
+    }),
+  });
+  for (const [evidenceId, relation] of [
+    [supportingEvidence.id, 'supports'],
+    [qualifyingEvidence.id, 'qualifies'],
+  ]) {
+    await requestJson(`${apiBase}/api/research/v1/claims/${claim.id}/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ evidenceId, relation }),
+    });
+  }
+  const matrix = await requestJson(`${apiBase}/api/research/v1/matrices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'Cross-paper evidence map',
+      description: 'Compare support, limits, and sample conditions.',
+    }),
+  });
+  const structured = await requestJson(
+    `${apiBase}/api/research/v1/matrices/${matrix.id}/structure`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedStructureRevision: matrix.structureRevision,
+        columns: [
+          { workId: assets.current.workId, position: 0 },
+          { workId: assets.revised.workId, position: 1 },
+          { workId: assets.deleted.workId, position: 2 },
+          { workId: assets.mismatch.workId, position: 3 },
+        ],
+        rows: [
+          { kind: 'claim', claimId: claim.id, position: 0 },
+          { kind: 'dimension', title: 'Sample and method', position: 1 },
+          { kind: 'dimension', title: 'Reported limitation', position: 2 },
+        ],
+      }),
+    },
+  );
+  const claimRow = structured.rows.find((row) => row.kind === 'claim');
+  for (const [column, evidence, synthesis] of [
+    [structured.columns[0], supportingEvidence, 'Supports the durable-effect portion.'],
+    [structured.columns[1], qualifyingEvidence, 'Narrows the effect to the original sample.'],
+  ]) {
+    const cell = await requestJson(`${apiBase}/api/research/v1/matrices/${matrix.id}/cells`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rowId: claimRow.id, columnId: column.id, synthesis }),
+    });
+    await requestJson(`${apiBase}/api/research/v1/matrix-cells/${cell.id}/evidence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ evidenceId: evidence.id }),
+    });
+    await requestJson(`${apiBase}/api/research/v1/matrix-cells/${cell.id}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision: cell.revision }),
+    });
+  }
+  await requestJson(`${apiBase}/api/research/v1/annotations/${supportingAnnotation.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: 'Source revised after matrix review', expectedRevision: 1 }),
+  });
+}
+
 function findBrowserExecutable() {
   if (process.env.RESEARCH_KNOWLEDGE_BROWSER) return process.env.RESEARCH_KNOWLEDGE_BROWSER;
   if (process.env.RESEARCH_READER_BROWSER) return process.env.RESEARCH_READER_BROWSER;
@@ -400,8 +515,16 @@ async function connectCdp(webSocketUrl) {
     const waiter = pending.get(message.id);
     if (!waiter) return;
     pending.delete(message.id);
+    globalThis.clearTimeout(waiter.timer);
     if (message.error) waiter.reject(new Error(message.error.message));
     else waiter.resolve(message.result);
+  });
+  socket.addEventListener('close', () => {
+    for (const waiter of pending.values()) {
+      globalThis.clearTimeout(waiter.timer);
+      waiter.reject(new Error('DevTools WebSocket closed before the command completed'));
+    }
+    pending.clear();
   });
   return {
     close: () => socket.close(),
@@ -410,7 +533,11 @@ async function connectCdp(webSocketUrl) {
       sequence += 1;
       const id = sequence;
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`DevTools command timed out: ${method}`));
+        }, 15_000);
+        pending.set(id, { resolve, reject, timer });
         socket.send(JSON.stringify({ id, method, params }));
       });
     },
@@ -480,7 +607,9 @@ async function openBrowserSession({ browser, profilePath, url, width, height }) 
   try {
     const port = await waitForDevtoolsPort(profilePath, browserProcess);
     const targets = await globalThis
-      .fetch(`http://127.0.0.1:${port}/json/list`)
+      .fetch(`http://127.0.0.1:${port}/json/list`, {
+        signal: globalThis.AbortSignal.timeout(15_000),
+      })
       .then((response) => response.json());
     const target = targets.find((candidate) => candidate.type === 'page');
     if (!target?.webSocketDebuggerUrl) throw new Error('browser page target is unavailable');
@@ -608,6 +737,12 @@ async function browserEvidenceRoundTrip({ browser, outputRoot, profileRoot, webB
     if (!(await evaluateValue(cdp, clickButtonExpression('提炼文字')))) {
       throw new Error('text evidence tool is unavailable');
     }
+    await waitForExpression(
+      cdp,
+      `Array.from(document.querySelectorAll('button')).some((node) =>
+        node.textContent?.trim() === '提炼文字' && node.getAttribute('aria-pressed') === 'true')`,
+      'text evidence tool did not become active',
+    );
     const textRect = await evaluateValue(
       cdp,
       `(() => {
@@ -628,6 +763,12 @@ async function browserEvidenceRoundTrip({ browser, outputRoot, profileRoot, webB
     if (!(await evaluateValue(cdp, clickButtonExpression('提炼区域')))) {
       throw new Error('area evidence tool is unavailable');
     }
+    await waitForExpression(
+      cdp,
+      `Array.from(document.querySelectorAll('button')).some((node) =>
+        node.textContent?.trim() === '提炼区域' && node.getAttribute('aria-pressed') === 'true')`,
+      'area evidence tool did not become active',
+    );
     const pageBounds = await evaluateValue(
       cdp,
       `(() => {
@@ -759,8 +900,9 @@ async function captureKnowledgeState({
   webBase,
   width,
   empty = false,
+  mode = 'sources',
 }) {
-  const id = empty ? 'empty' : 'source-states';
+  const id = empty ? 'empty' : mode === 'sources' ? 'source-states' : mode;
   const session = await openBrowserSession({
     browser,
     profilePath: path.join(profileRoot, `${id}-${width}`),
@@ -771,11 +913,36 @@ async function captureKnowledgeState({
   try {
     await waitForExpression(
       session.cdp,
-      `document.body.innerText.includes('研究知识') && document.body.innerText.includes('证据流')`,
+      `document.body.innerText.includes('研究知识') &&
+       Array.from(document.querySelectorAll('button')).some((node) =>
+         node.textContent?.trim() === '观点') &&
+       Array.from(document.querySelectorAll('button')).some((node) =>
+         node.textContent?.trim() === '矩阵')`,
       `${id} knowledge page did not render at ${width}px`,
       30_000,
     );
-    if (empty) {
+    if (mode === 'claims') {
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('观点')))) {
+        throw new Error('claim workspace could not be selected');
+      }
+      await waitForExpression(
+        session.cdp,
+        `document.body.innerText.includes('The effect is durable but sample-dependent.') &&
+         document.body.innerText.includes('Open question awaiting evidence.')`,
+        `claim workspace did not render at ${width}px`,
+      );
+    } else if (mode === 'matrices') {
+      if (!(await evaluateValue(session.cdp, clickButtonExpression('矩阵')))) {
+        throw new Error('matrix workspace could not be selected');
+      }
+      await waitForExpression(
+        session.cdp,
+        `document.body.innerText.includes('Cross-paper evidence map') &&
+         document.body.innerText.includes('4 篇文献 × 3 行') &&
+         document.body.innerText.includes('需要复核')`,
+        `matrix workspace did not render at ${width}px`,
+      );
+    } else if (empty) {
       if (!(await evaluateValue(session.cdp, clickButtonExpression('回收站')))) {
         throw new Error('knowledge trash view could not be selected');
       }
@@ -785,6 +952,11 @@ async function captureKnowledgeState({
         'empty evidence state did not render',
       );
     } else {
+      await waitForExpression(
+        session.cdp,
+        `document.body.innerText.includes('证据流')`,
+        `source workspace did not render at ${width}px`,
+      );
       await waitForExpression(
         session.cdp,
         `document.body.innerText.includes('批注已修订') &&
@@ -804,7 +976,7 @@ async function captureKnowledgeState({
       })`,
     );
     if (responsive.overflow) throw new Error(`${id} has horizontal overflow at ${width}px`);
-    if (width === 390 && responsive.tabs !== 3) {
+    if (mode === 'sources' && width === 390 && responsive.tabs !== 3) {
       throw new Error('390px knowledge workspace did not switch to single-pane tabs');
     }
     const outputPath = path.join(outputRoot, `${id}-${width}.png`);
@@ -874,7 +1046,10 @@ async function main() {
         ['revised', 'Knowledge Visual Revised'],
         ['deleted', 'Knowledge Visual Deleted'],
         ['mismatch', 'Knowledge Visual Mismatch'],
-        ['unavailable', 'Knowledge Visual Unavailable'],
+        [
+          'unavailable',
+          'Knowledge Visual Unavailable With A Deliberately Long Research Paper Title For Layout QA',
+        ],
       ].map(async ([key, title]) => [
         key,
         await seedPdf(apiBase, makeTextPdf(4, title), `${key}.pdf`, title),
@@ -922,29 +1097,38 @@ async function main() {
     if (!evidencePage.evidence.some((item) => item.sourceSnapshot?.sourceKind === 'ocr')) {
       throw new Error('browser OCR proxy flow did not create OCR evidence');
     }
+    if (options.phase === 'c2' || options.phase === 'all') {
+      await seedClaimsAndMatrix(apiBase, assets);
+    }
 
     const captures = [];
-    for (const width of [1440, 1024, 768, 390]) {
+    const modes = options.phase === 'c1' ? ['sources'] : ['claims', 'matrices'];
+    for (const mode of modes) {
+      for (const width of [1440, 1024, 768, 390]) {
+        captures.push(
+          await captureKnowledgeState({
+            browser,
+            outputRoot,
+            profileRoot,
+            webBase,
+            width,
+            mode,
+          }),
+        );
+      }
+    }
+    if (options.phase === 'c1' || options.phase === 'all') {
       captures.push(
         await captureKnowledgeState({
           browser,
           outputRoot,
           profileRoot,
           webBase,
-          width,
+          width: 390,
+          empty: true,
         }),
       );
     }
-    captures.push(
-      await captureKnowledgeState({
-        browser,
-        outputRoot,
-        profileRoot,
-        webBase,
-        width: 390,
-        empty: true,
-      }),
-    );
 
     const result = {
       status: 'passed',
