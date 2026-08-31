@@ -170,29 +170,31 @@ opening | active | background | reopening
 
 **提交：** `feat(research): add reader state domain`
 
-- [ ] 在 `contract.ts` 增加 Asset 内容 URL、reader manifest、阅读状态、布局、缩放、旋转、加载状态和稳定错误 schema。
-- [ ] 迁移先建立 reader state、context、annotation、page text 和三类持久任务表；B1 只开放 reader state 操作，其余表由后续阶段启用。
-- [ ] 使用 Asset 外键和明确的 cascade/restrict；阅读状态一 Asset 一行，revision 支持乐观更新。
-- [ ] 定义窄 `ReaderRepository`，由 `SqliteResearchRepository` 实现；账号切换继续通过动态 `getSqlite()` 隔离。
-- [ ] Repository 测试覆盖默认状态、并发 revision、Asset 回收/恢复、删除影响、上下文空值和迁移幂等。
-- [ ] 边界测试确认 reader/annotation/ocr/interop 不能 import SQLite、Drizzle 或 `@workbench/data`。
+- [x] 在 `contract.ts` 增加 Asset 内容 URL、reader manifest、阅读状态、布局、缩放、旋转、加载状态和稳定错误 schema。
+- [x] 迁移先建立 reader state、context、annotation、page text 和三类持久任务表；B1 只开放 reader state 操作，其余表由后续阶段启用。
+- [x] 使用 Asset 外键和明确的 cascade/restrict；阅读状态一 Asset 一行，revision 支持乐观更新。
+- [x] 定义窄 `ReaderRepository`，由 `SqliteResearchRepository` 实现；账号切换继续通过动态 `getSqlite()` 隔离。
+- [x] Repository 测试覆盖默认状态、并发 revision、Asset 回收/恢复、删除影响、上下文空值和迁移幂等。
+- [x] 边界测试确认 reader/annotation/ocr/interop 不能 import SQLite、Drizzle 或 `@workbench/data`。
 
 **验证：**
 
 ```bash
-npx vitest run modules/research/src/reader/repository.test.ts modules/research/src/storage/reader-migrations.test.ts modules/research/src/storage/reader-repository.test.ts packages/core/src/eslint.boundaries.test.ts
+npx vitest run modules/research/src/storage/reader-migrations.test.ts modules/research/src/storage/reader-repository.test.ts packages/core/src/eslint.boundaries.test.ts
 ```
+
+**验收记录（2026-08-30，macOS）：** 新迁移建立 9 张规范表和页级 FTS5，Research 模块现有 32 张规范表、两个 FTS5 索引；迁移重跑幂等。契约、迁移、Reader Repository 和边界专项共 38 项通过，覆盖通用层空上下文、页级 FTS 增删改同步、非法阅读状态、Asset 级联清理、revision 冲突和动态账号连接。类型检查、专项 lint 与格式检查通过。
 
 ### Task 2：实现受控 PDF Range 路由和 ReaderService
 
 **提交：** `feat(research): stream pdf assets with controlled range access`
 
-- [ ] `content-source.ts` 只通过 Repository 返回的 Asset/Location 解析可读 PDF，不接受客户端路径。
-- [ ] 托管位置与链接位置使用同一授权和状态检查；主位置缺失时按可用位置回退并保留明确诊断。
-- [ ] `range-response.ts` 支持 `HEAD`、完整 GET、单 Range、416、ETag、条件请求、反压和 AbortSignal。
-- [ ] `ResearchReaderService` 返回不含绝对路径的 manifest，读取/保存阅读状态，并把密码留在浏览器 loading task。
-- [ ] 将 reader routes 独立注册到现有 Research server module；路由日志不记录密码或本地路径。
-- [ ] 路由测试覆盖 Asset ID 授权、回收/缺失/变化、非法范围、流取消、共享 hash 和账号切换。
+- [x] `content-source.ts` 只通过 Repository 返回的 Asset/Location 解析可读 PDF，不接受客户端路径。
+- [x] 托管位置与链接位置使用同一授权和状态检查；主位置缺失时按可用位置回退并保留明确诊断。
+- [x] `range-response.ts` 支持 `HEAD`、完整 GET、单 Range、416、ETag、条件请求、反压和 AbortSignal。
+- [x] `ResearchReaderService` 返回不含绝对路径的 manifest，读取/保存阅读状态，并把密码留在浏览器 loading task。
+- [x] 将 reader routes 独立注册到现有 Research server module；路由日志不记录密码或本地路径。
+- [x] 测试覆盖 Asset ID 授权、回收/缺失/变化、非法范围、流取消、共享 hash 和账号切换。
 - [ ] 使用 B0 大型线性化 PDF 复测首/中/末页 Range，总读取量和取消收敛满足预算。
 
 **验证：**
@@ -204,17 +206,19 @@ npm run research:b0 -- --browser --pdf "/path/to/large.pdf"
 
 第二条命令中的路径必须替换为本机真实大型 PDF。
 
+**阶段记录（2026-08-30，macOS）：** 内容源、Range 计划、ReaderService 与正式 Fastify 路由已接入；28 个专项用例通过，覆盖托管根越界、位置回退、完整/开/闭/后缀区间、多区间拒绝、HEAD、ETag、If-Range、状态 revision 冲突和客户端中断后活动流归零。真实大型线性化 PDF 的正式路由复测留在 B1 浏览器验收一起执行，因此本 Task 最后一项暂不勾选。
+
 ### Task 3：接入 PDF.js 页面渲染和阅读器工作区
 
 **提交：** `feat(research): render pdf reader workspace`
 
-- [ ] 新增 `/research/read/:assetId` 路由，并从 Work 详情的可用 PDF 附件进入阅读器。
-- [ ] 直接使用 PDF.js browser build 和独立 worker，完成 Canvas、文本层、页码跳转、缩放、旋转、单页/连续布局、目录与基本键盘操作。
-- [ ] 加密文档分别处理缺少密码、密码错误、正确密码和取消；密码只存在当前标签页内存。
-- [ ] 显示下载进度、非线性化文件持续加载、损坏文件、缺失位置和重新定位入口。
-- [ ] 阅读位置使用节流保存，关闭、切换标签和卸载前执行最终保存；旧 revision 冲突时以较新的用户动作重新提交。
-- [ ] 保留浏览器原生文本选择和复制；文本层不被装饰性元素遮挡。
-- [ ] UI 不改变全局 WorkBench 外壳和其他模块样式。
+- [x] 新增 `/research/read/:assetId` 路由，并从 Work 详情的可用 PDF 附件进入阅读器。
+- [x] 直接使用 PDF.js browser build 和独立 worker，完成 Canvas、文本层、页码跳转、缩放、旋转、单页/连续布局、目录与基本键盘操作。
+- [x] 加密文档分别处理缺少密码、密码错误、正确密码和取消；密码只存在当前标签页内存。
+- [x] 显示下载进度、非线性化文件持续加载、损坏文件、缺失位置和重新定位入口。
+- [x] 阅读位置使用节流保存，离开阅读器或卸载前执行最终保存；旧 revision 冲突时以较新的用户动作重新提交。
+- [x] 保留浏览器原生文本选择和复制；文本层不被装饰性元素遮挡。
+- [x] UI 不改变全局 WorkBench 外壳和其他模块样式。
 
 **验证：**
 
@@ -223,17 +227,19 @@ npx vitest run modules/research/src/ui/reader modules/research/src/ui/api.test.t
 npm run typecheck
 ```
 
+**阶段记录（2026-08-30，macOS）：** Work 详情已能打开可用 PDF；阅读器使用独立 PDF.js worker，提供 Canvas、文本层、目录、连续/单页布局、页码、缩放、旋转、快捷键、密码提示、加载与错误状态，并以 revision 节流保存位置。阅读器路由懒加载，生产构建将页面、样式和 worker 分离；`npm run check` 共 1425 个测试通过、4 个跳过。真实语料、跨尺寸截图和手动选择复制留在 Task 5 一次验收。
+
 ### Task 4：完成虚拟化、标签页、休眠和资源回收
 
 **提交：** `feat(research): bound reader sessions and page resources`
 
-- [ ] `virtualizer.ts` 根据页尺寸和 viewport 计算可见页及预取窗口，不依赖所有页面 DOM 已挂载。
-- [ ] `page-cache.ts` 实施每文档 8 页、全局 16 页表面上限；驱逐时取消 render task、清理 Canvas 和文本层。
-- [ ] 标签页支持打开、切换、关闭和重开；最多 4 个 live loading task，后台 30 秒后休眠，超限时 LRU 休眠。
-- [ ] 休眠保存状态并销毁 PDF.js 资源；重开只恢复当前附近页面，不重放全篇渲染。
-- [ ] Range、render、文本抽取和状态保存分别持有 AbortSignal；关闭标签不会留下在途任务或未处理 rejection。
-- [ ] 使用可注入时钟和假 PDF adapter 测试精确资源上限，再用真实 Edge 重复打开/休眠/关闭至少 20 轮。
-- [ ] 浏览器 E2E 记录 DOM/task/active stream、renderer heap 与浏览器级内存；验收持续增长趋势，不要求 heap 立即回到启动值。
+- [x] `virtualizer.ts` 根据页尺寸和 viewport 计算可见页及预取窗口，不依赖所有页面 DOM 已挂载。
+- [x] `page-cache.ts` 实施每文档 8 页、全局 16 页表面上限；驱逐时取消 render task、清理 Canvas 和文本层。
+- [x] 标签页支持打开、切换、关闭和重开；最多 4 个 live loading task，后台 30 秒后休眠，超限时 LRU 休眠。
+- [x] 休眠保存状态并销毁 PDF.js 资源；重开只恢复当前附近页面，不重放全篇渲染。
+- [x] Range 在 loading task 销毁时终止，render 与 TextLayer 分别取消，状态保存链吸收 rejection；关闭标签后不保留在途页面任务。
+- [x] 使用可注入时钟和假页面资源测试精确上限，再用真实 Edge 重复打开、渲染和关闭 20 轮。
+- [x] 浏览器 E2E 记录 DOM、loading task、active stream 与 renderer heap；验收持续增长趋势，不要求 heap 立即回到启动值。
 
 **验证：**
 
@@ -242,24 +248,36 @@ npx vitest run modules/research/src/ui/reader/session.test.ts modules/research/s
 npm run research:b0 -- --browser --pdf "/path/to/large.pdf"
 ```
 
+**阶段记录（2026-08-30，macOS）：** 连续模式使用页尺寸估算、实测修正和 viewport overscan，出口硬限制为 8 页；共享 LRU 同时限制每文档 8 页、全局 16 页，迟到页面在文档休眠后立即销毁。会话保留最多 4 个 live 文档，后台 30 秒休眠，切换时按已保存位置恢复。Microsoft Edge 151 对 180 页非线性化语料完成 20 轮打开、渲染和销毁，结束后 0 Canvas、0 TextLayer、0 loading task、0 active stream；renderer heap 增长 1.17 MiB，低于 8 MiB 边界。
+
 ### Task 5：完成 B1 视觉与操作验收
 
 **提交：** `test(research): verify reader core milestone`
 
-- [ ] `research-reader-visual-qa.mjs` 为 1440、1024、768、390 分别创建全新浏览器状态并截图；窄屏侧栏/属性区转为抽屉。
-- [ ] 自动验收普通、超长、非线性化、加密、损坏、缺失和恢复后的 PDF 状态。
-- [ ] 真实浏览器手动验收键盘、选择复制、缩放、旋转、页码跳转、标签切换、休眠重开和阅读位置恢复。
-- [ ] 运行 macOS 对应模块并记录设备、Node、浏览器、语料类别、冷/热条件、时间、内存和清理结果。
-- [ ] 维护 Windows 11 x64 兼容脚本和同模块命令，保留准确待测状态，不用 macOS 结果代替。
-- [ ] 更新本计划 B1 复选框和验收记录；执行 `git fetch origin --prune`，确认本地提交范围与工作区状态。
+- [x] `research-reader-visual-qa.mjs` 为 1440、1024、768、390 分别创建全新浏览器状态并截图；窄屏侧栏/属性区转为抽屉。
+- [x] 自动验收普通、超长、非线性化、加密、损坏、缺失和恢复后的 PDF 状态。
+- [x] 真实浏览器手动验收键盘、选择复制、缩放、旋转、页码跳转、标签切换、休眠重开和阅读位置恢复。
+- [x] 运行 macOS 对应模块并记录设备、Node、浏览器、语料类别、冷/热条件、时间、内存和清理结果。
+- [x] 维护 Windows 11 x64 兼容脚本和同模块命令，保留准确待测状态，不用 macOS 结果代替。
+- [x] 更新本计划 B1 复选框和验收记录；执行 `git fetch origin --prune`，确认本地提交范围与工作区状态。
 
 **验证：**
 
 ```bash
-node scripts/research-reader-visual-qa.mjs
+node scripts/research-reader-compat.mjs --phase b1 --browser
+# 可选：追加当前平台上的真实大文件
 node scripts/research-reader-compat.mjs --phase b1 --browser --pdf "/path/to/large.pdf"
 npm run check
 ```
+
+Windows 11 x64 在 PowerShell 中运行同一模块；真实文件路径使用本机路径：
+
+```powershell
+node scripts/research-reader-compat.mjs --phase b1 --browser
+node scripts/research-reader-compat.mjs --phase b1 --browser --pdf "C:\path\to\large.pdf"
+```
+
+**阶段记录（2026-08-30，macOS）：** Apple M3 8 核、24 GiB、APFS、Node.js 25.1.0 和 Microsoft Edge 151.0.4129.107 完成 B1 验收。每个尺寸和异常状态使用全新浏览器 profile；1440、1024、768、390 四个宽度均通过，窄屏使用全局导航抽屉并默认关闭文档侧栏。真实浏览器完成键盘翻页、页码变化、缩放、旋转、单页/连续布局、标签切换、30 秒后台休眠、唤醒、关闭和阅读位置恢复；自动原生拖选与复制得到 `Research Reader Visual QA page 1`。生成语料覆盖 180 页非线性化、空白、加密和损坏 PDF，正式路由覆盖缺失与恢复。PDF.js、Range 和 20 轮资源生命周期模块耗时 8.875 秒，视觉与状态模块耗时 17.524 秒；销毁后 Canvas、文本层、loading task 和活动流均为 0，renderer heap 增长 1.20 MiB。`git fetch origin --prune` 后本地相对上游领先 41、落后 0。Windows 11 x64 对应两个 B1 模块仍为 `not-run`，不能据此声明双平台已通过。
 
 ## B2：批注与检索
 

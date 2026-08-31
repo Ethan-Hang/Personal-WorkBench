@@ -20,6 +20,8 @@ import {
   portableExportJobSchema,
   portableExportPreviewSchema,
   relinkLocationResponseSchema,
+  readerManifestSchema,
+  readerStateSchema,
   searchIndexRebuildResponseSchema,
   tagCandidatesResponseSchema,
   tagDeletionPreviewSchema,
@@ -48,6 +50,9 @@ import {
   type StartPortableExportInput,
   type StructuredSearchInput,
   type RelinkLocationResponse,
+  type ReaderManifest,
+  type ReaderState,
+  type SaveReaderStateInput,
   type SystemView,
   type UpdateCollectionInput,
   type UpdateTagInput,
@@ -75,6 +80,23 @@ export type TagDeletionPreview = z.infer<typeof tagDeletionPreviewSchema>;
 export type WorkMergePreview = z.infer<typeof workMergePreviewSchema>;
 export type MergeRecordView = z.infer<typeof mergeRecordViewSchema>;
 export type AttachmentDeletionPreview = z.infer<typeof attachmentDeletionPreviewSchema>;
+
+export async function fetchReaderManifest(assetId: string): Promise<ReaderManifest> {
+  return readerManifestSchema.parse(await apiRequest(RESEARCH_API_V1.readerManifest(assetId)));
+}
+
+export async function fetchReaderState(assetId: string): Promise<ReaderState> {
+  return readerStateSchema.parse(await apiRequest(RESEARCH_API_V1.readerState(assetId)));
+}
+
+export async function putReaderState(
+  assetId: string,
+  input: SaveReaderStateInput,
+): Promise<ReaderState> {
+  return readerStateSchema.parse(
+    await apiRequest(RESEARCH_API_V1.readerState(assetId), jsonBody('PUT', input)),
+  );
+}
 
 export async function postPortableExportPreview(
   input: PortableExportPreviewInput,

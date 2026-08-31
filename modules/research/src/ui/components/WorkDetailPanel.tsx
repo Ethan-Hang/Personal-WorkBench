@@ -25,6 +25,7 @@ export interface WorkDetailPanelProps {
   onToggleTag: (id: string) => void;
   onSaveTags: () => void;
   onCheckLocation: (id: string) => void;
+  onOpenReader: (assetId: string) => void;
   onRelinkLocation: (id: string) => void;
   onRemoveAttachment: (id: string) => void;
   onRestoreAttachment: (id: string) => void;
@@ -53,6 +54,7 @@ export function WorkDetailPanel({
   onToggleTag,
   onSaveTags,
   onCheckLocation,
+  onOpenReader,
   onRelinkLocation,
   onRemoveAttachment,
   onRestoreAttachment,
@@ -315,6 +317,21 @@ export function WorkDetailPanel({
                       </div>
                     ))}
                   </div>
+                  {attachment.status === 'active' &&
+                    attachment.asset.mimeType === 'application/pdf' &&
+                    attachment.asset.locations.some(
+                      (location) => location.state === 'available',
+                    ) && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        className="mt-3"
+                        icon={<IconBookOpen size={13} />}
+                        onClick={() => onOpenReader(attachment.assetId)}
+                      >
+                        阅读 PDF
+                      </Button>
+                    )}
                   {attachment.status === 'active' ? (
                     <button
                       type="button"

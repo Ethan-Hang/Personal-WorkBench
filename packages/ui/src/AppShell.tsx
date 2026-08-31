@@ -14,6 +14,7 @@ import {
   IconInfo,
   IconCalendar,
   IconBookOpen,
+  IconMenu,
 } from './icons.js';
 
 export interface ShellNavItem {
@@ -50,7 +51,19 @@ export function AppShell({
   sidebarFooter?: ReactNode | ((props: { isCollapsed: boolean }) => ReactNode);
 }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const isFullHeightModule =
+    activePath === '/notes' ||
+    activePath === '/research' ||
+    activePath?.startsWith('/research/') === true;
+  const activeModuleLabel = navGroups
+    .flatMap((group) => group.items)
+    .find(
+      (item) =>
+        item.path === activePath ||
+        (item.path === '/research' && activePath?.startsWith('/research/') === true),
+    )?.label;
 
   const handleSearchOpenChange = (open: boolean) => {
     setIsSearchOpen(open);
@@ -72,11 +85,19 @@ export function AppShell({
 
   return (
     <div className="h-screen max-h-screen w-full bg-page text-ink transition-colors duration-200 flex overflow-hidden">
+      {isMobileSidebarOpen && (
+        <button
+          type="button"
+          aria-label="关闭导航"
+          className="fixed inset-0 z-30 bg-black/45 backdrop-blur-[1px] lg:hidden"
+          onClick={() => setIsMobileSidebarOpen(false)}
+        />
+      )}
       {/* 侧边栏 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out sm:sticky sm:top-0 sm:h-full sm:shrink-0 ${
-          isSidebarCollapsed ? 'w-16' : 'w-64'
-        }`}
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-line bg-sidebar text-sidebar-ink transition-all duration-300 ease-out lg:sticky lg:top-0 lg:h-full lg:shrink-0 lg:translate-x-0 ${
+          isMobileSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+        } ${isSidebarCollapsed ? 'lg:w-16' : 'lg:w-64'}`}
       >
         {/* 顶部品牌与折叠按钮区 */}
         <div className="flex h-16 items-center px-3 border-b border-sidebar-line/40 shrink-0">
@@ -108,7 +129,15 @@ export function AppShell({
                 onClick={() => setIsSidebarCollapsed(true)}
                 aria-label="收起侧边栏"
                 title="收起侧边栏"
-                className="flex size-7 items-center justify-center rounded-lg border border-sidebar-line/50 bg-sidebar-active/40 text-sidebar-muted hover:bg-sidebar-active hover:text-white hover:border-sidebar-line transition-all shadow-2xs shrink-0 ml-2"
+                className="ml-2 hidden size-7 shrink-0 items-center justify-center rounded-lg border border-sidebar-line/50 bg-sidebar-active/40 text-sidebar-muted shadow-2xs transition-all hover:border-sidebar-line hover:bg-sidebar-active hover:text-white lg:flex"
+              >
+                <IconChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsMobileSidebarOpen(false)}
+                aria-label="关闭导航"
+                className="ml-2 flex size-7 shrink-0 items-center justify-center rounded-lg border border-sidebar-line/50 bg-sidebar-active/40 text-sidebar-muted lg:hidden"
               >
                 <IconChevronLeft size={14} />
               </button>
@@ -126,12 +155,15 @@ export function AppShell({
                 </div>
               )}
               {group.items.map((item) => {
-                const isActive = activePath === item.path;
+                const isActive =
+                  activePath === item.path ||
+                  (item.path === '/research' && activePath?.startsWith('/research/') === true);
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
                     href={item.path}
+                    onClick={() => setIsMobileSidebarOpen(false)}
                     title={isSidebarCollapsed ? item.label : undefined}
                     className={`relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out ${
                       isActive
@@ -176,6 +208,7 @@ export function AppShell({
           <Link
             to="/settings"
             href="/settings"
+            onClick={() => setIsMobileSidebarOpen(false)}
             title={isSidebarCollapsed ? '偏好设置' : undefined}
             className={`relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out ${
               activePath === '/settings'
@@ -200,6 +233,7 @@ export function AppShell({
           <Link
             to="/about"
             href="/about"
+            onClick={() => setIsMobileSidebarOpen(false)}
             title={isSidebarCollapsed ? '关于工作台' : undefined}
             className={`relative flex items-center gap-2.5 rounded-control px-2.5 py-2 text-xs font-medium transition-all duration-200 ease-out ${
               activePath === '/about'
@@ -248,8 +282,19 @@ export function AppShell({
           主内容区里任何带 z-index 的定位元素——秋招页那条 `sticky z-10` 的筛选栏就正好
           把它盖住。给顶栏本身一个高于内容、低于侧边栏（z-40）的层级，整层一起抬上来。
         */}
-        <header className="relative z-30 shrink-0 flex h-14 items-center justify-between border-b border-line bg-surface/80 px-6 backdrop-blur-md transition-colors duration-200">
+        <header className="relative z-30 flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface/80 px-3 backdrop-blur-md transition-colors duration-200 sm:px-6">
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              aria-label="打开导航"
+              onClick={() => {
+                setIsSidebarCollapsed(false);
+                setIsMobileSidebarOpen(true);
+              }}
+              className="flex size-8 shrink-0 items-center justify-center rounded-control border border-line bg-surface-2 text-secondary lg:hidden"
+            >
+              <IconMenu size={16} />
+            </button>
             <div className="text-xs font-medium text-muted">
               <span>工作台</span>
               <span className="mx-1.5">/</span>
@@ -258,8 +303,7 @@ export function AppShell({
                   ? '偏好设置'
                   : activePath === '/about'
                     ? '关于工作台'
-                    : (navGroups.flatMap((g) => g.items).find((i) => i.path === activePath)
-                        ?.label ?? '概览')}
+                    : (activeModuleLabel ?? '概览')}
               </span>
             </div>
           </div>
@@ -289,14 +333,12 @@ export function AppShell({
         {/* 页面主内容 */}
         <main
           className={`flex-1 flex flex-col min-h-0 ${
-            activePath === '/notes' || activePath === '/research'
-              ? 'p-0 overflow-hidden'
-              : 'px-4 py-4 sm:px-6 lg:px-8 overflow-y-auto'
+            isFullHeightModule ? 'p-0 overflow-hidden' : 'px-4 py-4 sm:px-6 lg:px-8 overflow-y-auto'
           }`}
         >
           <div
             className={`mx-auto w-full flex-1 flex flex-col min-h-0 ${
-              activePath === '/notes' || activePath === '/research' ? 'h-full' : 'max-w-[1680px]'
+              isFullHeightModule ? 'h-full' : 'max-w-[1680px]'
             }`}
           >
             {children}

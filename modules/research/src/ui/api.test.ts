@@ -3,6 +3,7 @@ import { RESEARCH_API_V1 } from '../contract.js';
 import {
   fetchAttachmentDeletionPreview,
   fetchManagedStorageStatus,
+  fetchReaderManifest,
   fetchWorks,
   patchWorkMetadata,
   postCheckLocation,
@@ -14,6 +15,7 @@ import {
   postRetryManagedRootMigration,
   postUploadPdf,
   putWorkCollections,
+  putReaderState,
 } from './api.js';
 
 type CapturedCall = { url: string; init: RequestInit | undefined };
@@ -48,6 +50,45 @@ afterEach(() => {
 });
 
 describe('research ui api', () => {
+  it('阅读器 manifest 与状态保存共用 Asset 路径和契约', async () => {
+    const state = {
+      assetId: 'asset-1',
+      pageNumber: 1,
+      pageOffsetRatio: 0,
+      zoom: 1,
+      rotation: 0,
+      layout: 'continuous',
+      lastContextId: null,
+      revision: 0,
+      createdAt: null,
+      updatedAt: null,
+    } as const;
+    respondWith({
+      assetId: 'asset-1',
+      contentHash: 'a'.repeat(64),
+      byteSize: 42,
+      mimeType: 'application/pdf',
+      displayName: 'paper.pdf',
+      editionId: null,
+      contentUrl: RESEARCH_API_V1.assetContent('asset-1'),
+      state,
+    });
+    expect(await fetchReaderManifest('asset-1')).toMatchObject({ state: { revision: 0 } });
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.readerManifest('asset-1'));
+
+    respondWith({ ...state, pageNumber: 4, revision: 1, createdAt: instant, updatedAt: instant });
+    await putReaderState('asset-1', {
+      pageNumber: 4,
+      pageOffsetRatio: 0.5,
+      zoom: 1.25,
+      rotation: 90,
+      layout: 'single-page',
+      lastContextId: null,
+      expectedRevision: 0,
+    });
+    expect(calls[1]?.url).toBe(RESEARCH_API_V1.readerState('asset-1'));
+    expect(calls[1]?.init?.method).toBe('PUT');
+  });
   it('按目录、状态和检索词读取文献列表并校验响应', async () => {
     respondWith({
       works: [

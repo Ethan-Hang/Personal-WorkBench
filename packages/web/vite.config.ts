@@ -14,6 +14,6 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     // 代理让浏览器只看到一个源，彻底绕开 CORS
-    proxy: { '/api': 'http://127.0.0.1:3000' },
+    proxy: { '/api': process.env.WORKBENCH_API_TARGET ?? 'http://127.0.0.1:3000' },
   },
 });

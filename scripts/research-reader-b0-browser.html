@@ -128,7 +128,6 @@
         const task = getDocument({
           disableAutoFetch: true,
           disableStream: true,
-          isEvalSupported: false,
           rangeChunkSize: 64 * 1024,
           url,
         });
@@ -190,8 +189,34 @@
         canvasRoot.replaceChildren();
         await primary.task.destroy();
         activeTasks.delete(primary.task);
+
+        const lifecycleRounds = 20;
+        const lifecycleHeapBeforeMiB = heapMiB();
+        let lifecycleHeapPeakMiB = lifecycleHeapBeforeMiB;
+        for (let round = 0; round < lifecycleRounds; round += 1) {
+          const opened = await openDocument(sample.url);
+          const pageNumber = 1 + (round % Math.min(6, opened.documentProxy.numPages));
+          const rendered = await renderPage(opened.documentProxy, pageNumber);
+          await destroyDocument({ ...opened, ...rendered });
+          lifecycleHeapPeakMiB = Math.max(lifecycleHeapPeakMiB, heapMiB());
+          if ((round + 1) % 5 === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+        }
         TextLayer.cleanup();
         await new Promise((resolve) => setTimeout(resolve, 1200));
+        const lifecycleHeapAfterMiB = heapMiB();
+        const lifecycleHeapGrowthMiB = Number(
+          (lifecycleHeapAfterMiB - lifecycleHeapBeforeMiB).toFixed(2),
+        );
+        if (activeTasks.size !== 0)
+          throw new Error('loading tasks remained after lifecycle rounds');
+        if (canvasRoot.querySelectorAll('canvas').length !== 0) {
+          throw new Error('canvas surfaces remained after lifecycle rounds');
+        }
+        if (lifecycleHeapGrowthMiB > 8) {
+          throw new Error(`lifecycle heap grew ${lifecycleHeapGrowthMiB} MiB`);
+        }
         const finalServerMetrics = await fetch('/b0/metrics').then((response) => response.json());
         const result = {
           canvasesAfterDestroy: canvasRoot.querySelectorAll('canvas').length,
@@ -204,6 +229,11 @@
           heapWithTabsMiB,
           loadingTasksAfterDestroy: activeTasks.size,
           lastVisibleMs,
+          lifecycleHeapAfterMiB,
+          lifecycleHeapBeforeMiB,
+          lifecycleHeapGrowthMiB,
+          lifecycleHeapPeakMiB,
+          lifecycleRounds,
           middlePageRenderMs: middle.renderMs,
           middleVisibleMs,
           pageCount: primary.documentProxy.numPages,

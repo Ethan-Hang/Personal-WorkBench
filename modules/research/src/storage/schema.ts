@@ -3,21 +3,29 @@ import {
   check,
   index,
   integer,
+  primaryKey,
+  real,
   sqliteTable,
   text,
   unique,
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 import {
+  ANNOTATION_KINDS,
+  ANNOTATION_STATUSES,
   ASSET_STATES,
   ATTACHMENT_ROLES,
   ATTACHMENT_STATUSES,
+  DERIVED_JOB_STATUSES,
   EDITION_KINDS,
   IMPORT_ITEM_STAGES,
   IMPORT_SESSION_STATUSES,
   LOCATION_STATES,
   MANAGED_ROOT_MIGRATION_STATUSES,
   METADATA_SOURCE_KINDS,
+  READER_LAYOUTS,
+  READER_ROTATIONS,
+  READING_CONTEXT_STATUSES,
   STORAGE_MODES,
   WORK_STATUSES,
   WORK_TYPES,
@@ -570,5 +578,238 @@ export const researchManagedRootMigrations = sqliteTable(
       sql`${table.totalObjects} >= 0 AND ${table.copiedObjects} >= 0 AND ${table.totalBytes} >= 0 AND ${table.copiedBytes} >= 0`,
     ),
     index('idx_research_managed_root_migrations_status').on(table.status, table.updatedAt),
+  ],
+);
+
+export const researchReadingContexts = sqliteTable(
+  'research_reading_contexts',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    normalizedName: text('normalized_name').notNull(),
+    description: text('description'),
+    color: text('color'),
+    status: text('status').notNull().default('active'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    archivedAt: text('archived_at'),
+  },
+  (table) => [
+    check('ck_research_reading_contexts_status', enumSql('status', READING_CONTEXT_STATUSES)),
+    uniqueIndex('uq_research_reading_contexts_active_name')
+      .on(table.normalizedName)
+      .where(sql`${table.status} = 'active'`),
+    index('idx_research_reading_contexts_status').on(table.status, table.updatedAt),
+  ],
+);
+
+export const researchCollectionContexts = sqliteTable(
+  'research_collection_contexts',
+  {
+    collectionId: text('collection_id')
+      .primaryKey()
+      .references(() => researchCollections.id, { onDelete: 'cascade' }),
+    contextId: text('context_id')
+      .notNull()
+      .references(() => researchReadingContexts.id, { onDelete: 'restrict' }),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [index('idx_research_collection_contexts_context').on(table.contextId)],
+);
+
+export const researchAssetReaderState = sqliteTable(
+  'research_asset_reader_state',
+  {
+    assetId: text('asset_id')
+      .primaryKey()
+      .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    pageNumber: integer('page_number').notNull().default(1),
+    pageOffsetRatio: real('page_offset_ratio').notNull().default(0),
+    zoom: real('zoom').notNull().default(1),
+    rotation: integer('rotation').notNull().default(0),
+    layout: text('layout').notNull().default('continuous'),
+    lastContextId: text('last_context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'set null',
+    }),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    check('ck_research_reader_state_page', sql`${table.pageNumber} >= 1`),
+    check('ck_research_reader_state_offset', sql`${table.pageOffsetRatio} BETWEEN 0.0 AND 1.0`),
+    check('ck_research_reader_state_zoom', sql`${table.zoom} BETWEEN 0.1 AND 8.0`),
+    check('ck_research_reader_state_rotation', enumSql('rotation', READER_ROTATIONS.map(String))),
+    check('ck_research_reader_state_layout', enumSql('layout', READER_LAYOUTS)),
+    check('ck_research_reader_state_revision', sql`${table.revision} >= 1`),
+    index('idx_research_reader_state_context').on(table.lastContextId),
+  ],
+);
+
+export const researchAnnotations = sqliteTable(
+  'research_annotations',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    editionId: text('edition_id').references(() => researchEditions.id, { onDelete: 'set null' }),
+    contextId: text('context_id').references(() => researchReadingContexts.id, {
+      onDelete: 'restrict',
+    }),
+    kind: text('kind').notNull(),
+    pageNumber: integer('page_number').notNull(),
+    anchorJson: text('anchor_json').notNull(),
+    body: text('body'),
+    color: text('color'),
+    status: text('status').notNull().default('active'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (table) => [
+    check('ck_research_annotations_kind', enumSql('kind', ANNOTATION_KINDS)),
+    check('ck_research_annotations_status', enumSql('status', ANNOTATION_STATUSES)),
+    check('ck_research_annotations_page', sql`${table.pageNumber} >= 1`),
+    check('ck_research_annotations_revision', sql`${table.revision} >= 1`),
+    index('idx_research_annotations_asset_page').on(table.assetId, table.pageNumber),
+    index('idx_research_annotations_context').on(table.contextId, table.status, table.updatedAt),
+  ],
+);
+
+export const researchAnnotationRevisions = sqliteTable(
+  'research_annotation_revisions',
+  {
+    id: text('id').primaryKey(),
+    annotationId: text('annotation_id')
+      .notNull()
+      .references(() => researchAnnotations.id, { onDelete: 'cascade' }),
+    revision: integer('revision').notNull(),
+    snapshotJson: text('snapshot_json').notNull(),
+    reason: text('reason').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    check('ck_research_annotation_revisions_revision', sql`${table.revision} >= 1`),
+    unique('uq_research_annotation_revisions_number').on(table.annotationId, table.revision),
+  ],
+);
+
+export const researchPageText = sqliteTable(
+  'research_page_text',
+  {
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    pageNumber: integer('page_number').notNull(),
+    source: text('source').notNull(),
+    contentHash: text('content_hash').notNull(),
+    textContent: text('text_content').notNull(),
+    positionJson: text('position_json'),
+    generator: text('generator').notNull(),
+    generatorVersion: text('generator_version').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    primaryKey({ columns: [table.assetId, table.pageNumber] }),
+    check('ck_research_page_text_page', sql`${table.pageNumber} >= 1`),
+    check('ck_research_page_text_source', enumSql('source', ['pdf', 'ocr'])),
+    index('idx_research_page_text_generator').on(
+      table.assetId,
+      table.generator,
+      table.generatorVersion,
+    ),
+  ],
+);
+
+export const researchTextIndexJobs = sqliteTable(
+  'research_text_index_jobs',
+  {
+    assetId: text('asset_id')
+      .primaryKey()
+      .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('queued'),
+    nextPage: integer('next_page').notNull().default(1),
+    totalPages: integer('total_pages').notNull().default(0),
+    assetHash: text('asset_hash').notNull(),
+    parserVersion: text('parser_version').notNull(),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    check('ck_research_text_index_jobs_status', enumSql('status', DERIVED_JOB_STATUSES)),
+    check(
+      'ck_research_text_index_jobs_progress',
+      sql`${table.nextPage} >= 1 AND ${table.totalPages} >= 0`,
+    ),
+    index('idx_research_text_index_jobs_status').on(table.status, table.updatedAt),
+  ],
+);
+
+export const researchOcrJobs = sqliteTable(
+  'research_ocr_jobs',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('queued'),
+    languagesJson: text('languages_json').notNull(),
+    engine: text('engine').notNull(),
+    engineVersion: text('engine_version').notNull(),
+    languagePackVersion: text('language_pack_version').notNull(),
+    nextPage: integer('next_page').notNull().default(1),
+    totalPages: integer('total_pages').notNull().default(0),
+    tempRoot: text('temp_root'),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    check('ck_research_ocr_jobs_status', enumSql('status', DERIVED_JOB_STATUSES)),
+    check(
+      'ck_research_ocr_jobs_progress',
+      sql`${table.nextPage} >= 1 AND ${table.totalPages} >= 0`,
+    ),
+    index('idx_research_ocr_jobs_asset_status').on(table.assetId, table.status, table.updatedAt),
+  ],
+);
+
+export const researchAnnotatedExportJobs = sqliteTable(
+  'research_annotated_export_jobs',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => researchAssets.id, { onDelete: 'restrict' }),
+    status: text('status').notNull().default('queued'),
+    optionsJson: text('options_json').notNull(),
+    targetPath: text('target_path').notNull(),
+    tempPath: text('temp_path'),
+    completedAnnotations: integer('completed_annotations').notNull().default(0),
+    totalAnnotations: integer('total_annotations').notNull().default(0),
+    reportJson: text('report_json'),
+    errorCode: text('error_code'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    check('ck_research_annotated_export_jobs_status', enumSql('status', DERIVED_JOB_STATUSES)),
+    check(
+      'ck_research_annotated_export_jobs_progress',
+      sql`${table.completedAnnotations} >= 0 AND ${table.totalAnnotations} >= 0`,
+    ),
+    index('idx_research_annotated_export_jobs_asset').on(
+      table.assetId,
+      table.status,
+      table.updatedAt,
+    ),
   ],
 );

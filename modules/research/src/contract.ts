@@ -66,6 +66,9 @@ export const RESEARCH_API_V1 = {
   managedRootMigration: (id: string) => `${API_ROOT}/managed-storage/migrations/${id}`,
   managedRootMigrationCancel: (id: string) => `${API_ROOT}/managed-storage/migrations/${id}/cancel`,
   managedRootMigrationRetry: (id: string) => `${API_ROOT}/managed-storage/migrations/${id}/retry`,
+  readerManifest: (id: string) => `${API_ROOT}/assets/${id}/reader`,
+  assetContent: (id: string) => `${API_ROOT}/assets/${id}/content`,
+  readerState: (id: string) => `${API_ROOT}/assets/${id}/reader-state`,
 } as const;
 
 export const WORK_TYPES = [
@@ -205,12 +208,104 @@ export const RESEARCH_ERROR_CODES = [
   'METADATA_OFFLINE',
   'METADATA_RATE_LIMITED',
   'METADATA_FAILED',
+  'READER_ASSET_NOT_FOUND',
+  'READER_ASSET_RECYCLED',
+  'READER_ASSET_UNAVAILABLE',
+  'READER_NOT_PDF',
+  'READER_RANGE_INVALID',
+  'READER_STATE_CONFLICT',
 ] as const;
 export type ResearchErrorCode = (typeof RESEARCH_ERROR_CODES)[number];
+
+export const READER_LAYOUTS = ['continuous', 'single-page'] as const;
+export type ReaderLayout = (typeof READER_LAYOUTS)[number];
+
+export const READER_ROTATIONS = [0, 90, 180, 270] as const;
+export type ReaderRotation = (typeof READER_ROTATIONS)[number];
+
+export const READER_LOADING_STATES = [
+  'idle',
+  'opening',
+  'ready',
+  'password-required',
+  'sleeping',
+  'error',
+] as const;
+export type ReaderLoadingState = (typeof READER_LOADING_STATES)[number];
+
+export const READING_CONTEXT_STATUSES = ['active', 'archived'] as const;
+export type ReadingContextStatus = (typeof READING_CONTEXT_STATUSES)[number];
+
+export const ANNOTATION_KINDS = [
+  'highlight',
+  'underline',
+  'strikeout',
+  'area',
+  'note',
+  'bookmark',
+] as const;
+export type AnnotationKind = (typeof ANNOTATION_KINDS)[number];
+
+export const ANNOTATION_STATUSES = ['active', 'deleted', 'needs-review'] as const;
+export type AnnotationStatus = (typeof ANNOTATION_STATUSES)[number];
+
+export const DERIVED_JOB_STATUSES = [
+  'queued',
+  'running',
+  'paused',
+  'completed',
+  'cancelled',
+  'failed',
+  'interrupted',
+] as const;
+export type DerivedJobStatus = (typeof DERIVED_JOB_STATUSES)[number];
 
 export const instantSchema = z.string().datetime({ precision: 3 });
 export const researchIdSchema = z.string().min(1).max(128);
 export const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const readerStatePositionSchema = z.object({
+  pageNumber: z.number().int().positive(),
+  pageOffsetRatio: z.number().min(0).max(1),
+  zoom: z.number().min(0.1).max(8),
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]),
+  layout: z.enum(READER_LAYOUTS),
+  lastContextId: researchIdSchema.nullable(),
+});
+export type ReaderStatePosition = z.infer<typeof readerStatePositionSchema>;
+
+export const readerStateSchema = readerStatePositionSchema
+  .extend({
+    assetId: researchIdSchema,
+    revision: z.number().int().nonnegative(),
+    createdAt: instantSchema.nullable(),
+    updatedAt: instantSchema.nullable(),
+  })
+  .refine(
+    (value) =>
+      value.revision === 0
+        ? value.createdAt === null && value.updatedAt === null
+        : value.createdAt !== null && value.updatedAt !== null,
+    '未保存状态必须使用 revision 0 且没有持久化时间',
+  );
+export type ReaderState = z.infer<typeof readerStateSchema>;
+
+export const saveReaderStateInputSchema = readerStatePositionSchema.extend({
+  expectedRevision: z.number().int().nonnegative(),
+});
+export type SaveReaderStateInput = z.infer<typeof saveReaderStateInputSchema>;
+
+export const readerManifestSchema = z.object({
+  assetId: researchIdSchema,
+  contentHash: sha256Schema,
+  byteSize: z.number().int().nonnegative(),
+  mimeType: z.literal('application/pdf'),
+  displayName: z.string().min(1),
+  editionId: researchIdSchema.nullable(),
+  contentUrl: z.string().startsWith(`${API_ROOT}/assets/`),
+  state: readerStateSchema,
+});
+export type ReaderManifest = z.infer<typeof readerManifestSchema>;
 
 export const portableExportOptionsSchema = z.object({
   includeManagedFiles: z.boolean().default(false),

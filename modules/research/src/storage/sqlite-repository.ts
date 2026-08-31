@@ -67,11 +67,20 @@ import type {
   IdentifierScheme,
   LocationState,
   MetadataSourceKind,
+  ReaderLayout,
+  ReaderRotation,
   StorageMode,
   WorkStatus,
   WorkType,
   WorkRelationKind,
 } from '../contract.js';
+import type {
+  ReaderAssetRecord,
+  ReaderRepository,
+  ReaderStateRecord,
+  SaveReaderStateDraft,
+  SaveReaderStateResult,
+} from '../reader/repository.js';
 import {
   canonicalResearchLibrarySchema,
   type CanonicalResearchLibrary,
@@ -97,6 +106,21 @@ function integer(row: Row, key: string): number {
 
 function nullableInteger(row: Row, key: string): number | null {
   return (row[key] as number | null | undefined) ?? null;
+}
+
+function toReaderState(row: Row): ReaderStateRecord {
+  return {
+    assetId: text(row, 'asset_id'),
+    pageNumber: integer(row, 'page_number'),
+    pageOffsetRatio: integer(row, 'page_offset_ratio'),
+    zoom: integer(row, 'zoom'),
+    rotation: integer(row, 'rotation') as ReaderRotation,
+    layout: text(row, 'layout') as ReaderLayout,
+    lastContextId: nullableText(row, 'last_context_id'),
+    revision: integer(row, 'revision'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+  };
 }
 
 function toExportJob(row: Row): ExportJobRecord {
@@ -511,7 +535,7 @@ function decodeAdvancedCursor(cursor: string): { version: 1; sort: string; id: s
 }
 
 /** SQLite 只存在于 storage 适配器内，连接在组合根按当前账号动态注入。 */
-export class SqliteResearchRepository implements ResearchRepository {
+export class SqliteResearchRepository implements ResearchRepository, ReaderRepository {
   constructor(
     private readonly getSqlite: () => Database.Database,
     private readonly clock: () => string = defaultClock,
@@ -707,6 +731,127 @@ export class SqliteResearchRepository implements ResearchRepository {
     const row = this.sqlite.prepare('SELECT * FROM research_assets WHERE id = ?').get(id) as
       Row | undefined;
     return row ? toAsset(row) : null;
+  }
+
+  async getReaderAsset(assetId: string): Promise<ReaderAssetRecord | null> {
+    const asset = this.sqlite.prepare('SELECT * FROM research_assets WHERE id = ?').get(assetId) as
+      Row | undefined;
+    if (!asset) return null;
+    const locations = this.sqlite
+      .prepare(
+        `SELECT * FROM research_asset_locations
+         WHERE asset_id = ?
+         ORDER BY CASE state WHEN 'available' THEN 0 ELSE 1 END,
+                  CASE mode WHEN 'managed' THEN 0 ELSE 1 END,
+                  updated_at DESC, id`,
+      )
+      .all(assetId) as Row[];
+    const attachments = this.sqlite
+      .prepare(
+        `SELECT id, edition_id, role, display_name
+         FROM research_attachments
+         WHERE asset_id = ? AND status = 'active'
+         ORDER BY CASE role WHEN 'primary-pdf' THEN 0 ELSE 1 END, created_at, id`,
+      )
+      .all(assetId) as Row[];
+    return {
+      id: text(asset, 'id'),
+      contentHash: text(asset, 'content_hash'),
+      byteSize: integer(asset, 'byte_size'),
+      mimeType: text(asset, 'mime_type'),
+      state: text(asset, 'state') as ReaderAssetRecord['state'],
+      updatedAt: text(asset, 'updated_at'),
+      locations: locations.map((location) => ({
+        id: text(location, 'id'),
+        mode: text(location, 'mode') as ReaderAssetRecord['locations'][number]['mode'],
+        originalPath: text(location, 'original_path'),
+        resolvedPath: text(location, 'resolved_path'),
+        objectKey: nullableText(location, 'object_key'),
+        state: text(location, 'state') as ReaderAssetRecord['locations'][number]['state'],
+        errorCode: nullableText(location, 'error_code'),
+        updatedAt: text(location, 'updated_at'),
+      })),
+      attachments: attachments.map((attachment) => ({
+        id: text(attachment, 'id'),
+        editionId: text(attachment, 'edition_id'),
+        role: text(attachment, 'role') as AttachmentRole,
+        displayName: text(attachment, 'display_name'),
+      })),
+    };
+  }
+
+  async getReaderState(assetId: string): Promise<ReaderStateRecord | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_asset_reader_state WHERE asset_id = ?')
+      .get(assetId) as Row | undefined;
+    return row ? toReaderState(row) : null;
+  }
+
+  async saveReaderState(draft: SaveReaderStateDraft): Promise<SaveReaderStateResult> {
+    return this.sqlite.transaction((): SaveReaderStateResult => {
+      const asset = this.sqlite
+        .prepare('SELECT id FROM research_assets WHERE id = ?')
+        .get(draft.assetId) as { id: string } | undefined;
+      if (!asset) return { kind: 'asset-not-found' };
+
+      const currentRow = this.sqlite
+        .prepare('SELECT * FROM research_asset_reader_state WHERE asset_id = ?')
+        .get(draft.assetId) as Row | undefined;
+      if (!currentRow) {
+        if (draft.expectedRevision !== 0) {
+          return { kind: 'conflict', current: null };
+        }
+        const timestamp = this.clock();
+        const inserted = this.sqlite
+          .prepare(
+            `INSERT INTO research_asset_reader_state
+             (asset_id, page_number, page_offset_ratio, zoom, rotation, layout,
+              last_context_id, revision, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`,
+          )
+          .get(
+            draft.assetId,
+            draft.pageNumber,
+            draft.pageOffsetRatio,
+            draft.zoom,
+            draft.rotation,
+            draft.layout,
+            draft.lastContextId,
+            timestamp,
+            timestamp,
+          ) as Row;
+        return { kind: 'saved', state: toReaderState(inserted) };
+      }
+
+      const current = toReaderState(currentRow);
+      if (current.revision !== draft.expectedRevision) return { kind: 'conflict', current };
+      const updated = this.sqlite
+        .prepare(
+          `UPDATE research_asset_reader_state
+           SET page_number = ?, page_offset_ratio = ?, zoom = ?, rotation = ?, layout = ?,
+               last_context_id = ?, revision = revision + 1, updated_at = ?
+           WHERE asset_id = ? AND revision = ? RETURNING *`,
+        )
+        .get(
+          draft.pageNumber,
+          draft.pageOffsetRatio,
+          draft.zoom,
+          draft.rotation,
+          draft.layout,
+          draft.lastContextId,
+          this.clock(),
+          draft.assetId,
+          draft.expectedRevision,
+        ) as Row | undefined;
+      if (updated) return { kind: 'saved', state: toReaderState(updated) };
+
+      const raced = this.sqlite
+        .prepare('SELECT * FROM research_asset_reader_state WHERE asset_id = ?')
+        .get(draft.assetId) as Row | undefined;
+      return raced
+        ? { kind: 'conflict', current: toReaderState(raced) }
+        : { kind: 'asset-not-found' };
+    })();
   }
 
   async findAssetUsages(assetId: string): Promise<AssetUsage[]> {

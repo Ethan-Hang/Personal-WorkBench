@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router';
 import {
   deleteCollection as deleteResearchCollection,
   deleteAttachment,
@@ -89,6 +90,7 @@ function initialLayout(): ResearchLayout {
 }
 
 export function ResearchLibraryPage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [layout, setLayout] = useState<ResearchLayout>(initialLayout);
   const [activeView, setActiveView] = useState<'library' | 'inbox'>('library');
@@ -405,6 +407,9 @@ export function ResearchLibraryPage() {
     onSaveCollections: () => saveCollectionsMutation.mutate(),
     onCheckLocation: (id: string) => {
       void run(() => postCheckLocation(id), '文件状态已更新');
+    },
+    onOpenReader: (assetId: string) => {
+      navigate(`/research/read/${encodeURIComponent(assetId)}`);
     },
     onRelinkLocation: (id: string) => {
       const path = window.prompt('输入新的本机文件路径');

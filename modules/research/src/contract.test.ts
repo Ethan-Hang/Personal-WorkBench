@@ -4,6 +4,8 @@ import {
   assetLocationViewSchema,
   importItemViewSchema,
   metadataAssertionViewSchema,
+  readerManifestSchema,
+  saveReaderStateInputSchema,
   workDetailViewSchema,
   workViewSchema,
 } from './contract.js';
@@ -17,6 +19,75 @@ describe('research contract', () => {
     expect(RESEARCH_API_V1.importConfirm('session-1')).toBe(
       '/api/research/v1/import-sessions/session-1/confirm',
     );
+    expect(RESEARCH_API_V1.readerManifest('asset-1')).toBe(
+      '/api/research/v1/assets/asset-1/reader',
+    );
+    expect(RESEARCH_API_V1.assetContent('asset-1')).toBe('/api/research/v1/assets/asset-1/content');
+  });
+
+  it('阅读器 manifest 不暴露本地路径并携带可恢复状态', () => {
+    const manifest = readerManifestSchema.parse({
+      assetId: 'asset-1',
+      contentHash: 'a'.repeat(64),
+      byteSize: 42,
+      mimeType: 'application/pdf',
+      displayName: 'paper.pdf',
+      editionId: 'edition-1',
+      contentUrl: RESEARCH_API_V1.assetContent('asset-1'),
+      state: {
+        assetId: 'asset-1',
+        pageNumber: 7,
+        pageOffsetRatio: 0.25,
+        zoom: 1.5,
+        rotation: 90,
+        layout: 'continuous',
+        lastContextId: null,
+        revision: 3,
+        createdAt: instant,
+        updatedAt: instant,
+      },
+    });
+
+    expect(manifest).toMatchObject({
+      assetId: 'asset-1',
+      contentUrl: '/api/research/v1/assets/asset-1/content',
+      state: { pageNumber: 7, rotation: 90, lastContextId: null },
+    });
+    expect(JSON.stringify(manifest)).not.toContain('/Users/');
+  });
+
+  it('未保存阅读状态使用 revision 0，不伪造持久化时间', () => {
+    const base = {
+      assetId: 'asset-1',
+      pageNumber: 1,
+      pageOffsetRatio: 0,
+      zoom: 1,
+      rotation: 0,
+      layout: 'continuous',
+      lastContextId: null,
+      revision: 0,
+      createdAt: null,
+      updatedAt: null,
+    };
+    expect(readerManifestSchema.shape.state.parse(base)).toEqual(base);
+    expect(() => readerManifestSchema.shape.state.parse({ ...base, createdAt: instant })).toThrow();
+  });
+
+  it('阅读状态拒绝非法页面、缩放、旋转和布局', () => {
+    const valid = {
+      pageNumber: 1,
+      pageOffsetRatio: 0,
+      zoom: 1,
+      rotation: 0,
+      layout: 'single-page',
+      lastContextId: null,
+      expectedRevision: 0,
+    };
+    expect(saveReaderStateInputSchema.parse(valid)).toEqual(valid);
+    expect(() => saveReaderStateInputSchema.parse({ ...valid, pageNumber: 0 })).toThrow();
+    expect(() => saveReaderStateInputSchema.parse({ ...valid, zoom: 9 })).toThrow();
+    expect(() => saveReaderStateInputSchema.parse({ ...valid, rotation: 45 })).toThrow();
+    expect(() => saveReaderStateInputSchema.parse({ ...valid, layout: 'spread' })).toThrow();
   });
 
   it('允许 unknown 类型和不完整元数据进入文献库', () => {
