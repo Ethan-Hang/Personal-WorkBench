@@ -44,6 +44,14 @@ export interface InteropSourcePicker {
   }): Promise<string | null>;
 }
 
+export interface InteropOutputDialog {
+  saveInterop(options: {
+    initialDir?: string;
+    suggestedName: string;
+    format: 'bibtex' | 'ris' | 'csl-json';
+  }): Promise<string | null>;
+}
+
 export type FilePickerExec = (
   file: string,
   args: readonly string[],
@@ -101,7 +109,11 @@ function run(
 export function createSystemPdfFilePicker(
   platform: FilePickerPlatform = currentPlatform(),
   execute: FilePickerExec = execFile as FilePickerExec,
-): PdfFilePicker & PdfOutputDialog & DocumentFileDialog & InteropSourcePicker {
+): PdfFilePicker &
+  PdfOutputDialog &
+  DocumentFileDialog &
+  InteropSourcePicker &
+  InteropOutputDialog {
   return {
     async pick(options = {}) {
       const initialDir = usableInitialDir(options.initialDir);
@@ -399,6 +411,77 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
               '--getopenfilename',
               initialDir || '.',
               `${pattern.replaceAll(';', ' ')}|${label}`,
+            ])
+          )?.[0] ?? null
+        );
+      }
+      return null;
+    },
+
+    async saveInterop(options) {
+      const initialDir = usableInitialDir(options.initialDir);
+      const format =
+        options.format === 'ris'
+          ? { extension: 'ris', label: 'RIS 文件', pattern: '*.ris' }
+          : options.format === 'csl-json'
+            ? { extension: 'json', label: 'CSL JSON 文件', pattern: '*.json' }
+            : { extension: 'bib', label: 'BibTeX 文件', pattern: '*.bib' };
+      const sanitized = safeSuggestedName(
+        options.suggestedName,
+        `research-export.${format.extension}`,
+      );
+      const suggestedName = sanitized.toLocaleLowerCase().endsWith(`.${format.extension}`)
+        ? sanitized
+        : `${sanitized}.${format.extension}`;
+      if (platform === 'darwin') {
+        const escape = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const defaultLocation = initialDir
+          ? ` default location POSIX file "${escape(initialDir)}"`
+          : '';
+        const script = `POSIX path of (choose file name with prompt "导出文献记录" default name "${escape(suggestedName)}"${defaultLocation})`;
+        return (await run(execute, 'osascript', ['-e', script]))?.[0] ?? null;
+      }
+      if (platform === 'win32') {
+        const escapedDir = initialDir.replace(/'/g, "''");
+        const escapedName = suggestedName.replace(/'/g, "''");
+        const script = `
+[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.Title = '导出文献记录'
+$dialog.Filter = '${format.label} (${format.pattern})|${format.pattern}'
+$dialog.FileName = '${escapedName}'
+$dialog.AddExtension = $true
+$dialog.DefaultExt = '${format.extension}'
+$dialog.OverwritePrompt = $true
+if ('${escapedDir}' -ne '') { $dialog.InitialDirectory = '${escapedDir}' }
+$dialog.RestoreDirectory = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  [Console]::WriteLine($dialog.FileName)
+}
+`.trim();
+        return (
+          (await run(execute, 'powershell', ['-NoProfile', '-STA', '-Command', script]))?.[0] ??
+          null
+        );
+      }
+      if (platform === 'linux') {
+        const initialPath = initialDir ? resolve(initialDir, suggestedName) : suggestedName;
+        const zenity = await run(execute, 'zenity', [
+          '--file-selection',
+          '--save',
+          '--confirm-overwrite',
+          '--title=导出文献记录',
+          `--file-filter=${format.label} | ${format.pattern}`,
+          `--filename=${initialPath}`,
+        ]);
+        if (zenity !== null) return zenity[0] ?? null;
+        return (
+          (
+            await run(execute, 'kdialog', [
+              '--getsavefilename',
+              initialPath,
+              `${format.pattern}|${format.label}`,
             ])
           )?.[0] ?? null
         );

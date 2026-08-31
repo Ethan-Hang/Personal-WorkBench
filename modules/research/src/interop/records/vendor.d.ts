@@ -4,10 +4,45 @@ declare module '@citation-js/core' {
     data: Array<Record<string, unknown>>;
     format(name: string, options?: Record<string, unknown>): string;
   }
+  export const plugins: {
+    config: {
+      get(name: '@csl'): {
+        styles: { add(name: string, value: string): void };
+        locales: { add(name: string, value: string): void };
+      };
+    };
+  };
 }
 
 declare module '@citation-js/plugin-bibtex';
 declare module '@citation-js/plugin-ris';
+declare module '@citation-js/plugin-csl';
+
+declare module 'citeproc' {
+  namespace CSL {
+    interface System {
+      retrieveLocale(language: string): string;
+      retrieveItem(id: string): Record<string, unknown>;
+    }
+
+    class Engine {
+      constructor(system: System, style: string, language?: string, forceLanguage?: boolean);
+      setOutputFormat(format: 'text' | 'html'): void;
+      updateItems(ids: string[]): void;
+      makeBibliography(): [Record<string, unknown>, string[]];
+      processCitationCluster(
+        citation: {
+          citationID: string;
+          citationItems: Array<Record<string, unknown>>;
+          properties: { noteIndex: number };
+        },
+        citationsPre: unknown[],
+        citationsPost: unknown[],
+      ): [unknown, Array<[unknown, string]>];
+    }
+  }
+  export = CSL;
+}
 
 declare module '@retorquere/bibtex-parser' {
   export interface BibtexCreator {

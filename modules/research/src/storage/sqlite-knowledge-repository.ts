@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import {
   evidenceSourceSnapshotSchema,
   matrixReviewBaselineSchema,
+  writingCitationIntentSchema,
   type Annotation,
   type Claim,
   type ClaimEvidence,
@@ -593,7 +594,36 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
     return { ...toComparisonMatrix(row), columns, rows };
   }
 
-  private writingTarget(kind: Exclude<WritingBlock['kind'], 'text'>, id: string) {
+  private writingTarget(
+    kind: Exclude<WritingBlock['kind'], 'text'>,
+    id: string,
+    editionId: string | null = null,
+  ) {
+    if (kind === 'citation') {
+      const row = this.sqlite
+        .prepare('SELECT id, title, status FROM research_works WHERE id = ?')
+        .get(id) as Row | undefined;
+      if (!row) return null;
+      if (
+        editionId &&
+        !this.sqlite
+          .prepare('SELECT 1 FROM research_editions WHERE id = ? AND work_id = ?')
+          .get(editionId, id)
+      ) {
+        return null;
+      }
+      const status = requiredText(row, 'status');
+      return {
+        label: requiredText(row, 'title'),
+        state: (status === 'active'
+          ? 'current'
+          : status === 'trashed'
+            ? 'archived'
+            : 'deleted') as WritingResourceState,
+        url: `/research?work=${encodeURIComponent(id)}`,
+        sourceState: null,
+      };
+    }
     if (kind === 'note') {
       const row = this.sqlite.prepare('SELECT * FROM research_notes WHERE id = ?').get(id) as
         Row | undefined;
@@ -705,9 +735,28 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
           ? 'evidence_id'
           : kind === 'claim'
             ? 'claim_id'
-            : 'matrix_id',
+            : kind === 'matrix'
+              ? 'matrix_id'
+              : 'work_id',
     );
-    const target = this.writingTarget(kind, targetId);
+    const editionId = kind === 'citation' ? nullableText(row, 'edition_id') : null;
+    const target = this.writingTarget(kind, targetId, editionId);
+    if (kind === 'citation') {
+      return {
+        ...base,
+        kind,
+        text: null,
+        targetId,
+        targetLabel: requiredText(row, 'target_label'),
+        targetState: target?.state ?? 'deleted',
+        targetUrl: target?.url ?? null,
+        sourceState: null,
+        citation: writingCitationIntentSchema.parse({
+          ...JSON.parse(requiredText(row, 'citation_intent_json')),
+          editionId,
+        }),
+      };
+    }
     return {
       ...base,
       kind,
@@ -3261,14 +3310,26 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
                 evidenceId: block.kind === 'evidence' ? block.targetId : null,
                 claimId: block.kind === 'claim' ? block.targetId : null,
                 matrixId: block.kind === 'matrix' ? block.targetId : null,
+                workId: block.kind === 'citation' ? block.targetId : null,
+                editionId: block.kind === 'citation' ? (block.citation?.editionId ?? null) : null,
+                citationIntentJson:
+                  block.kind === 'citation' && block.citation
+                    ? JSON.stringify({
+                        locator: block.citation.locator,
+                        label: block.citation.label,
+                        prefix: block.citation.prefix,
+                        suffix: block.citation.suffix,
+                        suppressAuthor: block.citation.suppressAuthor,
+                      })
+                    : null,
               };
               this.sqlite
                 .prepare(
                   `INSERT INTO research_writing_blocks
                    (id, document_id, section_id, kind, text_content, note_id, evidence_id,
-                    claim_id, matrix_id, target_label, position, status, revision, created_at,
-                    updated_at, deleted_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, NULL)`,
+                    claim_id, matrix_id, work_id, edition_id, citation_intent_json, target_label,
+                    position, status, revision, created_at, updated_at, deleted_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?, NULL)`,
                 )
                 .run(
                   block.id,
@@ -3280,6 +3341,9 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
                   targetColumns.evidenceId,
                   targetColumns.claimId,
                   targetColumns.matrixId,
+                  targetColumns.workId,
+                  targetColumns.editionId,
+                  targetColumns.citationIntentJson,
                   block.targetLabel,
                   block.position,
                   timestamp,
@@ -3319,6 +3383,28 @@ export class SqliteKnowledgeRepository implements KnowledgeRepository {
       }
       throw error;
     }
+  }
+
+  async getWritingCitationTarget(workId: string, editionId: string | null) {
+    const row = this.sqlite
+      .prepare('SELECT id, title, status, preferred_edition_id FROM research_works WHERE id = ?')
+      .get(workId) as Row | undefined;
+    if (!row) return null;
+    const resolvedEditionId = editionId ?? nullableText(row, 'preferred_edition_id');
+    if (
+      resolvedEditionId &&
+      !this.sqlite
+        .prepare('SELECT 1 FROM research_editions WHERE id = ? AND work_id = ?')
+        .get(resolvedEditionId, workId)
+    ) {
+      return null;
+    }
+    return {
+      workId: requiredText(row, 'id'),
+      editionId: resolvedEditionId,
+      title: requiredText(row, 'title'),
+      status: requiredText(row, 'status') as 'active' | 'trashed' | 'merged',
+    };
   }
 
   async getWritingBlock(id: string): Promise<WritingBlock | null> {

@@ -13,6 +13,8 @@ import {
   importItemViewSchema,
   interopImportJobViewSchema,
   interopImportRecordsPageSchema,
+  interopExportPreviewSchema,
+  renderCitationInputSchema,
   interopRecordDecisionSchema,
   interopRecordViewSchema,
   metadataAssertionViewSchema,
@@ -26,6 +28,7 @@ import {
   textIndexJobSchema,
   workDetailViewSchema,
   workViewSchema,
+  writingBlockSchema,
 } from './contract.js';
 
 const instant = '2026-08-23T10:20:30.000Z';
@@ -64,6 +67,8 @@ describe('research contract', () => {
     expect(RESEARCH_API_V1.interopImportRecordDecision('job-1', 'record-2')).toBe(
       '/api/research/v1/interop/imports/job-1/records/record-2/decision',
     );
+    expect(RESEARCH_API_V1.interopExportPreview).toBe('/api/research/v1/interop/exports/preview');
+    expect(RESEARCH_API_V1.interopCitationRender).toBe('/api/research/v1/interop/citations/render');
   });
 
   it('知识对象保留通用上下文和不可变来源快照', () => {
@@ -681,5 +686,77 @@ describe('research contract', () => {
     });
 
     expect(interopImportJobViewSchema.parse(JSON.parse(JSON.stringify(job)))).toEqual(job);
+  });
+
+  it('导出冻结项携带 key 来源和 revision，写作引用保留完整 intent', () => {
+    const preview = interopExportPreviewSchema.parse({
+      jobId: 'export-1',
+      previewToken: 'token-1',
+      format: 'bibtex',
+      scope: { kind: 'selection', workIds: ['work-1'] },
+      editionPolicy: 'preferred',
+      frozenEntities: [
+        {
+          workId: 'work-1',
+          workRevision: 2,
+          editionId: 'edition-1',
+          editionRevision: 3,
+          citationKey: 'smith2026',
+          citationKeySource: 'user',
+          citationKeyRevision: 4,
+        },
+      ],
+      workCount: 1,
+      recordCount: 1,
+      issueCount: 0,
+      losses: [],
+      revision: 1,
+    });
+    expect(preview.frozenEntities[0]).toMatchObject({
+      citationKeySource: 'user',
+      citationKeyRevision: 4,
+    });
+
+    const citation = writingBlockSchema.parse({
+      id: 'block-1',
+      documentId: 'document-1',
+      sectionId: 'section-1',
+      kind: 'citation',
+      text: null,
+      targetId: 'work-1',
+      targetLabel: 'Research paper',
+      targetState: 'current',
+      targetUrl: '/research?work=work-1',
+      sourceState: null,
+      citation: {
+        editionId: 'edition-1',
+        locator: '42',
+        label: 'page',
+        prefix: null,
+        suffix: null,
+        suppressAuthor: false,
+      },
+      position: 0,
+      status: 'active',
+      revision: 1,
+      createdAt: instant,
+      updatedAt: instant,
+      deletedAt: null,
+    });
+    expect(citation).toMatchObject({ kind: 'citation', targetId: 'work-1' });
+    if (citation.kind !== 'citation') throw new Error('expected citation block');
+    expect(
+      renderCitationInputSchema.parse({
+        style: 'apa',
+        mode: 'bibliography',
+        items: [
+          {
+            workId: citation.targetId,
+            editionId: citation.citation.editionId,
+            locator: citation.citation.locator,
+          },
+        ],
+      }),
+    ).toMatchObject({ locale: 'en-US', mode: 'bibliography' });
   });
 });

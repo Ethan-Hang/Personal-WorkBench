@@ -9,12 +9,18 @@ export function BulkActionsBar({
   tags,
   status,
   onAction,
+  onExportRecords,
+  onCopyCitation,
+  onBibliography,
 }: {
   selectedCount: number;
   collections: CollectionView[];
   tags: TagView[];
   status: 'active' | 'trashed';
   onAction: (action: BulkWorkActionInput['action'], collectionId?: string) => Promise<void>;
+  onExportRecords?: () => void;
+  onCopyCitation?: () => void;
+  onBibliography?: () => void;
 }) {
   const [collectionId, setCollectionId] = useState('');
   const [tagId, setTagId] = useState('');
@@ -82,6 +88,21 @@ export function BulkActionsBar({
             移除标签
           </Button>
         </>
+      )}
+      {status === 'active' && onExportRecords && (
+        <Button size="sm" onClick={onExportRecords}>
+          导出记录
+        </Button>
+      )}
+      {status === 'active' && onCopyCitation && (
+        <Button size="sm" onClick={onCopyCitation}>
+          复制引用
+        </Button>
+      )}
+      {status === 'active' && onBibliography && (
+        <Button size="sm" onClick={onBibliography}>
+          参考文献表
+        </Button>
       )}
       <Button
         size="sm"

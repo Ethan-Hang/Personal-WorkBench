@@ -29,6 +29,11 @@ import {
   interopImportJobViewSchema,
   interopImportRecordsPageSchema,
   interopRecordViewSchema,
+  interopExportPreviewSchema,
+  interopExportJobViewSchema,
+  pickInteropExportTargetResponseSchema,
+  citationKeyPreferenceSchema,
+  citationRenderResultSchema,
   knowledgeSearchRebuildResponseSchema,
   knowledgeSearchResponseSchema,
   knowledgeExportPreviewSchema,
@@ -99,6 +104,9 @@ import {
   type ImportSessionStatus,
   type CreateInteropImportInput,
   type InteropFormat,
+  type PreviewInteropExportInput,
+  type StartInteropExportInput,
+  type RenderCitationInput,
   type UpdateInteropRecordDecisionInput,
   type KnowledgeSearchInput,
   type KnowledgeExportPreview,
@@ -187,6 +195,9 @@ export type InteropImportJob = z.infer<typeof interopImportJobViewSchema>;
 export type InteropRecord = z.infer<typeof interopRecordViewSchema>;
 export type InteropRecordsPage = z.infer<typeof interopImportRecordsPageSchema>;
 export type InteropCommitResult = z.infer<typeof commitInteropImportResultSchema>;
+export type InteropExportPreview = z.infer<typeof interopExportPreviewSchema>;
+export type InteropExportJob = z.infer<typeof interopExportJobViewSchema>;
+export type CitationRenderResult = z.infer<typeof citationRenderResultSchema>;
 export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
 export type TagView = z.infer<typeof tagViewSchema>;
 export type TagsResponse = z.infer<typeof tagsResponseSchema>;
@@ -1502,6 +1513,56 @@ export async function postCommitInteropImport(
 export async function postCancelInteropImport(id: string): Promise<InteropImportJob> {
   return interopImportJobViewSchema.parse(
     await apiRequest(RESEARCH_API_V1.interopImportCancel(id), { method: 'POST' }),
+  );
+}
+
+export async function postPreviewInteropExport(
+  input: PreviewInteropExportInput,
+): Promise<InteropExportPreview> {
+  return interopExportPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopExportPreview, jsonBody('POST', input)),
+  );
+}
+
+export async function postPickInteropExportTarget(format: InteropFormat) {
+  return pickInteropExportTargetResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopExportPickTarget, jsonBody('POST', { format })),
+  );
+}
+
+export async function postStartInteropExport(
+  id: string,
+  input: StartInteropExportInput,
+): Promise<InteropExportJob> {
+  return interopExportJobViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopExport(id), jsonBody('POST', input)),
+  );
+}
+
+export async function fetchInteropExport(id: string): Promise<InteropExportJob> {
+  return interopExportJobViewSchema.parse(await apiRequest(RESEARCH_API_V1.interopExport(id)));
+}
+
+export async function postCancelInteropExport(id: string): Promise<InteropExportJob> {
+  return interopExportJobViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopExportCancel(id), { method: 'POST' }),
+  );
+}
+
+export async function putInteropCitationKey(
+  workId: string,
+  input: { editionId: string | null; preferredKey: string; expectedRevision: number },
+) {
+  return citationKeyPreferenceSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopCitationKey(workId), jsonBody('PUT', input)),
+  );
+}
+
+export async function postRenderCitation(
+  input: RenderCitationInput,
+): Promise<CitationRenderResult> {
+  return citationRenderResultSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopCitationRender, jsonBody('POST', input)),
   );
 }
 

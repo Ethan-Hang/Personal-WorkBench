@@ -22,10 +22,13 @@ import { ResearchOcrService } from '../ocr/service.js';
 import type { AnnotatedPdfWriter } from '../interop/annotated-export.js';
 import type { InteropRepository } from '../interop/records/repository.js';
 import { ResearchInteropImportService } from '../interop/records/service.js';
+import { ResearchInteropExportService } from '../interop/export/service.js';
+import { CitationProcessor, verifyCitationAssets } from '../interop/citation/processor.js';
 import {
   systemPdfFilePicker,
   type DocumentFileDialog,
   type InteropSourcePicker,
+  type InteropOutputDialog,
   type PdfFilePicker,
   type PdfOutputDialog,
 } from './file-picker.js';
@@ -62,6 +65,7 @@ export interface ResearchServerModuleOptions {
   metadata?: ReturnType<typeof createMetadataCoordinator>;
   filePicker?: PdfFilePicker;
   interopFilePicker?: InteropSourcePicker;
+  interopOutputDialog?: InteropOutputDialog;
   pdfOutputDialog?: PdfOutputDialog;
   documentDialog?: DocumentFileDialog;
   annotatedExportWriter?: AnnotatedPdfWriter;
@@ -143,6 +147,17 @@ export function createResearchServerModule(
         ...(options.clock ? { clock: options.clock } : {}),
       })
     : null;
+  const interopExportService = options.interopRepository
+    ? new ResearchInteropExportService(
+        options.interopRepository,
+        options.interopOutputDialog ?? systemPdfFilePicker,
+        options.createId,
+        options.clock,
+      )
+    : null;
+  const citationProcessor = options.interopRepository
+    ? new CitationProcessor(options.interopRepository)
+    : null;
 
   return {
     id: RESEARCH_MODULE_ID,
@@ -157,7 +172,12 @@ export function createResearchServerModule(
         registerResearchKnowledgeRoutes(app as FastifyInstance, knowledgeService);
       }
       if (interopService) {
-        registerResearchInteropRoutes(app as FastifyInstance, interopService);
+        registerResearchInteropRoutes(
+          app as FastifyInstance,
+          interopService,
+          interopExportService ?? undefined,
+          citationProcessor ?? undefined,
+        );
       }
       registerResearchAnnotatedExportRoutes(app as FastifyInstance, annotatedExportService);
       (app as FastifyInstance).addHook('onReady', async () => {
@@ -165,12 +185,14 @@ export function createResearchServerModule(
         await ocrService.recoverInterruptedJobs();
         await annotatedExportService.recoverInterruptedJobs();
         interopService?.recoverInterrupted();
+        if (citationProcessor) await verifyCitationAssets();
       });
       (app as FastifyInstance).addHook('onClose', async () => {
         await annotatedExportService.shutdown();
         await ocrService.shutdown();
         await textIndexService.shutdown();
         await interopService?.shutdown();
+        interopExportService?.shutdown();
       });
     },
   };
@@ -184,4 +206,5 @@ export { ResearchTextIndexService } from '../reader/text-index-service.js';
 export { ResearchOcrService } from '../ocr/service.js';
 export { ResearchAnnotatedExportService } from '../annotated-export/service.js';
 export { ResearchInteropImportService } from '../interop/records/service.js';
+export { ResearchInteropExportService } from '../interop/export/service.js';
 export type { ResearchRepository } from './repository.js';

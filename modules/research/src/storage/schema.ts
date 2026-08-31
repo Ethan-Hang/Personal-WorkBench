@@ -1586,6 +1586,9 @@ export const researchWritingBlocks = sqliteTable(
     matrixId: text('matrix_id').references(() => researchMatrices.id, {
       onDelete: 'restrict',
     }),
+    workId: text('work_id').references(() => researchWorks.id, { onDelete: 'restrict' }),
+    editionId: text('edition_id').references(() => researchEditions.id, { onDelete: 'restrict' }),
+    citationIntentJson: text('citation_intent_json'),
     targetLabel: text('target_label'),
     position: integer('position').notNull(),
     status: text('status').notNull().default('active'),
@@ -1598,7 +1601,7 @@ export const researchWritingBlocks = sqliteTable(
     check('ck_research_writing_blocks_kind', enumSql('kind', WRITING_BLOCK_KINDS)),
     check(
       'ck_research_writing_blocks_content',
-      sql`(${table.kind} = 'text' AND ${table.textContent} IS NOT NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NULL) OR (${table.kind} = 'note' AND ${table.textContent} IS NULL AND ${table.noteId} IS NOT NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'evidence' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NOT NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'claim' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NOT NULL AND ${table.matrixId} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'matrix' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NOT NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0)`,
+      sql`(${table.kind} = 'text' AND ${table.textContent} IS NOT NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.workId} IS NULL AND ${table.editionId} IS NULL AND ${table.citationIntentJson} IS NULL AND ${table.targetLabel} IS NULL) OR (${table.kind} = 'note' AND ${table.textContent} IS NULL AND ${table.noteId} IS NOT NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.workId} IS NULL AND ${table.editionId} IS NULL AND ${table.citationIntentJson} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'evidence' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NOT NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.workId} IS NULL AND ${table.editionId} IS NULL AND ${table.citationIntentJson} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'claim' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NOT NULL AND ${table.matrixId} IS NULL AND ${table.workId} IS NULL AND ${table.editionId} IS NULL AND ${table.citationIntentJson} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'matrix' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NOT NULL AND ${table.workId} IS NULL AND ${table.editionId} IS NULL AND ${table.citationIntentJson} IS NULL AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0) OR (${table.kind} = 'citation' AND ${table.textContent} IS NULL AND ${table.noteId} IS NULL AND ${table.evidenceId} IS NULL AND ${table.claimId} IS NULL AND ${table.matrixId} IS NULL AND ${table.workId} IS NOT NULL AND ${table.citationIntentJson} IS NOT NULL AND json_valid(${table.citationIntentJson}) AND ${table.targetLabel} IS NOT NULL AND length(trim(${table.targetLabel})) > 0)`,
     ),
     check('ck_research_writing_blocks_position', sql`${table.position} >= 0`),
     check('ck_research_writing_blocks_status', enumSql('status', KNOWLEDGE_BASIC_STATUSES)),
@@ -1624,6 +1627,7 @@ export const researchWritingBlocks = sqliteTable(
     index('idx_research_writing_blocks_evidence').on(table.evidenceId, table.status),
     index('idx_research_writing_blocks_claim').on(table.claimId, table.status),
     index('idx_research_writing_blocks_matrix').on(table.matrixId, table.status),
+    index('idx_research_writing_blocks_work').on(table.workId, table.editionId, table.status),
   ],
 );
 

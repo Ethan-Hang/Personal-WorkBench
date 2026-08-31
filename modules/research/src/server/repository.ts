@@ -518,6 +518,7 @@ export interface DeletionImpact {
   managedObjectCount: number;
   linkedLocationCount: number;
   evidenceCount: number;
+  citationCount: number;
   removableManagedAssets: Array<{
     assetId: string;
     objectKey: string;

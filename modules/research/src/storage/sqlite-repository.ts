@@ -3536,6 +3536,12 @@ export class SqliteResearchRepository
     const evidence = this.sqlite
       .prepare('SELECT COUNT(*) AS count FROM research_evidence WHERE work_id = ?')
       .get(workId) as { count: number };
+    const citations = this.sqlite
+      .prepare(
+        `SELECT COUNT(*) AS count FROM research_writing_blocks
+         WHERE kind = 'citation' AND work_id = ? AND status = 'active'`,
+      )
+      .get(workId) as { count: number };
     const removable = this.sqlite
       .prepare(
         `SELECT DISTINCT a2.id AS asset_id, l.object_key, a2.content_hash, a2.byte_size
@@ -3563,6 +3569,7 @@ export class SqliteResearchRepository
       managedObjectCount: removable.length,
       linkedLocationCount: counts.linked_location_count,
       evidenceCount: evidence.count,
+      citationCount: citations.count,
       removableManagedAssets: removable.map((row) => ({
         assetId: row.asset_id,
         objectKey: row.object_key,
@@ -3582,6 +3589,13 @@ export class SqliteResearchRepository
         .prepare('SELECT COUNT(*) AS count FROM research_evidence WHERE work_id = ?')
         .get(workId) as { count: number };
       if (evidence.count > 0) return false;
+      const citations = this.sqlite
+        .prepare(
+          `SELECT COUNT(*) AS count FROM research_writing_blocks
+           WHERE kind = 'citation' AND work_id = ? AND status = 'active'`,
+        )
+        .get(workId) as { count: number };
+      if (citations.count > 0) return false;
       const current = this.sqlite
         .prepare(
           `SELECT DISTINCT a2.id AS asset_id
@@ -4201,6 +4215,10 @@ export class SqliteResearchRepository
           .all(draft.survivorId, draft.mergedId) as Row[],
         importItems: queryScoped('research_import_items', 'work_id IN (?, ?)'),
         evidence: queryScoped('research_evidence', 'work_id IN (?, ?)'),
+        writingCitations: queryScoped(
+          'research_writing_blocks',
+          "kind = 'citation' AND work_id IN (?, ?)",
+        ),
         matrixColumns: queryScoped('research_matrix_columns', 'work_id IN (?, ?)'),
         matrixCells: this.sqlite
           .prepare(
@@ -4252,6 +4270,33 @@ export class SqliteResearchRepository
         );
         moveEvidenceWork.run(draft.survivorId, timestamp, evidenceId, revision);
         moveEvidenceSearch.run(draft.survivorId, timestamp, evidenceId);
+      }
+
+      const mergedCitations = before.writingCitations.filter(
+        (row) => text(row, 'work_id') === draft.mergedId,
+      );
+      const moveCitation = this.sqlite.prepare(
+        `UPDATE research_writing_blocks
+         SET work_id = ?, target_label = ?, revision = revision + 1, updated_at = ?
+         WHERE id = ? AND revision = ?`,
+      );
+      for (const [index, row] of mergedCitations.entries()) {
+        const blockId = text(row, 'id');
+        const revision = integer(row, 'revision');
+        this.sqlite
+          .prepare(
+            `INSERT INTO research_knowledge_revisions
+             (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+             VALUES (?, 'writing-block', ?, ?, ?, 'rebind', ?)`,
+          )
+          .run(`${draft.id}:citation:${index}`, blockId, revision, JSON.stringify(row), timestamp);
+        moveCitation.run(
+          draft.survivorId,
+          draft.selectedFields.title,
+          timestamp,
+          blockId,
+          revision,
+        );
       }
 
       const insertMatrixRevision = this.sqlite.prepare(
@@ -4549,6 +4594,7 @@ export class SqliteResearchRepository
       const matrixColumnIds = before.matrixColumns.map((row) => text(row, 'id'));
       const matrixCellIds = before.matrixCells.map((row) => text(row, 'id'));
       const matrixCellEvidenceIds = before.matrixCellEvidence.map((row) => text(row, 'id'));
+      const writingCitationIds = before.writingCitations.map((row) => text(row, 'id'));
       const queryIds = (table: string, ids: string[]) =>
         ids.length === 0
           ? []
@@ -4613,6 +4659,7 @@ export class SqliteResearchRepository
           draft.survivorId,
           draft.mergedId,
         ),
+        writingCitations: queryIds('research_writing_blocks', writingCitationIds),
         matrixColumns: queryIds('research_matrix_columns', matrixColumnIds),
         matrixCells: queryIds('research_matrix_cells', matrixCellIds),
         matrixCellEvidence: queryIds('research_matrix_cell_evidence', matrixCellEvidenceIds),
@@ -4731,6 +4778,7 @@ export class SqliteResearchRepository
             identifiers: Row[];
             importItems: Row[];
             evidence: Row[];
+            writingCitations?: Row[];
             matrixColumns?: Row[];
             matrixCells?: Row[];
             matrixCellEvidence?: Row[];
@@ -4746,6 +4794,7 @@ export class SqliteResearchRepository
             identifiers: Row[];
             importItems: Row[];
             evidence: Row[];
+            writingCitations?: Row[];
             matrixColumns?: Row[];
             matrixCells?: Row[];
             matrixCellEvidence?: Row[];
@@ -4760,6 +4809,7 @@ export class SqliteResearchRepository
         const beforeMatrixColumns = snapshot.before.matrixColumns ?? [];
         const beforeMatrixCells = snapshot.before.matrixCells ?? [];
         const beforeMatrixCellEvidence = snapshot.before.matrixCellEvidence ?? [];
+        const beforeWritingCitations = snapshot.before.writingCitations ?? [];
         const queryIds = (table: string, rows: Row[]) => {
           const ids = rows.map((row) => text(row, 'id'));
           return ids.length === 0
@@ -4826,6 +4876,7 @@ export class SqliteResearchRepository
             record.survivorId,
             record.mergedId,
           ),
+          writingCitations: queryIds('research_writing_blocks', beforeWritingCitations),
           matrixColumns: queryIds('research_matrix_columns', beforeMatrixColumns),
           matrixCells: queryIds('research_matrix_cells', beforeMatrixCells),
           matrixCellEvidence: queryIds('research_matrix_cell_evidence', beforeMatrixCellEvidence),
@@ -4835,6 +4886,7 @@ export class SqliteResearchRepository
           matrixColumns: snapshot.applied.matrixColumns ?? [],
           matrixCells: snapshot.applied.matrixCells ?? [],
           matrixCellEvidence: snapshot.applied.matrixCellEvidence ?? [],
+          writingCitations: snapshot.applied.writingCitations ?? [],
         };
         if (
           (Object.keys(current) as Array<keyof typeof current>).some(
@@ -4877,6 +4929,48 @@ export class SqliteResearchRepository
           );
           restoreEvidence.run(text(before, 'work_id'), restoreTimestamp, evidenceId, revision);
           restoreEvidenceSearch.run(text(before, 'work_id'), restoreTimestamp, evidenceId);
+        }
+
+        const beforeCitationById = new Map(
+          beforeWritingCitations.map((row) => [text(row, 'id'), row] as const),
+        );
+        for (const [index, currentCitation] of current.writingCitations.entries()) {
+          const blockId = text(currentCitation, 'id');
+          const before = beforeCitationById.get(blockId);
+          if (!before) return null;
+          if (
+            text(before, 'work_id') === text(currentCitation, 'work_id') &&
+            nullableText(before, 'target_label') === nullableText(currentCitation, 'target_label')
+          ) {
+            continue;
+          }
+          const revision = integer(currentCitation, 'revision');
+          this.sqlite
+            .prepare(
+              `INSERT INTO research_knowledge_revisions
+               (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
+               VALUES (?, 'writing-block', ?, ?, ?, 'rebind', ?)`,
+            )
+            .run(
+              `${id}:undo-citation:${index}`,
+              blockId,
+              revision,
+              JSON.stringify(currentCitation),
+              restoreTimestamp,
+            );
+          this.sqlite
+            .prepare(
+              `UPDATE research_writing_blocks
+               SET work_id = ?, target_label = ?, revision = revision + 1, updated_at = ?
+               WHERE id = ? AND revision = ?`,
+            )
+            .run(
+              text(before, 'work_id'),
+              nullableText(before, 'target_label'),
+              restoreTimestamp,
+              blockId,
+              revision,
+            );
         }
 
         const insertMatrixRevision = this.sqlite.prepare(

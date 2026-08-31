@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §8.3、§8.5、§13.2、§16“切片 D”、§17.10–§17.11。
 
-**Status:** 已确认，实施中。D0 与 D1 已在 macOS arm64 完成，当前进入 D2；Windows 11 x64 的 D0/D1 对应模块保持 `not-run`。
+**Status:** 已确认，实施中。D0、D1 与 D2 已在 macOS arm64 完成，当前进入 D3；Windows 11 x64 的对应平台模块保持 `not-run`。
 
 ## 执行方式
 
@@ -305,6 +305,15 @@ npm run typecheck
 npm run lint -- --quiet
 git diff --check
 ```
+
+D2 实施记录（2026-08-31，macOS arm64）：
+
+- selection/collection/filter/all-active 冻结预览、preferred/all Editions、三格式 3 × 3 输出、同格式原文重放、未知字段保留、格式损失和稳定 citation key 已接入 Repository、Service 与正式路由。
+- BibTeX、RIS、CSL JSON 统一使用 UTF-8 安全文本输出；临时写入、重新解析校验、覆盖备份、原子替换、取消和失败恢复由共用工具覆盖。Windows 的已有目标替换、占用、长路径和 Unicode 路径保持 `not-run`。
+- APA、IEEE、Chicago author-date 与 en-US locale 固定到带 hash 的本地 manifest；citeproc-js 处理 citation/bibliography，输出纯文本、Markdown 与净化 HTML，第三方许可证随仓库记录。
+- 文献库已接入导出、引用和参考文献表；写作板保存稳定 Work/Edition citation intent、locator/prefix/suffix/suppress-author，并从当前元数据生成草稿参考文献。永久删除会阻止仍被写作引用的 Work，合并与撤销会同步迁移引用。
+- 真实浏览器完成两篇文献的导出预览、Citation key 偏好、APA 剪贴板复制、IEEE 参考文献表、写作板引用插入和草稿参考文献；1440、1024、768、390 四个宽度无页面横向溢出，控制台无 warning/error。验收期间发现并补齐写作板“引用”下拉入口。
+- 全仓库回归：199 个测试文件通过、4 个按既有条件跳过；1,593 项测试通过、4 项跳过。Prettier、`typecheck`、ESLint、Vite production build 与 `git diff --check` 通过；build 仅保留既有 chunk-size warning。
 
 ## D3：扩展接口和最终验收
 

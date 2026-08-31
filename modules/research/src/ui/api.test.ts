@@ -18,6 +18,7 @@ import {
   fetchWorks,
   fetchWritingDocument,
   fetchWritingDocuments,
+  fetchInteropExport,
   patchWritingBlock,
   patchWorkMetadata,
   patchAnnotation,
@@ -51,6 +52,12 @@ import {
   postRetryManagedRootMigration,
   postUploadPdf,
   postWritingDocument,
+  postPreviewInteropExport,
+  postPickInteropExportTarget,
+  postStartInteropExport,
+  postCancelInteropExport,
+  postRenderCitation,
+  putInteropCitationKey,
   putWritingStructure,
   putWorkCollections,
   putReaderState,
@@ -911,5 +918,124 @@ describe('research ui api', () => {
     respondWith(job);
     await postRetryManagedRootMigration(job.id);
     expect(calls[3]?.url).toBe(RESEARCH_API_V1.managedRootMigrationRetry(job.id));
+  });
+
+  it('文献记录导出与 CSL 客户端保留冻结预览、key revision 和复制表示', async () => {
+    const scope = { kind: 'selection' as const, workIds: ['work-1'] };
+    const frozen = [
+      {
+        workId: 'work-1',
+        workRevision: 2,
+        editionId: 'edition-1',
+        editionRevision: 3,
+        citationKey: 'smith2026',
+        citationKeySource: 'generated' as const,
+        citationKeyRevision: 0,
+      },
+    ];
+    const preview = {
+      jobId: 'export-1',
+      previewToken: 'preview-token',
+      format: 'bibtex' as const,
+      scope,
+      editionPolicy: 'preferred' as const,
+      frozenEntities: frozen,
+      workCount: 1,
+      recordCount: 1,
+      issueCount: 0,
+      losses: [],
+      revision: 1,
+    };
+    respondWith(preview);
+    await postPreviewInteropExport({
+      requestId: 'request-1',
+      format: 'bibtex',
+      scope,
+      editionPolicy: 'preferred',
+      keyOverrides: {},
+    });
+    expect(calls[0]).toMatchObject({
+      url: RESEARCH_API_V1.interopExportPreview,
+      init: { method: 'POST' },
+    });
+
+    respondWith({ path: '/tmp/library.bib', cancelled: false });
+    await postPickInteropExportTarget('bibtex');
+    expect(parsedBody(calls[1]!)).toEqual({ format: 'bibtex' });
+
+    const job = {
+      id: 'export-1',
+      status: 'running' as const,
+      format: 'bibtex' as const,
+      scope,
+      editionPolicy: 'preferred' as const,
+      frozenEntities: frozen,
+      previewToken: 'preview-token',
+      targetPath: '/tmp/library.bib',
+      losses: [],
+      result: null,
+      errorCode: null,
+      revision: 2,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: null,
+    };
+    respondWith(job);
+    await postStartInteropExport('export-1', {
+      previewToken: 'preview-token',
+      expectedRevision: 1,
+      targetPath: '/tmp/library.bib',
+      overwriteConfirmed: false,
+    });
+    expect(calls[2]?.url).toBe(RESEARCH_API_V1.interopExport('export-1'));
+
+    respondWith(job);
+    await fetchInteropExport('export-1');
+    respondWith({ ...job, status: 'cancelled', revision: 3, completedAt: instant });
+    await postCancelInteropExport('export-1');
+    expect(calls[4]?.url).toBe(RESEARCH_API_V1.interopExportCancel('export-1'));
+
+    respondWith({
+      workId: 'work-1',
+      editionId: 'edition-1',
+      preferredKey: 'smith2026paper',
+      source: 'user',
+      revision: 1,
+    });
+    await putInteropCitationKey('work-1', {
+      editionId: 'edition-1',
+      preferredKey: 'smith2026paper',
+      expectedRevision: 0,
+    });
+    expect(parsedBody(calls[5]!)).toMatchObject({ expectedRevision: 0 });
+
+    respondWith({
+      style: 'apa',
+      locale: 'en-US',
+      mode: 'citation',
+      itemCount: 1,
+      workIds: ['work-1'],
+      text: '(Smith, 2026)',
+      markdown: '(Smith, 2026)',
+      html: '<span>(Smith, 2026)</span>',
+    });
+    await postRenderCitation({
+      style: 'apa',
+      locale: 'en-US',
+      mode: 'citation',
+      items: [
+        {
+          workId: 'work-1',
+          editionId: 'edition-1',
+          locator: '42',
+          label: 'page',
+          prefix: null,
+          suffix: null,
+          suppressAuthor: false,
+        },
+      ],
+    });
+    expect(calls[6]?.url).toBe(RESEARCH_API_V1.interopCitationRender);
+    expect(parsedBody(calls[6]!)).toMatchObject({ style: 'apa', mode: 'citation' });
   });
 });

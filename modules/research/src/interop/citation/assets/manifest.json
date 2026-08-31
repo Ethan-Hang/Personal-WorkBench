@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "stylesCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
+  "localesCommit": "80dd8e08291c4265b1f78ee834c6b5aef37cdec5",
+  "assets": {
+    "apa": {
+      "file": "apa.csl",
+      "sha256": "1ece4fb3c295e66d04b4394e295aa58a87741ceeef1658192437eb9953c2f13e"
+    },
+    "ieee": {
+      "file": "ieee.csl",
+      "sha256": "b4c7619fc16c45a31e4cc3271eab94ffe83192d3b4c7fc729470a3b459448de3"
+    },
+    "chicago-author-date": {
+      "file": "chicago-author-date.csl",
+      "sha256": "002fade78d7e4fe9d42936a16b43a8066b097013f6255df40b1bfba6631eff9b"
+    },
+    "en-US": {
+      "file": "locales-en-US.xml",
+      "sha256": "ac864c7c21166b4390d82c31792cdc509400727fa0060b43d8aa17e07f9cb079"
+    }
+  }
+}

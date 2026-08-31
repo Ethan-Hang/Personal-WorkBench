@@ -46,6 +46,9 @@ export interface CompactLibraryViewProps {
   onManageTags: () => void;
   onReviewDuplicates: () => void;
   onExport: () => void;
+  onExportRecords: () => void;
+  onCopyCitation: () => void;
+  onBibliography: () => void;
   onRestoreBundle: () => void;
   onManageStorage: () => void;
   onCreateCollection: (name: string) => Promise<void>;
@@ -100,6 +103,9 @@ export function CompactLibraryView({
   onManageTags,
   onReviewDuplicates,
   onExport,
+  onExportRecords,
+  onCopyCitation,
+  onBibliography,
   onRestoreBundle,
   onManageStorage,
   onCreateCollection,
@@ -140,8 +146,18 @@ export function CompactLibraryView({
             合并重复项
           </Button>
           <Button size="sm" onClick={onExport}>
-            导出
+            导出资料包
           </Button>
+          {status === 'active' && (
+            <>
+              <Button size="sm" onClick={onExportRecords}>
+                导出记录
+              </Button>
+              <Button size="sm" onClick={onCopyCitation}>
+                引用
+              </Button>
+            </>
+          )}
           <Button size="sm" onClick={onRestoreBundle}>
             恢复资料包
           </Button>
@@ -220,6 +236,9 @@ export function CompactLibraryView({
             tags={tags}
             status={status}
             onAction={onBulkAction}
+            onExportRecords={onExportRecords}
+            onCopyCitation={onCopyCitation}
+            onBibliography={onBibliography}
           />
           <div className="min-h-0 flex-1 overflow-y-auto">
             <LibraryList

@@ -6,6 +6,7 @@ import type {
   InteropRecordDecision,
   InteropRecordStatus,
 } from '../../contract.js';
+import type { InteropExportRepository } from '../export/repository.js';
 
 export interface InteropSourceRecord {
   id: string;
@@ -203,7 +204,7 @@ export interface CommitInteropImportResult {
   failed: number;
 }
 
-export interface InteropRepository {
+export interface InteropRepository extends InteropExportRepository {
   createOrGetImport(draft: CreateInteropImportDraft): InteropImportJobRecord;
   getImport(id: string): InteropImportJobRecord | null;
   updateImport(

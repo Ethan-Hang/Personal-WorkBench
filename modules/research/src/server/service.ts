@@ -365,6 +365,7 @@ function deletionFingerprint(impact: DeletionImpact): string {
     attachmentCount: impact.attachmentCount,
     linkedLocationCount: impact.linkedLocationCount,
     evidenceCount: impact.evidenceCount,
+    citationCount: impact.citationCount,
     removableManagedAssets: impact.removableManagedAssets,
   });
 }
@@ -2436,6 +2437,7 @@ export class ResearchService {
       managedObjectCount: impact.managedObjectCount,
       linkedLocationCount: impact.linkedLocationCount,
       evidenceCount: impact.evidenceCount,
+      citationCount: impact.citationCount,
       confirmationToken: token,
     };
   }
@@ -2453,6 +2455,9 @@ export class ResearchService {
       }
       if (impact.evidenceCount > 0) {
         throw conflict('作品仍被研究证据引用，请先删除或重新绑定相关证据');
+      }
+      if (impact.citationCount > 0) {
+        throw conflict('作品仍被写作引用，请先从写作板移除相关引用');
       }
       const work = await this.repository.getWork(id);
       if (work?.status !== 'trashed') throw conflict('作品必须先进入回收站');

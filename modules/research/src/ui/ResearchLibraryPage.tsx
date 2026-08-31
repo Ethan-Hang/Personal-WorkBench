@@ -57,11 +57,13 @@ import { CompactLibraryView } from './components/CompactLibraryView.js';
 import { AddAttachmentDialog } from './components/AddAttachmentDialog.js';
 import { CollectionManagerDialog } from './components/CollectionManagerDialog.js';
 import { CanonicalImportDialog } from './components/CanonicalImportDialog.js';
+import { CitationDialog } from './components/CitationDialog.js';
 import { DuplicateMergeDialog } from './components/DuplicateMergeDialog.js';
 import { ExportDialog } from './components/ExportDialog.js';
 import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
 import { InteropImportDialog } from './components/InteropImportDialog.js';
+import { InteropExportDialog } from './components/InteropExportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
 import { ManualWorkDialog } from './components/ManualWorkDialog.js';
 import { ManagedStorageDialog } from './components/ManagedStorageDialog.js';
@@ -92,6 +94,11 @@ function initialLayout(): ResearchLayout {
   return window.localStorage.getItem(LAYOUT_STORAGE_KEY) === 'template' ? 'template' : 'compact';
 }
 
+function initialWorkId(): string | null {
+  if (typeof window === 'undefined') return null;
+  return new URLSearchParams(window.location.search).get('work');
+}
+
 export function ResearchLibraryPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -105,7 +112,7 @@ export function ResearchLibraryPage() {
     useState<ResearchSearchAst['filters']>(emptySearchFilters);
   const [searchSort, setSearchSort] = useState<SearchSort>('updated-desc');
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
+  const [selectedWorkId, setSelectedWorkId] = useState<string | null>(initialWorkId);
   const [selectedWorkIds, setSelectedWorkIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [interopImportOpen, setInteropImportOpen] = useState(false);
@@ -119,6 +126,8 @@ export function ResearchLibraryPage() {
   const [tagManagerOpen, setTagManagerOpen] = useState(false);
   const [duplicateMergeOpen, setDuplicateMergeOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [interopExportOpen, setInteropExportOpen] = useState(false);
+  const [citationMode, setCitationMode] = useState<'citation' | 'bibliography' | null>(null);
   const [canonicalImportOpen, setCanonicalImportOpen] = useState(false);
   const [managedStorageOpen, setManagedStorageOpen] = useState(false);
   const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
@@ -298,7 +307,7 @@ export function ResearchLibraryPage() {
     try {
       const preview = await fetchDeletionPreview(id);
       const accepted = window.confirm(
-        `永久删除将移除 ${preview.attachmentCount} 个附件和 ${preview.managedObjectCount} 个无引用托管文件；链接原文件不会删除。继续吗？`,
+        `永久删除将移除 ${preview.attachmentCount} 个附件和 ${preview.managedObjectCount} 个无引用托管文件；当前有 ${preview.evidenceCount} 条证据引用和 ${preview.citationCount} 条写作引用。链接原文件不会删除。继续吗？`,
       );
       if (!accepted) return;
       await postPermanentDelete(id, preview.confirmationToken);
@@ -521,6 +530,9 @@ export function ResearchLibraryPage() {
     onManageTags: () => setTagManagerOpen(true),
     onReviewDuplicates: () => setDuplicateMergeOpen(true),
     onExport: () => setExportOpen(true),
+    onExportRecords: () => setInteropExportOpen(true),
+    onCopyCitation: () => setCitationMode('citation'),
+    onBibliography: () => setCitationMode('bibliography'),
     onRestoreBundle: () => setCanonicalImportOpen(true),
     onManageStorage: () => setManagedStorageOpen(true),
     onSelectCollection: selectCollection,
@@ -679,6 +691,41 @@ export function ResearchLibraryPage() {
       />
 
       <ExportDialog open={exportOpen} onClose={() => setExportOpen(false)} />
+
+      <InteropExportDialog
+        open={interopExportOpen}
+        selectedWorkIds={selectedWorkIds}
+        visibleWorkIds={(worksQuery.data?.works ?? []).map((work) => work.id)}
+        selectedCollectionId={selectedCollectionId}
+        selectedCollectionLabel={
+          collectionsQuery.data?.collections.find(
+            (collection) => collection.id === selectedCollectionId,
+          )?.name ?? null
+        }
+        onClose={() => setInteropExportOpen(false)}
+      />
+
+      <CitationDialog
+        open={citationMode !== null}
+        initialMode={citationMode ?? 'citation'}
+        title={citationMode === 'bibliography' ? '生成参考文献表' : '复制引用'}
+        items={(selectedWorkIds.length > 0
+          ? selectedWorkIds
+          : selectedWorkId
+            ? [selectedWorkId]
+            : []
+        ).map((workId) => ({
+          workId,
+          editionId:
+            worksQuery.data?.works.find((work) => work.id === workId)?.preferredEditionId ?? null,
+          locator: null,
+          label: null,
+          prefix: null,
+          suffix: null,
+          suppressAuthor: false,
+        }))}
+        onClose={() => setCitationMode(null)}
+      />
 
       <CanonicalImportDialog
         open={canonicalImportOpen}

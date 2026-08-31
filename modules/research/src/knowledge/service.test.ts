@@ -971,6 +971,75 @@ describe('ResearchKnowledgeService', () => {
     }
   });
 
+  it('写作引用块保存稳定 Work 与 Edition 及 citation intent', async () => {
+    const fixture = serviceFixture();
+    try {
+      seedPaper(fixture.sqlite);
+      const document = await fixture.service.createWritingDocument({
+        contextId: null,
+        title: 'Citation draft',
+      });
+      const structured = await fixture.service.updateWritingStructure(document.id, {
+        expectedStructureRevision: 1,
+        sections: [
+          {
+            title: 'Sources',
+            position: 0,
+            blocks: [
+              {
+                kind: 'citation',
+                targetId: 'work-1',
+                editionId: 'edition-1',
+                locator: '42',
+                label: 'page',
+                prefix: 'see ',
+                suffix: ' for details',
+                suppressAuthor: true,
+                position: 0,
+              },
+            ],
+          },
+        ],
+      });
+      const block = structured.sections[0]?.blocks[0];
+      expect(block).toMatchObject({
+        kind: 'citation',
+        targetId: 'work-1',
+        targetLabel: 'Identification',
+        targetState: 'current',
+        targetUrl: '/research?work=work-1',
+        citation: {
+          editionId: 'edition-1',
+          locator: '42',
+          label: 'page',
+          prefix: 'see ',
+          suffix: ' for details',
+          suppressAuthor: true,
+        },
+      });
+
+      fixture.sqlite
+        .prepare("UPDATE research_works SET title = 'Identification revised' WHERE id = 'work-1'")
+        .run();
+      expect(await fixture.service.getWritingDocument(document.id)).toMatchObject({
+        sections: [
+          {
+            blocks: [
+              {
+                id: block!.id,
+                targetLabel: 'Identification',
+                targetState: 'current',
+                citation: { editionId: 'edition-1', locator: '42' },
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      fixture.sqlite.close();
+    }
+  });
+
   it('统一检索同步四类正文、结构化筛选、动态来源状态和稳定分页', async () => {
     const fixture = serviceFixture();
     try {

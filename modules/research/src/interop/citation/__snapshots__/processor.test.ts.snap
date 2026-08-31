@@ -1,0 +1,72 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CitationProcessor > 固定资产 hash 通过并为三种样式生成三种安全表示 1`] = `
+{
+  "markdown": "Research Group. (2025). Institutional Report. *Journal of Tests*, *4*(2), 10–20. https://doi.org/10.1000/organization
+
+  Smith, J. (2026a). Alpha Study. *Journal of Tests*, *4*(2), 10–20. https://doi.org/10.1000/smith-a
+
+  Smith, J. (2026b). Beta Study. *Journal of Tests*, *4*(2), 10–20. https://doi.org/10.1000/smith-b
+
+  联合研究组. (n.d.). 中文研究. *Journal of Tests*, *4*(2), 10–20. https://doi.org/10.1000/literal-zh",
+  "style": "apa",
+  "text": "Research Group. (2025). Institutional Report. Journal of Tests, 4(2), 10–20. https://doi.org/10.1000/organization
+Smith, J. (2026a). Alpha Study. Journal of Tests, 4(2), 10–20. https://doi.org/10.1000/smith-a
+Smith, J. (2026b). Beta Study. Journal of Tests, 4(2), 10–20. https://doi.org/10.1000/smith-b
+联合研究组. (n.d.). 中文研究. Journal of Tests, 4(2), 10–20. https://doi.org/10.1000/literal-zh",
+}
+`;
+
+exports[`CitationProcessor > 固定资产 hash 通过并为三种样式生成三种安全表示 2`] = `
+{
+  "markdown": "[1]
+J. Smith, “Alpha Study,” *Journal of Tests*, vol. 4, no. 2, pp. 10–20, 2026, doi: 10.1000/smith-a.
+
+    [2]
+J. Smith, “Beta Study,” *Journal of Tests*, vol. 4, no. 2, pp. 10–20, 2026, doi: 10.1000/smith-b.
+
+    [3]
+Research Group, “Institutional Report,” *Journal of Tests*, vol. 4, no. 2, pp. 10–20, 2025, doi: 10.1000/organization.
+
+    [4]
+联合研究组, “中文研究,” *Journal of Tests*, vol. 4, no. 2, pp. 10–20, doi: 10.1000/literal-zh.",
+  "style": "ieee",
+  "text": "[1] J. Smith, “Alpha Study,” Journal of Tests, vol. 4, no. 2, pp. 10–20, 2026, doi: 10.1000/smith-a.
+[2] J. Smith, “Beta Study,” Journal of Tests, vol. 4, no. 2, pp. 10–20, 2026, doi: 10.1000/smith-b.
+[3] Research Group, “Institutional Report,” Journal of Tests, vol. 4, no. 2, pp. 10–20, 2025, doi: 10.1000/organization.
+[4] 联合研究组, “中文研究,” Journal of Tests, vol. 4, no. 2, pp. 10–20, doi: 10.1000/literal-zh.",
+}
+`;
+
+exports[`CitationProcessor > 固定资产 hash 通过并为三种样式生成三种安全表示 3`] = `
+{
+  "markdown": "Research Group. 2025. “Institutional Report.” *Journal of Tests* 4 (2): 10–20. https://doi.org/10.1000/organization.
+
+  Smith, Jane. 2026a. “Alpha Study.” *Journal of Tests* 4 (2): 10–20. https://doi.org/10.1000/smith-a.
+
+  Smith, Jane. 2026b. “Beta Study.” *Journal of Tests* 4 (2): 10–20. https://doi.org/10.1000/smith-b.
+
+  联合研究组. n.d. “中文研究.” *Journal of Tests* 4 (2): 10–20. https://doi.org/10.1000/literal-zh.",
+  "style": "chicago-author-date",
+  "text": "Research Group. 2025. “Institutional Report.” Journal of Tests 4 (2): 10–20. https://doi.org/10.1000/organization.
+Smith, Jane. 2026a. “Alpha Study.” Journal of Tests 4 (2): 10–20. https://doi.org/10.1000/smith-a.
+Smith, Jane. 2026b. “Beta Study.” Journal of Tests 4 (2): 10–20. https://doi.org/10.1000/smith-b.
+联合研究组. n.d. “中文研究.” Journal of Tests 4 (2): 10–20. https://doi.org/10.1000/literal-zh.",
+}
+`;
+
+exports[`CitationProcessor > 文内引用保留 locator、prefix、suffix 和输入顺序 1`] = `
+{
+  "html": "(Research Group, 2025; see Smith, 2026, p. 17, emphasis added)",
+  "itemCount": 2,
+  "locale": "en-US",
+  "markdown": "(Research Group, 2025; see Smith, 2026, p. 17, emphasis added)",
+  "mode": "citation",
+  "style": "apa",
+  "text": "(Research Group, 2025; see Smith, 2026, p. 17, emphasis added)",
+  "workIds": [
+    "smith-b",
+    "organization",
+  ],
+}
+`;

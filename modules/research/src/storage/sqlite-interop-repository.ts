@@ -1,12 +1,22 @@
 import type Database from 'better-sqlite3';
 import {
   interopDiagnosticSchema,
+  interopExportScopeSchema,
+  interopFrozenEntitySchema,
+  interopLossItemSchema,
   interopMappedRecordSchema,
   interopRecordDecisionSchema,
   type InteropFormat,
   type InteropImportJobStatus,
   type InteropRecordStatus,
 } from '../contract.js';
+import type {
+  CitationKeyPreferenceRecord,
+  CreateInteropExportPreviewDraft,
+  InteropExportChanges,
+  InteropExportJobRecord,
+} from '../interop/export/repository.js';
+import type { ExportRecordProjection } from '../interop/export/model.js';
 import {
   InteropRepositoryConflictError,
   type AppendInteropBatchDraft,
@@ -119,6 +129,33 @@ function recordFromRow(row: Row): InteropRecord {
     committedEditionId: nullableText(row, 'committed_edition_id'),
     createdAt: requiredText(row, 'created_at'),
     updatedAt: requiredText(row, 'updated_at'),
+  };
+}
+
+function exportJobFromRow(row: Row): InteropExportJobRecord {
+  const result = nullableText(row, 'result_json');
+  return {
+    id: requiredText(row, 'id'),
+    requestId: requiredText(row, 'request_id'),
+    status: requiredText(row, 'status') as InteropExportJobRecord['status'],
+    format: requiredText(row, 'format') as InteropFormat,
+    scope: interopExportScopeSchema.parse(parseJson(requiredText(row, 'scope_json'))),
+    editionPolicy: requiredText(row, 'edition_policy') as 'preferred' | 'all',
+    frozenEntities: interopFrozenEntitySchema
+      .array()
+      .parse(parseJson(requiredText(row, 'frozen_entities_json'))),
+    previewToken: nullableText(row, 'preview_token'),
+    targetPath: nullableText(row, 'target_path'),
+    losses: interopLossItemSchema
+      .array()
+      .parse(parseJson(nullableText(row, 'loss_report_json') ?? '[]')),
+    result:
+      result === null ? null : (parseJson(result) as NonNullable<InteropExportJobRecord['result']>),
+    errorCode: nullableText(row, 'error_code'),
+    revision: integer(row, 'revision'),
+    createdAt: requiredText(row, 'created_at'),
+    updatedAt: requiredText(row, 'updated_at'),
+    completedAt: nullableText(row, 'completed_at'),
   };
 }
 
@@ -432,6 +469,364 @@ export class SqliteInteropRepository implements InteropRepository {
       )
       .run(this.clock());
     return result.changes;
+  }
+
+  projectExportRecords(
+    scope: Parameters<InteropRepository['projectExportRecords']>[0],
+    editionPolicy: 'preferred' | 'all',
+  ): Array<Omit<ExportRecordProjection, 'citationKey'>> {
+    const sqlite = this.sqlite();
+    const workRows = sqlite
+      .prepare("SELECT * FROM research_works WHERE status = 'active' ORDER BY id")
+      .all() as Row[];
+    let allowed: Set<string> | null = null;
+    if (scope.kind === 'selection' || scope.kind === 'filter') {
+      allowed = new Set(scope.workIds);
+    } else if (scope.kind === 'collection') {
+      allowed = new Set(
+        (
+          sqlite
+            .prepare('SELECT work_id FROM research_collection_entries WHERE collection_id = ?')
+            .all(scope.collectionId) as Array<{ work_id: string }>
+        ).map((row) => row.work_id),
+      );
+    }
+    const works = allowed
+      ? workRows.filter((row) => allowed!.has(requiredText(row, 'id')))
+      : workRows;
+    const workIds = new Set(works.map((row) => requiredText(row, 'id')));
+
+    const editionsByWork = new Map<string, Row[]>();
+    for (const row of sqlite
+      .prepare(
+        `SELECT edition.* FROM research_editions edition
+         JOIN research_works work ON work.id = edition.work_id
+         WHERE work.status = 'active'
+         ORDER BY edition.work_id, edition.created_at, edition.id`,
+      )
+      .all() as Row[]) {
+      const workId = requiredText(row, 'work_id');
+      if (!workIds.has(workId)) continue;
+      const values = editionsByWork.get(workId) ?? [];
+      values.push(row);
+      editionsByWork.set(workId, values);
+    }
+
+    const contributors = new Map<string, ExportRecordProjection['contributors']>();
+    for (const row of sqlite
+      .prepare(
+        `SELECT contributor.* FROM research_contributors contributor
+         JOIN research_editions edition ON edition.id = contributor.edition_id
+         JOIN research_works work ON work.id = edition.work_id
+         WHERE work.status = 'active' AND contributor.role = 'author'
+         ORDER BY contributor.edition_id, contributor.sequence, contributor.id`,
+      )
+      .all() as Row[]) {
+      const editionId = requiredText(row, 'edition_id');
+      const values = contributors.get(editionId) ?? [];
+      values.push({
+        displayName: requiredText(row, 'display_name'),
+        givenName: nullableText(row, 'given_name'),
+        familyName: nullableText(row, 'family_name'),
+        sequence: integer(row, 'sequence'),
+      });
+      contributors.set(editionId, values);
+    }
+
+    const identifiers = new Map<string, ExportRecordProjection['identifiers']>();
+    for (const row of sqlite
+      .prepare(
+        `SELECT identifier.* FROM research_identifiers identifier
+         WHERE identifier.entity_type IN ('work', 'edition')
+         ORDER BY identifier.entity_type, identifier.entity_id, identifier.scheme, identifier.id`,
+      )
+      .all() as Row[]) {
+      const entityId = requiredText(row, 'entity_id');
+      const scheme = requiredText(
+        row,
+        'scheme',
+      ) as ExportRecordProjection['identifiers'][number]['scheme'];
+      if (!['doi', 'arxiv', 'isbn', 'issn', 'pmid', 'url'].includes(scheme)) continue;
+      const values = identifiers.get(entityId) ?? [];
+      values.push({ scheme, value: requiredText(row, 'value') });
+      identifiers.set(entityId, values);
+    }
+
+    const attachmentCounts = new Map<string, number>();
+    for (const row of sqlite
+      .prepare(
+        `SELECT edition_id, COUNT(*) AS count FROM research_attachments
+         WHERE status = 'active' GROUP BY edition_id`,
+      )
+      .all() as Array<{ edition_id: string; count: number }>) {
+      attachmentCounts.set(row.edition_id, row.count);
+    }
+
+    const sources = new Map<string, NonNullable<ExportRecordProjection['source']>>();
+    for (const row of sqlite
+      .prepare(
+        `SELECT entity.work_id, entity.edition_id, record.source_key, record.raw_record,
+                record.format_shadow_json, record.mapped_json, source.format
+         FROM research_interop_record_entities entity
+         JOIN research_interop_records record ON record.id = entity.record_id
+         JOIN research_interop_sources source ON source.id = record.source_id
+         JOIN research_works work ON work.id = entity.work_id
+         WHERE entity.is_current = 1 AND record.status = 'committed' AND work.status = 'active'
+         ORDER BY entity.created_at DESC, entity.id DESC`,
+      )
+      .all() as Row[]) {
+      const key = `${requiredText(row, 'work_id')}:${nullableText(row, 'edition_id') ?? ''}`;
+      if (sources.has(key)) continue;
+      const mapped = nullableText(row, 'mapped_json');
+      sources.set(key, {
+        format: requiredText(row, 'format') as InteropFormat,
+        sourceKey: nullableText(row, 'source_key'),
+        rawRecord: requiredText(row, 'raw_record'),
+        formatShadow: parseJson(requiredText(row, 'format_shadow_json')),
+        mapped: mapped ? interopMappedRecordSchema.parse(parseJson(mapped)) : null,
+      });
+    }
+
+    const result: Array<Omit<ExportRecordProjection, 'citationKey'>> = [];
+    for (const work of works) {
+      const workId = requiredText(work, 'id');
+      const editions = editionsByWork.get(workId) ?? [];
+      const preferredId = nullableText(work, 'preferred_edition_id');
+      const selectedEditions =
+        editionPolicy === 'all'
+          ? editions
+          : preferredId
+            ? editions.filter((edition) => requiredText(edition, 'id') === preferredId).slice(0, 1)
+            : editions.slice(0, 1);
+      const targets = selectedEditions.length > 0 ? selectedEditions : [null];
+      for (const edition of targets) {
+        const editionId = edition ? requiredText(edition, 'id') : null;
+        result.push({
+          work: {
+            id: workId,
+            revision: integer(work, 'revision'),
+            type: requiredText(work, 'type') as ExportRecordProjection['work']['type'],
+            title: requiredText(work, 'title'),
+            abstract: nullableText(work, 'abstract'),
+            year: (work.year as number | null | undefined) ?? null,
+          },
+          edition: edition
+            ? {
+                id: editionId!,
+                revision: integer(edition, 'revision'),
+                kind: requiredText(edition, 'kind'),
+                title: requiredText(edition, 'title'),
+                publicationTitle: nullableText(edition, 'publication_title'),
+                publisher: nullableText(edition, 'publisher'),
+                publishedDate: nullableText(edition, 'published_date'),
+                volume: nullableText(edition, 'volume'),
+                issue: nullableText(edition, 'issue'),
+                pages: nullableText(edition, 'pages'),
+              }
+            : null,
+          contributors: editionId ? (contributors.get(editionId) ?? []) : [],
+          identifiers: [
+            ...(identifiers.get(workId) ?? []),
+            ...(editionId ? (identifiers.get(editionId) ?? []) : []),
+          ],
+          attachmentCount: editionId ? (attachmentCounts.get(editionId) ?? 0) : 0,
+          source: sources.get(`${workId}:${editionId ?? ''}`) ?? sources.get(`${workId}:`) ?? null,
+        });
+      }
+    }
+    return result;
+  }
+
+  listCitationKeyPreferences(workIds: string[]): CitationKeyPreferenceRecord[] {
+    const allowed = new Set(workIds);
+    return (
+      this.sqlite()
+        .prepare('SELECT * FROM research_citation_key_preferences ORDER BY work_id, edition_id')
+        .all() as Row[]
+    )
+      .filter((row) => allowed.has(requiredText(row, 'work_id')))
+      .map((row) => ({
+        workId: requiredText(row, 'work_id'),
+        editionId: nullableText(row, 'edition_id'),
+        preferredKey: requiredText(row, 'preferred_key'),
+        source: requiredText(row, 'source') as CitationKeyPreferenceRecord['source'],
+        revision: integer(row, 'revision'),
+      }));
+  }
+
+  saveCitationKeyPreference(input: {
+    id: string;
+    workId: string;
+    editionId: string | null;
+    preferredKey: string;
+    expectedRevision: number;
+  }): CitationKeyPreferenceRecord {
+    const sqlite = this.sqlite();
+    const target = sqlite.prepare('SELECT 1 FROM research_works WHERE id = ?').get(input.workId);
+    const editionMatches =
+      input.editionId === null ||
+      sqlite
+        .prepare('SELECT 1 FROM research_editions WHERE id = ? AND work_id = ?')
+        .get(input.editionId, input.workId);
+    if (!target || !editionMatches) {
+      throw new InteropRepositoryConflictError('citation key target does not exist');
+    }
+    const existing = sqlite
+      .prepare(
+        `SELECT * FROM research_citation_key_preferences
+         WHERE work_id = ? AND ifnull(edition_id, '') = ifnull(?, '')`,
+      )
+      .get(input.workId, input.editionId) as Row | undefined;
+    if (!existing) {
+      if (input.expectedRevision !== 0)
+        throw new InteropRepositoryConflictError('citation key revision conflict');
+      sqlite
+        .prepare(
+          `INSERT INTO research_citation_key_preferences
+           (id, work_id, edition_id, preferred_key, source, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'user', ?, ?)`,
+        )
+        .run(
+          input.id,
+          input.workId,
+          input.editionId,
+          input.preferredKey,
+          this.clock(),
+          this.clock(),
+        );
+    } else {
+      const result = sqlite
+        .prepare(
+          `UPDATE research_citation_key_preferences
+           SET preferred_key = ?, source = 'user', revision = revision + 1, updated_at = ?
+           WHERE id = ? AND revision = ?`,
+        )
+        .run(
+          input.preferredKey,
+          this.clock(),
+          requiredText(existing, 'id'),
+          input.expectedRevision,
+        );
+      if (result.changes !== 1)
+        throw new InteropRepositoryConflictError('citation key revision conflict');
+    }
+    const row = sqlite
+      .prepare(
+        `SELECT * FROM research_citation_key_preferences
+         WHERE work_id = ? AND ifnull(edition_id, '') = ifnull(?, '')`,
+      )
+      .get(input.workId, input.editionId) as Row;
+    return {
+      workId: requiredText(row, 'work_id'),
+      editionId: nullableText(row, 'edition_id'),
+      preferredKey: requiredText(row, 'preferred_key'),
+      source: requiredText(row, 'source') as CitationKeyPreferenceRecord['source'],
+      revision: integer(row, 'revision'),
+    };
+  }
+
+  createOrGetExportPreview(draft: CreateInteropExportPreviewDraft): InteropExportJobRecord {
+    const sqlite = this.sqlite();
+    const existing = sqlite
+      .prepare('SELECT * FROM research_interop_export_jobs WHERE request_id = ?')
+      .get(draft.requestId) as Row | undefined;
+    if (existing) return exportJobFromRow(existing);
+    const now = this.clock();
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_export_jobs
+         (id, request_id, status, format, scope_json, edition_policy, frozen_entities_json,
+          preview_token, loss_report_json, created_at, updated_at)
+         VALUES (?, ?, 'previewed', ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        draft.id,
+        draft.requestId,
+        draft.format,
+        JSON.stringify(draft.scope),
+        draft.editionPolicy,
+        JSON.stringify(draft.frozenEntities),
+        draft.previewToken,
+        JSON.stringify(draft.losses),
+        now,
+        now,
+      );
+    return this.getExport(draft.id)!;
+  }
+
+  getExport(id: string): InteropExportJobRecord | null {
+    const row = this.sqlite()
+      .prepare('SELECT * FROM research_interop_export_jobs WHERE id = ?')
+      .get(id) as Row | undefined;
+    return row ? exportJobFromRow(row) : null;
+  }
+
+  updateExport(
+    id: string,
+    expectedRevision: number,
+    changes: InteropExportChanges,
+  ): InteropExportJobRecord {
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    const scalar: Array<[keyof InteropExportChanges, string]> = [
+      ['status', 'status'],
+      ['targetPath', 'target_path'],
+      ['errorCode', 'error_code'],
+      ['completedAt', 'completed_at'],
+    ];
+    for (const [field, column] of scalar) {
+      if (Object.hasOwn(changes, field)) {
+        assignments.push(`${column} = ?`);
+        values.push(changes[field]);
+      }
+    }
+    if (Object.hasOwn(changes, 'losses')) {
+      assignments.push('loss_report_json = ?');
+      values.push(JSON.stringify(changes.losses));
+    }
+    if (Object.hasOwn(changes, 'result')) {
+      assignments.push('result_json = ?');
+      values.push(changes.result === null ? null : JSON.stringify(changes.result));
+    }
+    if (assignments.length === 0) return this.getExport(id)!;
+    assignments.push('revision = revision + 1', 'updated_at = ?');
+    values.push(this.clock(), id, expectedRevision);
+    const result = this.sqlite()
+      .prepare(
+        `UPDATE research_interop_export_jobs SET ${assignments.join(', ')}
+         WHERE id = ? AND revision = ?`,
+      )
+      .run(...values);
+    if (result.changes !== 1) throw new InteropRepositoryConflictError('export revision conflict');
+    return this.getExport(id)!;
+  }
+
+  frozenEntitiesCurrent(
+    entities: Parameters<InteropRepository['frozenEntitiesCurrent']>[0],
+  ): boolean {
+    const sqlite = this.sqlite();
+    const workRevisions = new Map(
+      (
+        sqlite.prepare('SELECT id, revision FROM research_works').all() as Array<{
+          id: string;
+          revision: number;
+        }>
+      ).map((row) => [row.id, row.revision]),
+    );
+    const editionRevisions = new Map(
+      (
+        sqlite.prepare('SELECT id, revision FROM research_editions').all() as Array<{
+          id: string;
+          revision: number;
+        }>
+      ).map((row) => [row.id, row.revision]),
+    );
+    return entities.every(
+      (entity) =>
+        workRevisions.get(entity.workId) === entity.workRevision &&
+        (entity.editionId === null ||
+          editionRevisions.get(entity.editionId) === entity.editionRevision),
+    );
   }
 
   commitRecords(

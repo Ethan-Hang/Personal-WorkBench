@@ -1308,6 +1308,7 @@ export class ResearchKnowledgeService {
                 text: existing.text,
                 targetId: existing.targetId,
                 targetLabel: existing.targetLabel,
+                citation: existing.kind === 'citation' ? existing.citation : null,
                 position: block.position,
                 existing: true,
               };
@@ -1320,6 +1321,38 @@ export class ResearchKnowledgeService {
                 text: block.text,
                 targetId: null,
                 targetLabel: null,
+                citation: null,
+                position: block.position,
+                existing: false,
+              };
+            }
+            if (block.kind === 'citation') {
+              const target = await this.repository.getWritingCitationTarget(
+                block.targetId,
+                block.editionId,
+              );
+              if (!target || target.status !== 'active') {
+                throw new KnowledgeError(
+                  'KNOWLEDGE_SOURCE_NOT_FOUND',
+                  '引用文献不存在或当前不可用',
+                  404,
+                );
+              }
+              return {
+                id: this.createId(),
+                sectionId,
+                kind: 'citation' as const,
+                text: null,
+                targetId: target.workId,
+                targetLabel: target.title,
+                citation: {
+                  editionId: target.editionId,
+                  locator: block.locator,
+                  label: block.label,
+                  prefix: block.prefix,
+                  suffix: block.suffix,
+                  suppressAuthor: block.suppressAuthor,
+                },
                 position: block.position,
                 existing: false,
               };
@@ -1331,6 +1364,7 @@ export class ResearchKnowledgeService {
               text: null,
               targetId: block.targetId,
               targetLabel: await this.writingTargetLabel(block.kind, block.targetId),
+              citation: null,
               position: block.position,
               existing: false,
             };

@@ -17,6 +17,7 @@
   "dependencies": {
     "@citation-js/core": "0.8.2",
     "@citation-js/plugin-bibtex": "0.8.2",
+    "@citation-js/plugin-csl": "0.8.2",
     "@citation-js/plugin-ris": "0.8.2",
     "@napi-rs/canvas": "1.0.7",
     "@retorquere/bibtex-parser": "10.0.1",
@@ -27,6 +28,7 @@
     "@workbench/http-kit": "*",
     "@workbench/ui": "*",
     "better-sqlite3": "^13.0.3",
+    "citeproc": "2.4.63",
     "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "5.11.0",
     "pdf-lib": "1.17.1",

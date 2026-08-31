@@ -121,4 +121,35 @@ describe('PDF 系统文件选择器', () => {
     expect(fake.calls[1]?.args.join(' ')).toContain('$dialog.Multiselect = $false');
     expect(fake.calls[1]?.args.join(' ')).toContain('*.json');
   });
+
+  it('三平台文献记录保存选择器使用固定扩展名与覆盖确认', async () => {
+    const mac = fakeExec([{ stdout: '/Users/me/library.bib\n' }]);
+    await expect(
+      createSystemPdfFilePicker('darwin', mac.execute).saveInterop({
+        suggestedName: 'library',
+        format: 'bibtex',
+      }),
+    ).resolves.toBe('/Users/me/library.bib');
+    expect(mac.calls[0]?.args.join(' ')).toContain('default name "library.bib"');
+
+    const windows = fakeExec([{ stdout: 'C:\\Exports\\library.ris\r\n' }]);
+    await expect(
+      createSystemPdfFilePicker('win32', windows.execute).saveInterop({
+        suggestedName: 'library',
+        format: 'ris',
+      }),
+    ).resolves.toBe('C:\\Exports\\library.ris');
+    expect(windows.calls[0]?.args.join(' ')).toContain("$dialog.DefaultExt = 'ris'");
+    expect(windows.calls[0]?.args.join(' ')).toContain('$dialog.OverwritePrompt = $true');
+
+    const linux = fakeExec([{ stdout: '/exports/library.json\n' }]);
+    await expect(
+      createSystemPdfFilePicker('linux', linux.execute).saveInterop({
+        suggestedName: 'library',
+        format: 'csl-json',
+      }),
+    ).resolves.toBe('/exports/library.json');
+    expect(linux.calls[0]).toMatchObject({ command: 'zenity' });
+    expect(linux.calls[0]?.args).toContain('--confirm-overwrite');
+  });
 });

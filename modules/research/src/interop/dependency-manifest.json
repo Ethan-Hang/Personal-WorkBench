@@ -34,12 +34,22 @@
       "status": "installed"
     },
     {
-      "name": "citeproc-js",
+      "name": "@citation-js/plugin-csl",
+      "version": "0.8.2",
+      "license": "MIT",
+      "upstream": "https://github.com/citation-js/citation-js/tree/main/packages/plugin-csl",
+      "integrity": "sha512-MHdPrhsbsitWST4tP+bxk4vSSYoPfbxah01fZvxv23qm/FjyW6yJCEpkV/x3f2ofT+v4RN0OEBQboN/MTIyPyQ==",
+      "status": "installed"
+    },
+    {
+      "name": "citeproc",
       "version": "2.4.63",
       "license": "CPAL-1.0 OR AGPL-1.0",
       "upstream": "https://github.com/Juris-M/citeproc-js",
-      "integrity": null,
-      "status": "d2-license-gate"
+      "integrity": "sha512-68F95Bp4UbgZU/DBUGQn0qV3HDZLCdI9+Bb2ByrTaNJDL5VEm9LqaiNaxljsvoaExSLEXe1/r6n2Z06SCzW3/Q==",
+      "licenseFile": "THIRD_PARTY_LICENSES/citeproc-2.4.63.txt",
+      "licenseFileSha256": "b96ca8e1716f93449b480083c7510c18d129fa9afa4644d62c6347c06177ce30",
+      "status": "installed-license-recorded"
     }
   ],
   "plannedCslAssets": [
@@ -47,25 +57,29 @@
       "name": "ieee",
       "upstreamCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
       "sha256": "b4c7619fc16c45a31e4cc3271eab94ffe83192d3b4c7fc729470a3b459448de3",
-      "status": "d2-pending"
+      "path": "modules/research/src/interop/citation/assets/ieee.csl",
+      "status": "bundled"
     },
     {
       "name": "chicago-author-date",
       "upstreamCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
       "sha256": "002fade78d7e4fe9d42936a16b43a8066b097013f6255df40b1bfba6631eff9b",
-      "status": "d2-pending"
+      "path": "modules/research/src/interop/citation/assets/chicago-author-date.csl",
+      "status": "bundled"
     },
     {
       "name": "apa",
       "upstreamCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
-      "sha256": null,
-      "status": "d2-pending"
+      "sha256": "1ece4fb3c295e66d04b4394e295aa58a87741ceeef1658192437eb9953c2f13e",
+      "path": "modules/research/src/interop/citation/assets/apa.csl",
+      "status": "bundled"
     },
     {
       "name": "locales-en-US",
-      "upstreamCommit": null,
-      "sha256": null,
-      "status": "d2-pending"
+      "upstreamCommit": "80dd8e08291c4265b1f78ee834c6b5aef37cdec5",
+      "sha256": "ac864c7c21166b4390d82c31792cdc509400727fa0060b43d8aa17e07f9cb079",
+      "path": "modules/research/src/interop/citation/assets/locales-en-US.xml",
+      "status": "bundled"
     }
   ]
 }

@@ -1,6 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { access, lstat, mkdir, open, readFile, rename, rm } from 'node:fs/promises';
-import { basename, dirname, extname, join, resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
 import type {
   Evidence,
   KnowledgeExportFormat,
@@ -11,6 +9,7 @@ import type {
   WritingBlock,
 } from '../contract.js';
 import type { KnowledgeRepository } from '../knowledge/repository.js';
+import { SafeTextOutputError, textOutputExists, writeSafeTextOutput } from './safe-text-output.js';
 
 export class KnowledgeExportBuildError extends Error {
   constructor(
@@ -32,10 +31,6 @@ interface BuiltKnowledgeExport {
   warnings: string[];
 }
 
-function abortIfNeeded(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw new DOMException('研究内容导出已取消', 'AbortError');
-}
-
 function evidenceUrl(evidence: Evidence): string {
   const params = new URLSearchParams({
     page: String(evidence.sourceSnapshot.pageNumber),
@@ -53,6 +48,15 @@ function evidenceCitation(evidence: Evidence): string {
 function resourceCitation(block: WritingBlock): string {
   if (block.kind === 'text') return block.text;
   const label = block.targetLabel;
+  if (block.kind === 'citation') {
+    const location = block.citation.locator
+      ? `, ${block.citation.label ?? 'page'} ${block.citation.locator}`
+      : '';
+    const edition = block.citation.editionId ?? 'preferred';
+    const marker = `<!-- research:citation:${block.targetId}:${edition} -->`;
+    const linked = block.targetUrl ? `[${label}](${block.targetUrl})` : label;
+    return `${block.citation.prefix ?? ''}${linked}${location}${block.citation.suffix ?? ''} ${marker}`;
+  }
   const marker = `<!-- research:${block.kind}:${block.targetId} -->`;
   return block.targetUrl ? `[${label}](${block.targetUrl}) ${marker}` : `${label} ${marker}`;
 }
@@ -223,15 +227,6 @@ export async function buildKnowledgeExport(
     : buildWritingExport(repository, selection);
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 function validateTargetExtension(targetPath: string, format: KnowledgeExportFormat): void {
   const expected = format === 'csv' ? '.csv' : '.md';
   if (extname(targetPath).toLowerCase() !== expected) {
@@ -256,7 +251,7 @@ export async function previewKnowledgeExport(
     sourceIssueCount: built.sourceIssueCount,
     estimatedBytes: Buffer.byteLength(built.content, 'utf8'),
     targetPath: resolvedTarget,
-    targetExists: resolvedTarget ? await exists(resolvedTarget) : false,
+    targetExists: resolvedTarget ? await textOutputExists(resolvedTarget) : false,
     warnings: built.warnings,
   };
 }
@@ -272,64 +267,31 @@ export async function writeKnowledgeExport(input: {
   const targetPath = resolve(input.targetPath);
   validateTargetExtension(targetPath, input.selection.format);
   const built = await buildKnowledgeExport(input.repository, input.selection);
-  abortIfNeeded(input.signal);
-  await mkdir(dirname(targetPath), { recursive: true });
-  const targetExists = await exists(targetPath);
-  if (targetExists) {
-    const targetStat = await lstat(targetPath);
-    if (!targetStat.isFile() || targetStat.isSymbolicLink()) {
-      throw new KnowledgeExportBuildError('invalid', '导出目标必须是普通文件');
-    }
-    if (!input.overwriteConfirmed) {
-      throw new KnowledgeExportBuildError('conflict', '导出目标已存在，需要确认覆盖');
-    }
-  }
-  const token = randomUUID();
-  const temporary = join(dirname(targetPath), `.${basename(targetPath)}.tmp-${token}`);
-  const backup = join(dirname(targetPath), `.${basename(targetPath)}.backup-${token}`);
-  let backupCreated = false;
   try {
-    const handle = await open(temporary, 'wx');
-    try {
-      await handle.writeFile(built.content, 'utf8');
-      await handle.sync();
-    } finally {
-      await handle.close();
-    }
-    abortIfNeeded(input.signal);
-    const output = await readFile(temporary);
-    const sha256 = createHash('sha256').update(output).digest('hex');
-    if (output.toString('utf8') !== built.content) {
-      throw new Error('研究内容导出写入校验失败');
-    }
-    if (targetExists) {
-      await rename(targetPath, backup);
-      backupCreated = true;
-    }
-    abortIfNeeded(input.signal);
-    await rename(temporary, targetPath);
-    if (backupCreated) {
-      await rm(backup, { force: true });
-      backupCreated = false;
-    }
+    const output = await writeSafeTextOutput({
+      targetPath,
+      content: built.content,
+      overwriteConfirmed: input.overwriteConfirmed,
+      signal: input.signal,
+      cancelMessage: '研究内容导出已取消',
+      validate: () => undefined,
+    });
     return {
       ...input.selection,
-      targetPath,
-      bytes: output.length,
-      sha256,
+      ...output,
       objectCount: built.objectCount,
       referenceCount: built.referenceCount,
       sourceIssueCount: built.sourceIssueCount,
       outputValidated: true,
-      overwritten: targetExists,
       completedAt: input.completedAt(),
       warnings: built.warnings,
     };
   } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined);
-    if (backupCreated) {
-      if (await exists(targetPath)) await rm(targetPath, { force: true });
-      await rename(backup, targetPath).catch(() => undefined);
+    if (error instanceof SafeTextOutputError) {
+      throw new KnowledgeExportBuildError(
+        error.kind === 'conflict' ? 'conflict' : 'invalid',
+        error.message,
+      );
     }
     throw error;
   }

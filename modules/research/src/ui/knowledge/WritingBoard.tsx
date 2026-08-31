@@ -17,12 +17,14 @@ import {
   fetchKnowledgeNotes,
   fetchWritingDocument,
   fetchWritingDocuments,
+  fetchWorks,
   patchWritingBlock,
   patchWritingDocument,
   postRestoreWritingDocument,
   postWritingDocument,
   putWritingStructure,
 } from '../api.js';
+import { CitationDialog } from '../components/CitationDialog.js';
 import { SourceStatus } from './SourceStatus.js';
 
 const documentStatusLabels: Record<WritingDocumentStatus, string> = {
@@ -37,6 +39,7 @@ const blockKindLabels: Record<WritingBlockKind, string> = {
   evidence: '证据',
   claim: '观点',
   matrix: '矩阵',
+  citation: '引用',
 };
 
 function activeSections(document: WritingDocumentDetail): WritingSection[] {
@@ -133,6 +136,15 @@ function ReferenceBlock({ block }: { block: Exclude<WritingBlock, { kind: 'text'
           </div>
         )}
         <p className="mt-1 font-mono text-[9px] text-muted">{block.targetId}</p>
+        {block.kind === 'citation' && (
+          <p className="mt-2 text-[10px] leading-5 text-secondary">
+            {block.citation.editionId ? `Edition ${block.citation.editionId}` : '无指定 Edition'}
+            {block.citation.locator
+              ? ` · ${block.citation.label ?? 'page'} ${block.citation.locator}`
+              : ''}
+            {block.citation.suppressAuthor ? ' · 隐藏作者' : ''}
+          </p>
+        )}
       </div>
       {block.targetUrl ? (
         <a
@@ -166,6 +178,11 @@ export function WritingBoard({
   const [selectedId, setSelectedId] = useState<string | null>(initialDocumentId ?? null);
   const [title, setTitle] = useState('');
   const [resourceKind, setResourceKind] = useState<Exclude<WritingBlockKind, 'text'>>('note');
+  const [citationLocator, setCitationLocator] = useState('');
+  const [citationPrefix, setCitationPrefix] = useState('');
+  const [citationSuffix, setCitationSuffix] = useState('');
+  const [citationSuppressAuthor, setCitationSuppressAuthor] = useState(false);
+  const [bibliographyOpen, setBibliographyOpen] = useState(false);
   const [draggedBlockId, setDraggedBlockId] = useState<string | null>(null);
 
   const documentsQuery = useQuery({
@@ -237,6 +254,11 @@ export function WritingBoard({
       }),
     enabled: document?.status === 'active',
   });
+  const worksQuery = useQuery({
+    queryKey: ['research', 'works', 'writing-picker'],
+    queryFn: () => fetchWorks({ status: 'active', limit: 100 }),
+    enabled: document?.status === 'active',
+  });
   const resourceOptions = useMemo(() => {
     if (resourceKind === 'note')
       return (notesQuery.data?.notes ?? []).map((item) => ({ id: item.id, label: item.title }));
@@ -250,11 +272,24 @@ export function WritingBoard({
         id: item.id,
         label: item.statement,
       }));
+    if (resourceKind === 'citation')
+      return (worksQuery.data?.works ?? []).map((item) => ({
+        id: item.id,
+        label: item.title,
+        editionId: item.preferredEditionId,
+      }));
     return (matricesQuery.data?.matrices ?? []).map((item) => ({
       id: item.id,
       label: item.title,
     }));
-  }, [claimsQuery.data, evidenceQuery.data, matricesQuery.data, notesQuery.data, resourceKind]);
+  }, [
+    claimsQuery.data,
+    evidenceQuery.data,
+    matricesQuery.data,
+    notesQuery.data,
+    resourceKind,
+    worksQuery.data,
+  ]);
 
   const updateCachedDocument = (next: WritingDocumentDetail) => {
     queryClient.setQueryData(['research', 'knowledge', 'writing-document', next.id], next);
@@ -371,20 +406,62 @@ export function WritingBoard({
     );
     structureMutation.mutate(next);
   };
-  const addResourceBlock = (section: WritingSection, targetId: string) => {
+  const addResourceBlock = (
+    section: WritingSection,
+    resource: { id: string; editionId?: string | null },
+  ) => {
     const next = asStructure(sections).map((item) =>
       item.id === section.id
         ? {
             ...item,
             blocks: [
               ...item.blocks,
-              { kind: resourceKind, targetId, position: item.blocks.length },
+              resourceKind === 'citation'
+                ? {
+                    kind: 'citation' as const,
+                    targetId: resource.id,
+                    editionId: resource.editionId ?? null,
+                    locator: citationLocator.trim() || null,
+                    label: citationLocator.trim() ? 'page' : null,
+                    prefix: citationPrefix || null,
+                    suffix: citationSuffix || null,
+                    suppressAuthor: citationSuppressAuthor,
+                    position: item.blocks.length,
+                  }
+                : {
+                    kind: resourceKind,
+                    targetId: resource.id,
+                    position: item.blocks.length,
+                  },
             ],
           }
         : item,
     );
     structureMutation.mutate(next);
   };
+  const citationItems = useMemo(() => {
+    const seen = new Set<string>();
+    return sections
+      .flatMap((section) => section.blocks)
+      .filter(
+        (block): block is Extract<WritingBlock, { kind: 'citation' }> => block.kind === 'citation',
+      )
+      .filter((block) => {
+        const key = `${block.targetId}:${block.citation.editionId ?? ''}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((block) => ({
+        workId: block.targetId,
+        editionId: block.citation.editionId,
+        locator: block.citation.locator,
+        label: block.citation.label,
+        prefix: block.citation.prefix,
+        suffix: block.citation.suffix,
+        suppressAuthor: block.citation.suppressAuthor,
+      }));
+  }, [sections]);
   const removeBlock = (blockId: string) => {
     structureMutation.mutate(
       asStructure(
@@ -526,6 +603,11 @@ export function WritingBoard({
                 </p>
               </div>
               <div className="flex gap-2">
+                {document.status !== 'deleted' && citationItems.length > 0 && (
+                  <Button size="sm" onClick={() => setBibliographyOpen(true)}>
+                    草稿参考文献
+                  </Button>
+                )}
                 {document.status === 'active' && (
                   <Button
                     size="sm"
@@ -687,7 +769,7 @@ export function WritingBoard({
           }
           className="mt-3 w-full border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-accent"
         >
-          {(['note', 'evidence', 'claim', 'matrix'] as const).map((kind) => (
+          {(['note', 'evidence', 'claim', 'matrix', 'citation'] as const).map((kind) => (
             <option key={kind} value={kind}>
               {blockKindLabels[kind]}
             </option>
@@ -696,6 +778,36 @@ export function WritingBoard({
         <p className="mt-2 text-[10px] leading-4 text-muted">
           选择资料后，将它加入目标章节；引用仍可回到原对象。
         </p>
+        {resourceKind === 'citation' && (
+          <div className="mt-3 grid gap-2 border-y border-line py-3">
+            <input
+              className="border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-accent"
+              value={citationLocator}
+              onChange={(event) => setCitationLocator(event.target.value)}
+              placeholder="页码或位置（可选）"
+            />
+            <input
+              className="border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-accent"
+              value={citationPrefix}
+              onChange={(event) => setCitationPrefix(event.target.value)}
+              placeholder="前缀（可选）"
+            />
+            <input
+              className="border border-line bg-surface px-2.5 py-2 text-xs text-ink outline-none focus:border-accent"
+              value={citationSuffix}
+              onChange={(event) => setCitationSuffix(event.target.value)}
+              placeholder="后缀（可选）"
+            />
+            <label className="flex items-center gap-2 text-[10px] text-secondary">
+              <input
+                type="checkbox"
+                checked={citationSuppressAuthor}
+                onChange={(event) => setCitationSuppressAuthor(event.target.checked)}
+              />
+              隐藏作者
+            </label>
+          </div>
+        )}
         <div className="mt-3 space-y-2">
           {resourceOptions.map((resource) => (
             <div key={resource.id} className="border-b border-line pb-2">
@@ -709,7 +821,7 @@ export function WritingBoard({
                       key={section.id}
                       type="button"
                       disabled={busy}
-                      onClick={() => addResourceBlock(section, resource.id)}
+                      onClick={() => addResourceBlock(section, resource)}
                       className="border border-line px-1.5 py-1 text-[9px] text-muted hover:border-accent hover:text-accent"
                     >
                       加入 {index + 1}
@@ -754,6 +866,13 @@ export function WritingBoard({
           </div>
         )}
       </aside>
+      <CitationDialog
+        open={bibliographyOpen}
+        items={citationItems}
+        initialMode="bibliography"
+        title="草稿参考文献表"
+        onClose={() => setBibliographyOpen(false)}
+      />
     </div>
   );
 }

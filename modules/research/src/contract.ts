@@ -119,6 +119,13 @@ export const RESEARCH_API_V1 = {
   interopImportRecordDecision: (id: string, recordId: string) =>
     `${API_ROOT}/interop/imports/${id}/records/${recordId}/decision`,
   interopImportCommit: (id: string) => `${API_ROOT}/interop/imports/${id}/commit`,
+  interopExportPreview: `${API_ROOT}/interop/exports/preview`,
+  interopExportPickTarget: `${API_ROOT}/interop/exports/pick-target`,
+  interopExports: `${API_ROOT}/interop/exports`,
+  interopExport: (id: string) => `${API_ROOT}/interop/exports/${id}`,
+  interopExportCancel: (id: string) => `${API_ROOT}/interop/exports/${id}/cancel`,
+  interopCitationKey: (workId: string) => `${API_ROOT}/interop/citation-keys/${workId}`,
+  interopCitationRender: `${API_ROOT}/interop/citations/render`,
   notes: `${API_ROOT}/notes`,
   note: (id: string) => `${API_ROOT}/notes/${id}`,
   noteRestore: (id: string) => `${API_ROOT}/notes/${id}/restore`,
@@ -388,7 +395,14 @@ export type MatrixReviewState = (typeof MATRIX_REVIEW_STATES)[number];
 export const WRITING_DOCUMENT_STATUSES = ['active', 'archived', 'deleted'] as const;
 export type WritingDocumentStatus = (typeof WRITING_DOCUMENT_STATUSES)[number];
 
-export const WRITING_BLOCK_KINDS = ['text', 'note', 'evidence', 'claim', 'matrix'] as const;
+export const WRITING_BLOCK_KINDS = [
+  'text',
+  'note',
+  'evidence',
+  'claim',
+  'matrix',
+  'citation',
+] as const;
 export type WritingBlockKind = (typeof WRITING_BLOCK_KINDS)[number];
 
 export const WRITING_RESOURCE_STATES = ['current', 'archived', 'deleted', 'unavailable'] as const;
@@ -1027,6 +1041,16 @@ const writingBlockBaseSchema = z.object({
   deletedAt: instantSchema.nullable(),
 });
 
+export const writingCitationIntentSchema = z.object({
+  editionId: researchIdSchema.nullable(),
+  locator: z.string().trim().max(200).nullable(),
+  label: z.string().trim().max(80).nullable(),
+  prefix: z.string().max(500).nullable(),
+  suffix: z.string().max(500).nullable(),
+  suppressAuthor: z.boolean(),
+});
+export type WritingCitationIntent = z.infer<typeof writingCitationIntentSchema>;
+
 export const writingBlockSchema = z.discriminatedUnion('kind', [
   writingBlockBaseSchema.extend({
     kind: z.literal('text'),
@@ -1048,6 +1072,16 @@ export const writingBlockSchema = z.discriminatedUnion('kind', [
       sourceState: z.enum(EVIDENCE_SOURCE_STATES).nullable(),
     }),
   ),
+  writingBlockBaseSchema.extend({
+    kind: z.literal('citation'),
+    text: z.null(),
+    targetId: researchIdSchema,
+    targetLabel: z.string().trim().min(1).max(1_000),
+    targetState: z.enum(WRITING_RESOURCE_STATES),
+    targetUrl: z.string().min(1).max(4_096).nullable(),
+    sourceState: z.null(),
+    citation: writingCitationIntentSchema,
+  }),
 ]);
 export type WritingBlock = z.infer<typeof writingBlockSchema>;
 
@@ -1571,6 +1605,17 @@ export const writingNewBlockInputSchema = z.discriminatedUnion('kind', [
       position: writingBlockPositionSchema,
     }),
   ),
+  z.object({
+    kind: z.literal('citation'),
+    targetId: researchIdSchema,
+    editionId: researchIdSchema.nullable().default(null),
+    locator: z.string().trim().max(200).nullable().default(null),
+    label: z.string().trim().max(80).nullable().default(null),
+    prefix: z.string().max(500).nullable().default(null),
+    suffix: z.string().max(500).nullable().default(null),
+    suppressAuthor: z.boolean().default(false),
+    position: writingBlockPositionSchema,
+  }),
 ]);
 export const writingStructureBlockInputSchema = z.union([
   writingExistingBlockPlacementInputSchema,
@@ -2959,11 +3004,185 @@ export const commitInteropImportResultSchema = z.object({
   ),
 });
 
+export const INTEROP_EXPORT_JOB_STATUSES = [
+  'draft',
+  'previewed',
+  'running',
+  'completed',
+  'cancelled',
+  'failed',
+] as const;
+export type InteropExportJobStatus = (typeof INTEROP_EXPORT_JOB_STATUSES)[number];
+
+export const interopExportScopeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('selection'),
+    workIds: z.array(researchIdSchema).min(1).max(100_000),
+  }),
+  z.object({ kind: z.literal('collection'), collectionId: researchIdSchema }),
+  z.object({
+    kind: z.literal('filter'),
+    workIds: z.array(researchIdSchema).max(100_000),
+    label: z.string().trim().min(1).max(500),
+  }),
+  z.object({ kind: z.literal('all-active') }),
+]);
+export type InteropExportScope = z.infer<typeof interopExportScopeSchema>;
+
+export const interopFrozenEntitySchema = z.object({
+  workId: researchIdSchema,
+  workRevision: z.number().int().positive(),
+  editionId: researchIdSchema.nullable(),
+  editionRevision: z.number().int().positive().nullable(),
+  citationKey: z.string().min(1).max(200),
+  citationKeySource: z.enum(['generated', 'imported', 'user']),
+  citationKeyRevision: z.number().int().nonnegative(),
+});
+export type InteropFrozenEntity = z.infer<typeof interopFrozenEntitySchema>;
+
+export const interopLossItemSchema = z.object({
+  workId: researchIdSchema,
+  editionId: researchIdSchema.nullable(),
+  status: z.enum([
+    'complete',
+    'normalized',
+    'degraded',
+    'unmapped',
+    'attachment-omitted',
+    'no-edition',
+  ]),
+  field: z.string().max(200).nullable(),
+  message: z.string().min(1).max(2_000),
+});
+export type InteropLossItem = z.infer<typeof interopLossItemSchema>;
+
+export const previewInteropExportInputSchema = z.object({
+  requestId: z.string().min(1).max(200),
+  format: interopFormatSchema,
+  scope: interopExportScopeSchema,
+  editionPolicy: z.enum(['preferred', 'all']).default('preferred'),
+  keyOverrides: z.record(researchIdSchema, z.string().trim().min(1).max(200)).default({}),
+});
+export type PreviewInteropExportInput = z.infer<typeof previewInteropExportInputSchema>;
+
+export const interopExportPreviewSchema = z.object({
+  jobId: researchIdSchema,
+  previewToken: z.string().min(1),
+  format: interopFormatSchema,
+  scope: interopExportScopeSchema,
+  editionPolicy: z.enum(['preferred', 'all']),
+  frozenEntities: z.array(interopFrozenEntitySchema).max(100_000),
+  workCount: z.number().int().nonnegative(),
+  recordCount: z.number().int().nonnegative(),
+  issueCount: z.number().int().nonnegative(),
+  losses: z.array(interopLossItemSchema).max(100_000),
+  revision: z.number().int().positive(),
+});
+export type InteropExportPreview = z.infer<typeof interopExportPreviewSchema>;
+
+export const pickInteropExportTargetInputSchema = z.object({ format: interopFormatSchema });
+export const pickInteropExportTargetResponseSchema = z.object({
+  path: z.string().max(20_000).nullable(),
+  cancelled: z.boolean(),
+});
+
+export const startInteropExportInputSchema = z.object({
+  previewToken: z.string().min(1),
+  expectedRevision: z.number().int().positive(),
+  targetPath: z.string().min(1).max(20_000),
+  overwriteConfirmed: z.boolean(),
+});
+export type StartInteropExportInput = z.infer<typeof startInteropExportInputSchema>;
+
+export const interopExportJobViewSchema = z.object({
+  id: researchIdSchema,
+  status: z.enum(INTEROP_EXPORT_JOB_STATUSES),
+  format: interopFormatSchema,
+  scope: interopExportScopeSchema,
+  editionPolicy: z.enum(['preferred', 'all']),
+  frozenEntities: z.array(interopFrozenEntitySchema).max(100_000),
+  previewToken: z.string().nullable(),
+  targetPath: z.string().max(20_000).nullable(),
+  losses: z.array(interopLossItemSchema).max(100_000),
+  result: z
+    .object({
+      targetPath: z.string().min(1),
+      bytes: z.number().int().nonnegative(),
+      sha256: z.string().regex(/^[0-9a-f]{64}$/),
+      recordCount: z.number().int().nonnegative(),
+      overwritten: z.boolean(),
+    })
+    .nullable(),
+  errorCode: z.string().nullable(),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type InteropExportJobView = z.infer<typeof interopExportJobViewSchema>;
+
+export const updateCitationKeyInputSchema = z.object({
+  editionId: researchIdSchema.nullable().default(null),
+  preferredKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[A-Za-z][A-Za-z0-9_:.+/-]*$/),
+  expectedRevision: z.number().int().nonnegative(),
+});
+
+export const citationKeyPreferenceSchema = z.object({
+  workId: researchIdSchema,
+  editionId: researchIdSchema.nullable(),
+  preferredKey: z.string().min(1).max(200),
+  source: z.enum(['generated', 'imported', 'user']),
+  revision: z.number().int().positive(),
+});
+
+export const CSL_STYLES = ['apa', 'ieee', 'chicago-author-date'] as const;
+export type CslStyle = (typeof CSL_STYLES)[number];
+export const CITATION_REPRESENTATIONS = ['text', 'markdown', 'html'] as const;
+
+export const renderCitationInputSchema = z.object({
+  style: z.enum(CSL_STYLES),
+  locale: z.literal('en-US').default('en-US'),
+  mode: z.enum(['citation', 'bibliography']),
+  items: z
+    .array(
+      z.object({
+        workId: researchIdSchema,
+        editionId: researchIdSchema.nullable().default(null),
+        locator: z.string().trim().max(200).nullable().default(null),
+        label: z.string().trim().max(80).nullable().default(null),
+        prefix: z.string().max(500).nullable().default(null),
+        suffix: z.string().max(500).nullable().default(null),
+        suppressAuthor: z.boolean().default(false),
+      }),
+    )
+    .min(1)
+    .max(10_000),
+});
+export type RenderCitationInput = z.infer<typeof renderCitationInputSchema>;
+
+export const citationRenderResultSchema = z.object({
+  style: z.enum(CSL_STYLES),
+  locale: z.literal('en-US'),
+  mode: z.enum(['citation', 'bibliography']),
+  itemCount: z.number().int().positive(),
+  workIds: z.array(researchIdSchema),
+  text: z.string().max(10_000_000),
+  markdown: z.string().max(10_000_000),
+  html: z.string().max(10_000_000),
+});
+export type CitationRenderResult = z.infer<typeof citationRenderResultSchema>;
+
 export const deletionPreviewSchema = z.object({
   workId: researchIdSchema,
   attachmentCount: z.number().int().nonnegative(),
   managedObjectCount: z.number().int().nonnegative(),
   linkedLocationCount: z.number().int().nonnegative(),
   evidenceCount: z.number().int().nonnegative().default(0),
+  citationCount: z.number().int().nonnegative().default(0),
   confirmationToken: z.string().min(1),
 });

@@ -330,7 +330,6 @@ describe('SqliteKnowledgeRepository', () => {
         summary: 'Context evidence',
         notes: null,
       });
-
       await expect(database.repo.previewReadingContextArchive('context-1')).resolves.toMatchObject({
         annotationCount: 1,
         noteCount: 1,
@@ -432,6 +431,43 @@ describe('SqliteKnowledgeRepository', () => {
         summary: 'Evidence on merged work',
         notes: null,
       });
+      await database.knowledgeRepo.createWritingDocument({
+        id: 'writing-merge',
+        contextId: null,
+        title: 'Merge citations',
+      });
+      await database.knowledgeRepo.updateWritingStructure('writing-merge', {
+        expectedStructureRevision: 1,
+        revisionId: 'writing-merge-structure',
+        sections: [
+          {
+            id: 'writing-merge-section',
+            title: 'Sources',
+            position: 0,
+            existing: false,
+            blocks: [
+              {
+                id: 'writing-merge-citation',
+                sectionId: 'writing-merge-section',
+                kind: 'citation',
+                text: null,
+                targetId: 'work-2',
+                targetLabel: 'Merged paper',
+                citation: {
+                  editionId: 'edition-2',
+                  locator: '8',
+                  label: 'page',
+                  prefix: null,
+                  suffix: null,
+                  suppressAuthor: false,
+                },
+                position: 0,
+                existing: false,
+              },
+            ],
+          },
+        ],
+      });
       await database.knowledgeRepo.createMatrix({
         id: 'matrix-merge',
         contextId: null,
@@ -509,6 +545,15 @@ describe('SqliteKnowledgeRepository', () => {
         revision: 2,
         sourceSnapshot: { workId: 'work-2' },
       });
+      await expect(
+        database.knowledgeRepo.getWritingBlock('writing-merge-citation'),
+      ).resolves.toMatchObject({
+        kind: 'citation',
+        targetId: 'work-1',
+        targetLabel: 'Causal Paper',
+        citation: { editionId: 'edition-2', locator: '8' },
+        revision: 2,
+      });
       await expect(database.knowledgeRepo.getMatrix('matrix-merge', true)).resolves.toMatchObject({
         structureRevision: 3,
         columns: [
@@ -535,6 +580,15 @@ describe('SqliteKnowledgeRepository', () => {
         workId: 'work-2',
         revision: 3,
         sourceSnapshot: { workId: 'work-2' },
+      });
+      await expect(
+        database.knowledgeRepo.getWritingBlock('writing-merge-citation'),
+      ).resolves.toMatchObject({
+        kind: 'citation',
+        targetId: 'work-2',
+        targetLabel: 'Merged paper',
+        citation: { editionId: 'edition-2', locator: '8' },
+        revision: 3,
       });
       await expect(database.knowledgeRepo.getMatrix('matrix-merge', false)).resolves.toMatchObject({
         structureRevision: 4,
@@ -586,8 +640,46 @@ describe('SqliteKnowledgeRepository', () => {
         summary: 'Protected evidence',
         notes: null,
       });
+      await database.knowledgeRepo.createWritingDocument({
+        id: 'writing-protect',
+        contextId: null,
+        title: 'Protected citation',
+      });
+      await database.knowledgeRepo.updateWritingStructure('writing-protect', {
+        expectedStructureRevision: 1,
+        revisionId: 'writing-protect-structure',
+        sections: [
+          {
+            id: 'writing-protect-section',
+            title: 'Sources',
+            position: 0,
+            existing: false,
+            blocks: [
+              {
+                id: 'writing-protect-citation',
+                sectionId: 'writing-protect-section',
+                kind: 'citation',
+                text: null,
+                targetId: 'work-1',
+                targetLabel: 'Paper',
+                citation: {
+                  editionId: 'edition-1',
+                  locator: null,
+                  label: null,
+                  prefix: null,
+                  suffix: null,
+                  suppressAuthor: false,
+                },
+                position: 0,
+                existing: false,
+              },
+            ],
+          },
+        ],
+      });
       await expect(database.repo.getDeletionImpact('work-1')).resolves.toMatchObject({
         evidenceCount: 1,
+        citationCount: 1,
       });
       await expect(
         database.repo.getAttachmentDeletionImpact('attachment-1'),

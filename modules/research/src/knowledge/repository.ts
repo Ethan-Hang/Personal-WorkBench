@@ -29,6 +29,7 @@ import type {
   ResearchNote,
   WritingBlock,
   WritingBlockKind,
+  WritingCitationIntent,
   WritingDocument,
   WritingDocumentDetail,
   WritingDocumentStatus,
@@ -285,8 +286,16 @@ export interface WritingStructureBlockDraft {
   text: string | null;
   targetId: string | null;
   targetLabel: string | null;
+  citation: WritingCitationIntent | null;
   position: number;
   existing: boolean;
+}
+
+export interface WritingCitationTarget {
+  workId: string;
+  editionId: string | null;
+  title: string;
+  status: 'active' | 'trashed' | 'merged';
 }
 
 export interface WritingStructureSectionDraft {
@@ -496,6 +505,10 @@ export interface KnowledgeRepository {
     id: string,
     draft: WritingStructureDraft,
   ): Promise<KnowledgeChangeResult<WritingDocumentDetail>>;
+  getWritingCitationTarget(
+    workId: string,
+    editionId: string | null,
+  ): Promise<WritingCitationTarget | null>;
   getWritingBlock(id: string): Promise<WritingBlock | null>;
   updateWritingBlock(
     id: string,

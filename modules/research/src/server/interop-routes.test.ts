@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,9 @@ import {
   RESEARCH_API_V1,
   interopImportJobViewSchema,
   interopImportRecordsPageSchema,
+  interopExportJobViewSchema,
+  interopExportPreviewSchema,
+  citationRenderResultSchema,
 } from '../contract.js';
 import type { MetadataCoordinator } from '../metadata/coordinator.js';
 import { SqliteInteropRepository } from '../storage/sqlite-interop-repository.js';
@@ -26,6 +29,7 @@ async function fixture(contents: string, extension = 'bib') {
   const root = await mkdtemp(join(tmpdir(), 'research-interop-routes-'));
   temporaryDirectories.push(root);
   const source = join(root, `library.${extension}`);
+  const exportTarget = join(root, 'export.bib');
   await writeFile(source, contents, 'utf8');
   const { sqlite } = openTestDatabase();
   const repository = new SqliteResearchRepository(() => sqlite);
@@ -45,9 +49,10 @@ async function fixture(contents: string, extension = 'bib') {
     metadata,
     filePicker: { pick: async () => [] },
     interopFilePicker: { pickInteropSource: async () => source },
+    interopOutputDialog: { saveInterop: async () => exportTarget },
   });
   const app = await buildApp({ getSqlite: () => sqlite, modules: [module] });
-  return { app, sqlite, source };
+  return { app, sqlite, source, exportTarget };
 }
 
 async function waitForReview(app: Awaited<ReturnType<typeof buildApp>>, id: string) {
@@ -90,6 +95,16 @@ async function createAndParse(
     ).json(),
   );
   return { job, page };
+}
+
+async function waitForExport(app: Awaited<ReturnType<typeof buildApp>>, id: string) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const response = await app.inject({ method: 'GET', url: RESEARCH_API_V1.interopExport(id) });
+    const job = interopExportJobViewSchema.parse(response.json());
+    if (['completed', 'failed', 'cancelled'].includes(job.status)) return job;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('interop export did not finish');
 }
 
 describe('research interop HTTP API', () => {
@@ -422,6 +437,132 @@ describe('research interop HTTP API', () => {
       expect(titleAssertions).toContainEqual(
         expect.objectContaining({ is_user_confirmed: 0, is_selected: 0 }),
       );
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
+  it('冻结选择后安全导出，字段修改保留未知影子且过期预览被拒绝', async () => {
+    const { app, sqlite, source, exportTarget } = await fixture(
+      '@article{export-key,title={Original Title},year={2026},x-workbench={retain me}}',
+    );
+    try {
+      const imported = await createAndParse(app, source, 'export-source');
+      await app.inject({
+        method: 'PUT',
+        url: RESEARCH_API_V1.interopImportRecordDecision(
+          imported.job.id,
+          imported.page.items[0]!.id,
+        ),
+        payload: {
+          expectedRevision: imported.page.items[0]!.revision,
+          decision: { action: 'accept' },
+        },
+      });
+      await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.interopImportCommit(imported.job.id),
+        payload: { expectedRevision: imported.job.revision },
+      });
+      const entity = sqlite
+        .prepare(
+          `SELECT committed_work_id AS work_id, committed_edition_id AS edition_id
+           FROM research_interop_records WHERE job_id = ?`,
+        )
+        .get(imported.job.id) as { work_id: string; edition_id: string };
+      sqlite
+        .prepare(
+          `UPDATE research_works SET title = 'Revised Title', title_sort = 'revised title',
+           revision = revision + 1 WHERE id = ?`,
+        )
+        .run(entity.work_id);
+
+      const preview = interopExportPreviewSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.interopExportPreview,
+            payload: {
+              requestId: 'export-preview',
+              format: 'bibtex',
+              scope: { kind: 'selection', workIds: [entity.work_id] },
+              editionPolicy: 'preferred',
+            },
+          })
+        ).json(),
+      );
+      expect(preview).toMatchObject({ workCount: 1, recordCount: 1 });
+      expect(preview.losses).toContainEqual(expect.objectContaining({ status: 'normalized' }));
+      const picked = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.interopExportPickTarget,
+        payload: { format: 'bibtex' },
+      });
+      expect(picked.json()).toEqual({ path: exportTarget, cancelled: false });
+      const started = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.interopExport(preview.jobId),
+        payload: {
+          previewToken: preview.previewToken,
+          expectedRevision: preview.revision,
+          targetPath: exportTarget,
+          overwriteConfirmed: false,
+        },
+      });
+      expect(started.statusCode).toBe(202);
+      expect(await waitForExport(app, preview.jobId)).toMatchObject({
+        status: 'completed',
+        result: { recordCount: 1, overwritten: false },
+      });
+      const output = await readFile(exportTarget, 'utf8');
+      expect(output).toContain('Revised Title');
+      expect(output).toContain('x-workbench');
+
+      const citation = citationRenderResultSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.interopCitationRender,
+            payload: {
+              style: 'apa',
+              mode: 'citation',
+              items: [{ workId: entity.work_id, editionId: entity.edition_id }],
+            },
+          })
+        ).json(),
+      );
+      expect(citation).toMatchObject({ itemCount: 1, workIds: [entity.work_id] });
+      expect(citation.text).toContain('2026');
+
+      const stale = interopExportPreviewSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.interopExportPreview,
+            payload: {
+              requestId: 'export-stale',
+              format: 'bibtex',
+              scope: { kind: 'selection', workIds: [entity.work_id] },
+            },
+          })
+        ).json(),
+      );
+      sqlite
+        .prepare('UPDATE research_works SET revision = revision + 1 WHERE id = ?')
+        .run(entity.work_id);
+      const rejected = await app.inject({
+        method: 'POST',
+        url: RESEARCH_API_V1.interopExport(stale.jobId),
+        payload: {
+          previewToken: stale.previewToken,
+          expectedRevision: stale.revision,
+          targetPath: exportTarget,
+          overwriteConfirmed: true,
+        },
+      });
+      expect(rejected.statusCode).toBe(409);
+      expect(rejected.json()).toMatchObject({ code: 'RESEARCH_INTEROP_REVISION_CONFLICT' });
     } finally {
       await app.close();
       sqlite.close();
