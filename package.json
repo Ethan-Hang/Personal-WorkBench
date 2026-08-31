@@ -20,6 +20,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "research:b0": "node --expose-gc scripts/research-reader-b0.mjs",
+    "research:d0": "node --expose-gc scripts/research-interop-d0.mjs",
     "test": "vitest run",
     "check": "npm run format:check && npm run typecheck && npm run lint && npm run test",
     "db:generate": "drizzle-kit generate --config packages/data/drizzle.config.ts",
