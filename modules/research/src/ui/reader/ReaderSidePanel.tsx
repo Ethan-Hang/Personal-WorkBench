@@ -2,12 +2,15 @@ import { useMemo, useState } from 'react';
 import { Button } from '@workbench/ui';
 import type {
   Annotation,
+  OcrJob,
+  OcrLanguage,
   PageTextSearchResult,
   ReadingContext,
   TextIndexJob,
 } from '../../contract.js';
 import {
   ReaderSearchPanel,
+  type OcrControl,
   type TextIndexControl,
   type TextSearchScope,
 } from './ReaderSearchPanel.js';
@@ -43,10 +46,12 @@ export function ReaderSidePanel({
   collections,
   busy,
   textIndexJob,
+  ocrJob,
   textSearchQuery,
   textSearchScope,
   textSearchResults,
   textIndexBusy,
+  ocrBusy,
   textSearching,
   textSearchError,
   undoLabel,
@@ -63,6 +68,7 @@ export function ReaderSidePanel({
   onTextSearch,
   onTextSearchScope,
   onTextIndexControl,
+  onOcrControl,
   onLocateTextResult,
 }: {
   outline: ReaderOutlineItem[];
@@ -75,10 +81,12 @@ export function ReaderSidePanel({
   collections: ReaderCollectionOption[];
   busy: boolean;
   textIndexJob: TextIndexJob | null;
+  ocrJob: OcrJob | null;
   textSearchQuery: string;
   textSearchScope: TextSearchScope;
   textSearchResults: PageTextSearchResult[];
   textIndexBusy: boolean;
+  ocrBusy: boolean;
   textSearching: boolean;
   textSearchError: string | null;
   undoLabel: string | null;
@@ -98,6 +106,7 @@ export function ReaderSidePanel({
   onTextSearch: (query: string) => void;
   onTextSearchScope: (scope: TextSearchScope) => void;
   onTextIndexControl: (control: TextIndexControl) => void;
+  onOcrControl: (control: OcrControl, languages: OcrLanguage[]) => void;
   onLocateTextResult: (result: PageTextSearchResult) => void;
 }) {
   const [panel, setPanel] = useState<'annotations' | 'search' | 'outline'>('annotations');
@@ -183,15 +192,18 @@ export function ReaderSidePanel({
       ) : panel === 'search' ? (
         <ReaderSearchPanel
           job={textIndexJob}
+          ocrJob={ocrJob}
           query={textSearchQuery}
           scope={textSearchScope}
           results={textSearchResults}
           busy={textIndexBusy}
+          ocrBusy={ocrBusy}
           searching={textSearching}
           error={textSearchError}
           onSearch={onTextSearch}
           onScope={onTextSearchScope}
           onControl={onTextIndexControl}
+          onOcrControl={onOcrControl}
           onLocate={onLocateTextResult}
         />
       ) : (

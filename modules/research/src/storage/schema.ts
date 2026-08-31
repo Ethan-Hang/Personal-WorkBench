@@ -758,6 +758,7 @@ export const researchOcrJobs = sqliteTable(
     assetId: text('asset_id')
       .notNull()
       .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    assetHash: text('asset_hash').notNull(),
     status: text('status').notNull().default('queued'),
     languagesJson: text('languages_json').notNull(),
     engine: text('engine').notNull(),
@@ -778,6 +779,48 @@ export const researchOcrJobs = sqliteTable(
       sql`${table.nextPage} >= 1 AND ${table.totalPages} >= 0`,
     ),
     index('idx_research_ocr_jobs_asset_status').on(table.assetId, table.status, table.updatedAt),
+  ],
+);
+
+export const researchOcrPageCache = sqliteTable(
+  'research_ocr_page_cache',
+  {
+    assetId: text('asset_id')
+      .notNull()
+      .references(() => researchAssets.id, { onDelete: 'cascade' }),
+    assetHash: text('asset_hash').notNull(),
+    pageNumber: integer('page_number').notNull(),
+    languagesKey: text('languages_key').notNull(),
+    engine: text('engine').notNull(),
+    engineVersion: text('engine_version').notNull(),
+    languagePackVersion: text('language_pack_version').notNull(),
+    textContent: text('text_content').notNull(),
+    positionJson: text('position_json'),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    primaryKey({
+      columns: [
+        table.assetId,
+        table.assetHash,
+        table.pageNumber,
+        table.languagesKey,
+        table.engine,
+        table.engineVersion,
+        table.languagePackVersion,
+      ],
+    }),
+    check('ck_research_ocr_page_cache_page', sql`${table.pageNumber} >= 1`),
+    index('idx_research_ocr_page_cache_lookup').on(
+      table.assetId,
+      table.assetHash,
+      table.languagesKey,
+      table.engine,
+      table.engineVersion,
+      table.languagePackVersion,
+      table.pageNumber,
+    ),
   ],
 );
 

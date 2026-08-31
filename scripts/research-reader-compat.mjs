@@ -31,6 +31,7 @@ function parseArgs(argv) {
 Usage:
   node scripts/research-reader-compat.mjs --phase b1 --browser [--pdf PATH]
   node scripts/research-reader-compat.mjs --phase b2 --browser
+  node scripts/research-reader-compat.mjs --phase b3 --browser --ocr [--scanned-pdf PATH]
   node scripts/research-reader-compat.mjs --phase all --browser --ocr --pdf PATH --scanned-pdf PATH
 
 The runner records compatibility by module and current platform. It never marks an untested
@@ -112,7 +113,7 @@ async function run(command, args) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (!['b1', 'b2'].includes(options.phase)) {
+  if (!['b1', 'b2', 'b3'].includes(options.phase)) {
     throw new Error(
       `${options.phase} compatibility modules are enabled when that phase is implemented`,
     );
@@ -125,6 +126,7 @@ async function main() {
   let moduleRun;
   let b0Output = null;
   let b0Result = null;
+  let ocrSpikeRun = null;
   if (options.phase === 'b1') {
     b0Output = path.join(outputRoot, 'b0.json');
     const b0Args = [
@@ -139,13 +141,39 @@ async function main() {
     if (options.scannedPdf) b0Args.push('--pdf', path.resolve(options.scannedPdf));
     moduleRun = await run(process.execPath, b0Args);
     b0Result = JSON.parse(await readFile(b0Output, 'utf8'));
-  } else {
+  } else if (options.phase === 'b2') {
     moduleRun = await run(process.execPath, [
       path.join(repoRoot, 'node_modules', 'vitest', 'vitest.mjs'),
       'run',
       'modules/research/src/acceptance/slice-b-workflow.test.ts',
       'modules/research/src/reader/text-index-service.test.ts',
     ]);
+  } else {
+    moduleRun = await run(process.execPath, [
+      path.join(repoRoot, 'node_modules', 'vitest', 'vitest.mjs'),
+      'run',
+      'modules/research/src/ocr',
+      'modules/research/src/storage/ocr-jobs.test.ts',
+      'modules/research/src/server/ocr-routes.test.ts',
+      'modules/research/src/interop/annotated-export.test.ts',
+      'modules/research/src/annotated-export/service.test.ts',
+      'modules/research/src/storage/annotated-export-jobs.test.ts',
+      'modules/research/src/server/annotated-export-routes.test.ts',
+      'modules/research/src/ui/api.test.ts',
+    ]);
+    if (options.ocr) {
+      b0Output = path.join(outputRoot, 'b0-ocr.json');
+      const b0Args = [
+        '--expose-gc',
+        path.join(scriptDir, 'research-reader-b0.mjs'),
+        '--ocr',
+        '--output',
+        b0Output,
+      ];
+      if (options.scannedPdf) b0Args.push('--pdf', path.resolve(options.scannedPdf));
+      ocrSpikeRun = await run(process.execPath, b0Args);
+      b0Result = JSON.parse(await readFile(b0Output, 'utf8'));
+    }
   }
 
   let visualOutput = null;
@@ -167,6 +195,37 @@ async function main() {
   const pendingRequiredPlatforms = ['darwin-arm64', 'win32-x64'].filter(
     (platform) => platform !== currentPlatform,
   );
+  const moduleId =
+    options.phase === 'b1'
+      ? 'b1-pdfjs-range-resource-lifecycle'
+      : options.phase === 'b2'
+        ? 'b2-context-annotation-and-text-index'
+        : 'b3-local-ocr-worker-and-recovery';
+  const uiModuleId =
+    options.phase === 'b1'
+      ? 'b1-reader-ui-and-states'
+      : options.phase === 'b2'
+        ? 'b2-reader-ui-and-search'
+        : 'b3-local-ocr-controls';
+  const annotatedExportModules =
+    options.phase === 'b3'
+      ? [
+          {
+            id: 'b3-annotated-pdf-export-and-recovery',
+            platform: currentPlatform,
+            status: 'passed',
+            durationMs: moduleRun.durationMs,
+            evidence: 'modules/research/src/annotated-export/service.test.ts',
+          },
+          {
+            id: 'b3-annotated-export-controls',
+            platform: currentPlatform,
+            status: options.browser ? 'passed' : 'not-run',
+            durationMs: visualRun?.durationMs ?? null,
+            evidence: visualOutput ? path.relative(repoRoot, visualOutput) : null,
+          },
+        ]
+      : [];
   const result = {
     status: 'passed',
     phase: options.phase,
@@ -185,13 +244,22 @@ async function main() {
     corpus:
       options.phase === 'b1'
         ? ['generated text', '180-page non-linearized', 'blank', 'encrypted', 'corrupt']
-        : [
-            'generated text',
-            '180-page non-linearized',
-            'annotations',
-            'empty state',
-            'page text index',
-          ],
+        : options.phase === 'b2'
+          ? [
+              'generated text',
+              '180-page non-linearized',
+              'annotations',
+              'empty state',
+              'page text index',
+            ]
+          : [
+              'generated English and Simplified Chinese',
+              'blank scan proxy',
+              'mixed native and OCR page text',
+              'standard PDF annotations and flattened bookmark',
+              'rotated and incremental-update PDF inputs',
+              ...(options.scannedPdf ? ['private local scanned PDF'] : []),
+            ],
     conditions: {
       visualProfiles: options.browser ? 'fresh profile per viewport and state' : 'not-run',
       lifecycle:
@@ -207,43 +275,66 @@ async function main() {
             lifecycleHeapGrowthMiB: b0Result.browser?.lifecycleHeapGrowthMiB,
           }
         : null,
+    ocrSpike:
+      options.phase === 'b3' && options.ocr
+        ? {
+            status: 'passed',
+            durationMs: ocrSpikeRun?.durationMs ?? null,
+            accuracy: b0Result?.ocr?.accuracy ?? null,
+            cancellationMs: b0Result?.ocr?.cancellation?.cancelMs ?? null,
+            evidence: path.relative(repoRoot, b0Output),
+          }
+        : null,
     modules: [
       {
-        id:
-          options.phase === 'b1'
-            ? 'b1-pdfjs-range-resource-lifecycle'
-            : 'b2-context-annotation-and-text-index',
+        id: moduleId,
         platform: currentPlatform,
         status: 'passed',
         durationMs: moduleRun.durationMs,
         evidence:
           options.phase === 'b1'
             ? path.relative(repoRoot, b0Output)
-            : 'modules/research/src/acceptance/slice-b-workflow.test.ts',
+            : options.phase === 'b2'
+              ? 'modules/research/src/acceptance/slice-b-workflow.test.ts'
+              : 'modules/research/src/ocr',
       },
       {
-        id: options.phase === 'b1' ? 'b1-reader-ui-and-states' : 'b2-reader-ui-and-search',
+        id: uiModuleId,
         platform: currentPlatform,
         status: options.browser ? 'passed' : 'not-run',
         durationMs: visualRun?.durationMs ?? null,
         evidence: visualOutput ? path.relative(repoRoot, visualOutput) : null,
       },
+      ...annotatedExportModules,
       ...pendingRequiredPlatforms.flatMap((platform) => [
         {
-          id:
-            options.phase === 'b1'
-              ? 'b1-pdfjs-range-resource-lifecycle'
-              : 'b2-context-annotation-and-text-index',
+          id: moduleId,
           platform,
           status: 'not-run',
           evidence: null,
         },
         {
-          id: options.phase === 'b1' ? 'b1-reader-ui-and-states' : 'b2-reader-ui-and-search',
+          id: uiModuleId,
           platform,
           status: 'not-run',
           evidence: null,
         },
+        ...(options.phase === 'b3'
+          ? [
+              {
+                id: 'b3-annotated-pdf-export-and-recovery',
+                platform,
+                status: 'not-run',
+                evidence: null,
+              },
+              {
+                id: 'b3-annotated-export-controls',
+                platform,
+                status: 'not-run',
+                evidence: null,
+              },
+            ]
+          : []),
       ]),
     ],
   };

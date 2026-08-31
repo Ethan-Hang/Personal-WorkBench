@@ -12,6 +12,7 @@ import type {
   Annotation,
   AnnotationAnchor,
   AnnotationKind,
+  OcrLanguage,
   PageTextSearchResult,
   ReaderManifest,
   ReaderStatePosition,
@@ -21,25 +22,32 @@ import {
   fetchAnnotations,
   fetchCollectionReadingContext,
   fetchCollections,
+  fetchOcrJob,
   fetchPageTextSearch,
   fetchReadingContexts,
   fetchTextIndexJob,
   patchAnnotation,
   postAnnotation,
+  postCancelOcr,
   postReadingContext,
+  postPauseOcr,
+  postRebuildOcr,
   postCancelTextIndex,
   postPauseTextIndex,
   postRebuildTextIndex,
   postResumeTextIndex,
+  postResumeOcr,
+  postStartOcr,
   postStartTextIndex,
   postRestoreAnnotation,
   putCollectionReadingContext,
 } from '../api.js';
 import { PasswordPrompt } from './PasswordPrompt.js';
+import { AnnotatedExportDialog } from './AnnotatedExportDialog.js';
 import { PdfViewport } from './PdfViewport.js';
 import { pdfPageCache } from './page-cache.js';
 import { ReaderSidePanel, type ReaderOutlineItem } from './ReaderSidePanel.js';
-import type { TextIndexControl, TextSearchScope } from './ReaderSearchPanel.js';
+import type { OcrControl, TextIndexControl, TextSearchScope } from './ReaderSearchPanel.js';
 import { ReaderToolbar } from './ReaderToolbar.js';
 import { annotationPageOffsetRatio } from './anchor.js';
 import {
@@ -121,6 +129,7 @@ export function ReaderWorkspace({
   );
   const [includeGeneral, setIncludeGeneral] = useState(true);
   const [annotationError, setAnnotationError] = useState<string | null>(null);
+  const [annotatedExportOpen, setAnnotatedExportOpen] = useState(false);
   const [undoAnnotation, setUndoAnnotation] = useState<Annotation | null>(null);
   const [textSearchQuery, setTextSearchQuery] = useState('');
   const [textSearchScope, setTextSearchScope] = useState<TextSearchScope>('document');
@@ -164,6 +173,14 @@ export function ReaderWorkspace({
       return status === 'queued' || status === 'running' ? 750 : false;
     },
   });
+  const ocrQuery = useQuery({
+    queryKey: ['research', 'ocr', manifest.assetId],
+    queryFn: () => fetchOcrJob(manifest.assetId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'queued' || status === 'running' ? 750 : false;
+    },
+  });
   const pageSearchQuery = useQuery({
     queryKey: [
       'research',
@@ -178,7 +195,10 @@ export function ReaderWorkspace({
       }),
     enabled: textSearchQuery.length > 0,
     refetchInterval:
-      textIndexQuery.data?.status === 'queued' || textIndexQuery.data?.status === 'running'
+      textIndexQuery.data?.status === 'queued' ||
+      textIndexQuery.data?.status === 'running' ||
+      ocrQuery.data?.status === 'queued' ||
+      ocrQuery.data?.status === 'running'
         ? 1_000
         : false,
   });
@@ -281,6 +301,25 @@ export function ReaderWorkspace({
     },
     onError: (cause) =>
       setAnnotationError(cause instanceof Error ? cause.message : '正文索引操作失败'),
+  });
+  const ocrMutation = useMutation({
+    mutationFn: ({ control, languages }: { control: OcrControl; languages: OcrLanguage[] }) => {
+      if (control === 'start') return postStartOcr(manifest.assetId, languages);
+      if (control === 'pause') return postPauseOcr(manifest.assetId);
+      if (control === 'cancel') return postCancelOcr(manifest.assetId);
+      if (control === 'resume') return postResumeOcr(manifest.assetId);
+      return postRebuildOcr(manifest.assetId, languages);
+    },
+    onSuccess: (job) => {
+      setAnnotationError(null);
+      queryClient.setQueryData(['research', 'ocr', manifest.assetId], job);
+      void queryClient.invalidateQueries({
+        queryKey: ['research', 'text-index', manifest.assetId],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['research', 'page-text-search'] });
+    },
+    onError: (cause) =>
+      setAnnotationError(cause instanceof Error ? cause.message : '本地 OCR 操作失败'),
   });
   const controlTextIndex = textIndexMutation.mutate;
   const annotationPending =
@@ -533,13 +572,18 @@ export function ReaderWorkspace({
             </p>
           </div>
         </div>
-        <div className="shrink-0 text-right">
-          <p className="text-[10px] font-semibold text-secondary">{saveLabel}</p>
-          {readerState.error && (
-            <p className="mt-0.5 max-w-56 truncate text-[10px] text-critical">
-              {readerState.error}
-            </p>
-          )}
+        <div className="flex shrink-0 items-center gap-3">
+          <Button size="sm" onClick={() => setAnnotatedExportOpen(true)}>
+            导出副本
+          </Button>
+          <div className="text-right">
+            <p className="text-[10px] font-semibold text-secondary">{saveLabel}</p>
+            {readerState.error && (
+              <p className="mt-0.5 max-w-56 truncate text-[10px] text-critical">
+                {readerState.error}
+              </p>
+            )}
+          </div>
         </div>
       </header>
 
@@ -622,10 +666,12 @@ export function ReaderWorkspace({
               }))}
               busy={annotationPending}
               textIndexJob={textIndexQuery.data ?? null}
+              ocrJob={ocrQuery.data ?? null}
               textSearchQuery={textSearchQuery}
               textSearchScope={textSearchScope}
               textSearchResults={pageSearchQuery.data ?? []}
               textIndexBusy={textIndexMutation.isPending}
+              ocrBusy={ocrMutation.isPending}
               textSearching={pageSearchQuery.isFetching}
               textSearchError={
                 pageSearchQuery.error instanceof Error ? pageSearchQuery.error.message : null
@@ -658,6 +704,7 @@ export function ReaderWorkspace({
               onTextSearch={setTextSearchQuery}
               onTextSearchScope={setTextSearchScope}
               onTextIndexControl={controlTextIndex}
+              onOcrControl={(control, languages) => ocrMutation.mutate({ control, languages })}
               onLocateTextResult={locateTextResult}
             />
           </div>
@@ -677,6 +724,16 @@ export function ReaderWorkspace({
           onSubmit={passwordRequest.submit}
         />
       )}
+
+      <AnnotatedExportDialog
+        open={annotatedExportOpen}
+        assetId={manifest.assetId}
+        displayName={manifest.displayName}
+        includeGeneral={includeGeneral}
+        visibleContextIds={[...visibleContextIds].sort()}
+        contexts={contexts}
+        onClose={() => setAnnotatedExportOpen(false)}
+      />
     </section>
   );
 }

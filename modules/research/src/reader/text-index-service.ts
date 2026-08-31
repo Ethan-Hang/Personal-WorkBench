@@ -37,9 +37,15 @@ export class ResearchTextIndexService {
   private readonly parserVersion: string;
   private readonly yieldMs: number;
   private readonly queue: QueuedExtraction[] = [];
+  private readonly suspendedForOcr: QueuedExtraction[] = [];
   private readonly stopStatuses = new Map<string, StopStatus>();
-  private active: { assetId: string; controller: AbortController } | null = null;
+  private active: {
+    assetId: string;
+    controller: AbortController;
+    queued: QueuedExtraction;
+  } | null = null;
   private pumpPromise: Promise<void> | null = null;
+  private ocrSuspended = false;
 
   constructor(
     private readonly repository: TextIndexRepository,
@@ -76,6 +82,32 @@ export class ResearchTextIndexService {
       this.active.controller.abort();
     }
     await this.pumpPromise;
+  }
+
+  async suspendForOcr(ocrAssetId: string): Promise<void> {
+    this.ocrSuspended = true;
+    for (const queued of this.queue.splice(0)) {
+      await this.repository.setTextIndexJobStatus(queued.assetId, 'paused', 'OCR_ACTIVE');
+      if (queued.assetId !== ocrAssetId) this.rememberSuspended(queued);
+    }
+    if (this.active) {
+      const queued = this.active.queued;
+      this.stopStatuses.set(queued.assetId, 'paused');
+      this.active.controller.abort();
+      await this.pumpPromise;
+      await this.repository.setTextIndexJobStatus(queued.assetId, 'paused', 'OCR_ACTIVE');
+      if (queued.assetId !== ocrAssetId) this.rememberSuspended(queued);
+    }
+  }
+
+  async resumeAfterOcr(): Promise<void> {
+    this.ocrSuspended = false;
+    const suspended = this.suspendedForOcr.splice(0);
+    for (const queued of suspended) {
+      const job = await this.repository.queueTextIndexJob(queued.assetId);
+      if (job) this.queue.push(queued);
+    }
+    this.startPump();
   }
 
   async get(assetId: string): Promise<TextIndexJob | null> {
@@ -145,10 +177,13 @@ export class ResearchTextIndexService {
       priorityPage,
     };
     const previous = this.queue.findIndex((candidate) => candidate.assetId === assetId);
-    if (previous >= 0) this.queue[previous] = queued;
+    if (this.ocrSuspended) {
+      await this.repository.setTextIndexJobStatus(assetId, 'paused', 'OCR_ACTIVE');
+      this.rememberSuspended(queued);
+    } else if (previous >= 0) this.queue[previous] = queued;
     else if (this.active?.assetId !== assetId) this.queue.push(queued);
     this.startPump();
-    return this.view(job);
+    return this.view((await this.repository.getTextIndexJob(assetId)) ?? job);
   }
 
   private async stopOrThrow(assetId: string, status: StopStatus): Promise<TextIndexJob> {
@@ -182,7 +217,7 @@ export class ResearchTextIndexService {
   }
 
   private startPump(): void {
-    if (this.pumpPromise) return;
+    if (this.pumpPromise || this.ocrSuspended) return;
     this.pumpPromise = this.pump().finally(() => {
       this.pumpPromise = null;
       if (this.queue.length > 0) this.startPump();
@@ -194,7 +229,7 @@ export class ResearchTextIndexService {
       const queued = this.queue.shift();
       if (!queued) return;
       const controller = new AbortController();
-      this.active = { assetId: queued.assetId, controller };
+      this.active = { assetId: queued.assetId, controller, queued };
       try {
         await this.run(queued, controller.signal);
       } finally {
@@ -202,6 +237,14 @@ export class ResearchTextIndexService {
         this.stopStatuses.delete(queued.assetId);
       }
     }
+  }
+
+  private rememberSuspended(queued: QueuedExtraction): void {
+    const previous = this.suspendedForOcr.findIndex(
+      (candidate) => candidate.assetId === queued.assetId,
+    );
+    if (previous >= 0) this.suspendedForOcr[previous] = queued;
+    else this.suspendedForOcr.push(queued);
   }
 
   private async run(queued: QueuedExtraction, signal: AbortSignal): Promise<void> {

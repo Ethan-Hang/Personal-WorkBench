@@ -27,7 +27,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
-    "@napi-rs/canvas": "1.0.7",
     "@types/node": "^22.10.0",
     "concurrently": "^9.1.0",
     "drizzle-kit": "^0.31.0",
@@ -35,7 +34,6 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.4.3",
     "prettier": "^3.4.0",
-    "tesseract.js": "7.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.19.0",
@@ -47,8 +45,12 @@
     "*.{ts,tsx,js,json,md,css,yml}": "prettier --write"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.7",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "better-sqlite3": "^13.0.3",
-    "pdfjs-dist": "6.2.108"
+    "pdfjs-dist": "6.2.108",
+    "tesseract.js": "7.0.0"
   },
   "allowScripts": {
     "better-sqlite3@13.0.3": true,

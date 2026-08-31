@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   RESEARCH_API_V1,
+  annotatedExportJobSchema,
+  annotatedExportPreviewInputSchema,
   annotationAnchorSchema,
   assetLocationViewSchema,
   createAnnotationInputSchema,
   importItemViewSchema,
   metadataAssertionViewSchema,
+  ocrJobSchema,
   pageTextSearchResponseSchema,
   readerManifestSchema,
   readingContextCatalogSchema,
   saveReaderStateInputSchema,
+  startOcrInputSchema,
   textIndexJobSchema,
   workDetailViewSchema,
   workViewSchema,
@@ -33,6 +37,15 @@ describe('research contract', () => {
     );
     expect(RESEARCH_API_V1.assetTextIndexStart('asset-1')).toBe(
       '/api/research/v1/assets/asset-1/text-index/start',
+    );
+    expect(RESEARCH_API_V1.assetOcrStart('asset-1')).toBe(
+      '/api/research/v1/assets/asset-1/ocr/start',
+    );
+    expect(RESEARCH_API_V1.assetAnnotatedExports('asset-1')).toBe(
+      '/api/research/v1/assets/asset-1/annotated-exports',
+    );
+    expect(RESEARCH_API_V1.annotatedExportJob('export-1')).toBe(
+      '/api/research/v1/annotated-exports/export-1',
     );
   });
 
@@ -139,6 +152,96 @@ describe('research contract', () => {
         ],
       }).results[0],
     ).toMatchObject({ pageNumber: 3, position: { x: 72, y: 700 } });
+  });
+
+  it('OCR 必须由用户确认语言后启动，并返回可恢复进度', () => {
+    expect(
+      startOcrInputSchema.parse({ languages: ['eng', 'chi_sim', 'eng'], confirmed: true }),
+    ).toEqual({ languages: ['chi_sim', 'eng'], confirmed: true });
+    expect(() => startOcrInputSchema.parse({ languages: ['eng'], confirmed: false })).toThrow();
+    expect(
+      ocrJobSchema.parse({
+        id: 'ocr-1',
+        assetId: 'asset-1',
+        assetHash: 'c'.repeat(64),
+        status: 'interrupted',
+        languages: ['chi_sim', 'eng'],
+        engine: 'tesseract.js',
+        engineVersion: '7.0.0',
+        languagePackVersion: '4.0.0_best_int/npm-1.0.0',
+        nextPage: 3,
+        totalPages: 8,
+        processedPages: 2,
+        errorCode: 'PROCESS_RESTARTED',
+        createdAt: instant,
+        updatedAt: instant,
+        completedAt: null,
+      }),
+    ).toMatchObject({ status: 'interrupted', processedPages: 2 });
+  });
+
+  it('带批注副本固定可见层范围，并在报告中逐项记录处理方式', () => {
+    expect(
+      annotatedExportPreviewInputSchema.parse({
+        includeGeneral: true,
+        contextIds: ['context-b', 'context-a', 'context-b'],
+      }),
+    ).toEqual({ includeGeneral: true, contextIds: ['context-a', 'context-b'] });
+    const job = annotatedExportJobSchema.parse({
+      id: 'export-1',
+      assetId: 'asset-1',
+      status: 'completed',
+      options: {
+        includeGeneral: true,
+        contextIds: ['context-a'],
+        targetPath: '/exports/paper-annotated.pdf',
+        overwriteConfirmed: false,
+      },
+      targetPath: '/exports/paper-annotated.pdf',
+      completedAnnotations: 1,
+      totalAnnotations: 1,
+      report: {
+        schemaVersion: 1,
+        assetId: 'asset-1',
+        sourceHash: 'a'.repeat(64),
+        outputHash: 'b'.repeat(64),
+        sourceBytes: 42,
+        outputBytes: 84,
+        pageCount: 2,
+        targetPath: '/exports/paper-annotated.pdf',
+        standardCount: 1,
+        flattenedCount: 0,
+        skippedCount: 0,
+        sourceHashUnchanged: true,
+        outputReadable: true,
+        fullRewrite: true,
+        decisions: [
+          {
+            annotationId: 'annotation-1',
+            revision: 2,
+            contextId: 'context-a',
+            kind: 'highlight',
+            treatment: 'standard',
+            warning: null,
+          },
+        ],
+        warnings: ['输出是新的完整重写副本'],
+        completedAt: instant,
+      },
+      errorCode: null,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: instant,
+    });
+    expect(job.report?.decisions[0]).toEqual({
+      annotationId: 'annotation-1',
+      revision: 2,
+      contextId: 'context-a',
+      kind: 'highlight',
+      treatment: 'standard',
+      warning: null,
+    });
+    expect(JSON.stringify(job.report)).not.toContain('body');
   });
 
   it('未保存阅读状态使用 revision 0，不伪造持久化时间', () => {

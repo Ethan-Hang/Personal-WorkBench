@@ -75,6 +75,20 @@ export const RESEARCH_API_V1 = {
   assetTextIndexCancel: (id: string) => `${API_ROOT}/assets/${id}/text-index/cancel`,
   assetTextIndexResume: (id: string) => `${API_ROOT}/assets/${id}/text-index/resume`,
   assetTextIndexRebuild: (id: string) => `${API_ROOT}/assets/${id}/text-index/rebuild`,
+  assetOcr: (id: string) => `${API_ROOT}/assets/${id}/ocr`,
+  assetOcrStart: (id: string) => `${API_ROOT}/assets/${id}/ocr/start`,
+  assetOcrPause: (id: string) => `${API_ROOT}/assets/${id}/ocr/pause`,
+  assetOcrCancel: (id: string) => `${API_ROOT}/assets/${id}/ocr/cancel`,
+  assetOcrResume: (id: string) => `${API_ROOT}/assets/${id}/ocr/resume`,
+  assetOcrRebuild: (id: string) => `${API_ROOT}/assets/${id}/ocr/rebuild`,
+  assetAnnotatedExportPreview: (id: string) => `${API_ROOT}/assets/${id}/annotated-export/preview`,
+  assetAnnotatedExportPickTarget: (id: string) =>
+    `${API_ROOT}/assets/${id}/annotated-export/pick-target`,
+  assetAnnotatedExports: (id: string) => `${API_ROOT}/assets/${id}/annotated-exports`,
+  annotatedExportJob: (id: string) => `${API_ROOT}/annotated-exports/${id}`,
+  annotatedExportCancel: (id: string) => `${API_ROOT}/annotated-exports/${id}/cancel`,
+  annotatedExportRetry: (id: string) => `${API_ROOT}/annotated-exports/${id}/retry`,
+  annotatedExportOpenLocation: (id: string) => `${API_ROOT}/annotated-exports/${id}/open-location`,
   pageTextSearch: `${API_ROOT}/page-text/search`,
   readingContexts: `${API_ROOT}/reading-contexts`,
   readingContext: (id: string) => `${API_ROOT}/reading-contexts/${id}`,
@@ -234,6 +248,13 @@ export const RESEARCH_ERROR_CODES = [
   'READER_STATE_CONFLICT',
   'READER_INDEX_NOT_FOUND',
   'READER_INDEX_FAILED',
+  'READER_OCR_NOT_FOUND',
+  'READER_OCR_BUSY',
+  'READER_OCR_FAILED',
+  'READER_EXPORT_NOT_FOUND',
+  'READER_EXPORT_BUSY',
+  'READER_EXPORT_FAILED',
+  'READER_EXPORT_TARGET_EXISTS',
   'ANNOTATION_ASSET_NOT_FOUND',
   'ANNOTATION_CONTEXT_NOT_FOUND',
   'ANNOTATION_NOT_FOUND',
@@ -274,6 +295,9 @@ export type AnnotationKind = (typeof ANNOTATION_KINDS)[number];
 export const ANNOTATION_STATUSES = ['active', 'deleted', 'needs-review'] as const;
 export type AnnotationStatus = (typeof ANNOTATION_STATUSES)[number];
 
+export const ANNOTATED_EXPORT_TREATMENTS = ['standard', 'flattened', 'skipped'] as const;
+export type AnnotatedExportTreatment = (typeof ANNOTATED_EXPORT_TREATMENTS)[number];
+
 export const GENERAL_READING_CONTEXT_ID = 'general' as const;
 
 export const READING_CONTEXT_ARCHIVE_STRATEGIES = ['move-to-general', 'keep-archived'] as const;
@@ -292,6 +316,9 @@ export type DerivedJobStatus = (typeof DERIVED_JOB_STATUSES)[number];
 
 export const TEXT_INDEX_STATUSES = [...DERIVED_JOB_STATUSES, 'ocr-recommended'] as const;
 export type TextIndexStatus = (typeof TEXT_INDEX_STATUSES)[number];
+
+export const OCR_LANGUAGES = ['eng', 'chi_sim'] as const;
+export type OcrLanguage = (typeof OCR_LANGUAGES)[number];
 
 export const instantSchema = z.string().datetime({ precision: 3 });
 export const researchIdSchema = z.string().min(1).max(128);
@@ -360,6 +387,35 @@ export const startTextIndexInputSchema = z.object({
   priorityPage: z.number().int().positive().nullable().default(null),
 });
 export type StartTextIndexInput = z.infer<typeof startTextIndexInputSchema>;
+
+export const ocrJobSchema = z.object({
+  id: researchIdSchema,
+  assetId: researchIdSchema,
+  assetHash: sha256Schema,
+  status: z.enum(DERIVED_JOB_STATUSES),
+  languages: z.array(z.enum(OCR_LANGUAGES)).min(1).max(OCR_LANGUAGES.length),
+  engine: z.string().min(1),
+  engineVersion: z.string().min(1),
+  languagePackVersion: z.string().min(1),
+  nextPage: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+  processedPages: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type OcrJob = z.infer<typeof ocrJobSchema>;
+
+export const startOcrInputSchema = z.object({
+  languages: z
+    .array(z.enum(OCR_LANGUAGES))
+    .min(1)
+    .transform((languages) => [...new Set(languages)].sort() as OcrLanguage[])
+    .refine((languages) => languages.length <= OCR_LANGUAGES.length),
+  confirmed: z.literal(true),
+});
+export type StartOcrInput = z.infer<typeof startOcrInputSchema>;
 
 export const pageTextPositionSchema = z.object({
   start: z.number().int().nonnegative(),
@@ -562,6 +618,118 @@ export const annotationRevisionSchema = z.object({
   createdAt: instantSchema,
 });
 export type AnnotationRevision = z.infer<typeof annotationRevisionSchema>;
+
+const annotatedExportContextIdsSchema = z
+  .array(researchIdSchema)
+  .max(64)
+  .transform((contextIds) => [...new Set(contextIds)].sort());
+
+export const annotatedExportScopeSchema = z.object({
+  includeGeneral: z.boolean().default(true),
+  contextIds: annotatedExportContextIdsSchema.default([]),
+});
+export type AnnotatedExportScope = z.infer<typeof annotatedExportScopeSchema>;
+
+export const annotatedExportPreviewInputSchema = annotatedExportScopeSchema.extend({
+  targetPath: z.string().trim().min(1).max(4_096).optional(),
+});
+export type AnnotatedExportPreviewInput = z.infer<typeof annotatedExportPreviewInputSchema>;
+
+export const startAnnotatedExportInputSchema = annotatedExportScopeSchema.extend({
+  targetPath: z.string().trim().min(1).max(4_096),
+  overwriteConfirmed: z.boolean().default(false),
+});
+export type StartAnnotatedExportInput = z.infer<typeof startAnnotatedExportInputSchema>;
+
+export const pickAnnotatedExportTargetInputSchema = z.object({
+  initialDir: z.string().trim().min(1).max(4_096).optional(),
+  suggestedName: z.string().trim().min(1).max(240),
+});
+export type PickAnnotatedExportTargetInput = z.infer<typeof pickAnnotatedExportTargetInputSchema>;
+
+export const pickAnnotatedExportTargetResponseSchema = z.object({
+  path: z.string().min(1).nullable(),
+  cancelled: z.boolean(),
+});
+export type PickAnnotatedExportTargetResponse = z.infer<
+  typeof pickAnnotatedExportTargetResponseSchema
+>;
+
+export const annotatedExportDecisionSchema = z.object({
+  annotationId: researchIdSchema,
+  revision: z.number().int().positive(),
+  contextId: researchIdSchema.nullable(),
+  kind: z.enum(ANNOTATION_KINDS),
+  treatment: z.enum(ANNOTATED_EXPORT_TREATMENTS),
+  warning: z.string().nullable(),
+});
+export type AnnotatedExportDecision = z.infer<typeof annotatedExportDecisionSchema>;
+
+export const annotatedExportPreviewSchema = z.object({
+  assetId: researchIdSchema,
+  sourceHash: sha256Schema,
+  sourceBytes: z.number().int().nonnegative(),
+  estimatedOutputBytes: z.number().int().nonnegative(),
+  pageCount: z.number().int().positive(),
+  annotationCount: z.number().int().nonnegative(),
+  standardCount: z.number().int().nonnegative(),
+  flattenedCount: z.number().int().nonnegative(),
+  skippedCount: z.number().int().nonnegative(),
+  targetPath: z.string().nullable(),
+  targetExists: z.boolean(),
+  decisions: z.array(annotatedExportDecisionSchema),
+  warnings: z.array(z.string()),
+});
+export type AnnotatedExportPreview = z.infer<typeof annotatedExportPreviewSchema>;
+
+export const annotatedExportReportSchema = z.object({
+  schemaVersion: z.literal(1),
+  assetId: researchIdSchema,
+  sourceHash: sha256Schema,
+  outputHash: sha256Schema,
+  sourceBytes: z.number().int().nonnegative(),
+  outputBytes: z.number().int().nonnegative(),
+  pageCount: z.number().int().positive(),
+  targetPath: z.string().min(1),
+  standardCount: z.number().int().nonnegative(),
+  flattenedCount: z.number().int().nonnegative(),
+  skippedCount: z.number().int().nonnegative(),
+  sourceHashUnchanged: z.literal(true),
+  outputReadable: z.literal(true),
+  fullRewrite: z.literal(true),
+  decisions: z.array(annotatedExportDecisionSchema),
+  warnings: z.array(z.string()),
+  completedAt: instantSchema,
+});
+export type AnnotatedExportReport = z.infer<typeof annotatedExportReportSchema>;
+
+export const annotatedExportJobSchema = z.object({
+  id: researchIdSchema,
+  assetId: researchIdSchema,
+  status: z.enum(DERIVED_JOB_STATUSES),
+  options: startAnnotatedExportInputSchema,
+  targetPath: z.string().min(1),
+  completedAnnotations: z.number().int().nonnegative(),
+  totalAnnotations: z.number().int().nonnegative(),
+  report: annotatedExportReportSchema.nullable(),
+  errorCode: z.string().nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type AnnotatedExportJob = z.infer<typeof annotatedExportJobSchema>;
+
+export const retryAnnotatedExportInputSchema = z.object({
+  overwriteConfirmed: z.boolean().default(false),
+});
+export type RetryAnnotatedExportInput = z.infer<typeof retryAnnotatedExportInputSchema>;
+
+export const annotatedExportOpenLocationResponseSchema = z.object({
+  opened: z.literal(true),
+});
+export type AnnotatedExportOpenLocationResponse = z.infer<
+  typeof annotatedExportOpenLocationResponseSchema
+>;
 
 export const portableExportOptionsSchema = z.object({
   includeManagedFiles: z.boolean().default(false),

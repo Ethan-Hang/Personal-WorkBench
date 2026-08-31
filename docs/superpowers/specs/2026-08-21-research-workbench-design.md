@@ -672,6 +672,9 @@ CSL JSON 适配属于 D。
 - 加密 PDF 的密码只保存在当前阅读会话内，不写入数据库、日志或配置。
 - 原始 PDF 保持不可变。带批注导出始终创建新文件；能可靠表达的批注写为标准 PDF 批注，其他类型扁平化，
   并生成导出报告说明处理结果。
+- 带批注导出锁定 `pdf-lib@1.17.1`（MIT）。它读取原 PDF 后生成完整重写副本，不提供增量保存；高亮、下划线、
+  删除线、区域和便笺使用标准 annotation，页书签扁平化到页面边缘。输出先写入目标同目录临时文件，完成 hash、
+  页数和 PDF.js 可读性检查后原子发布，绝不覆盖原始 Asset。
 
 #### B 的阅读与批注语义
 
@@ -943,6 +946,11 @@ Canvas、文本层、文本节点、loading task 与活动文件流均为 0。�
 
 当前验证依赖 `tesseract.js@7.0.0`，包许可证为 Apache-2.0。英语和简体中文语言包在 B3 发布前单独确认来源、版本和
 随应用分发条件；运行时不从远端临时加载未固定版本的语言包。
+
+带批注副本使用 `pdf-lib@1.17.1`，包许可证为 MIT。固定 fixture 已覆盖标准文本标记、区域、中文便笺、旋转页、
+页书签扁平化和带增量更新段的输入；输出采用完整重写并由 PDF.js 重新打开核对页数。macOS arm64 的
+`b3-annotated-pdf-export-and-recovery` 与四宽度 `b3-annotated-export-controls` 已实测；Windows 11 x64 保持
+`not-run`，在该模块声明双平台兼容前运行 `node scripts/research-reader-compat.mjs --phase b3 --browser --ocr`。
 
 macOS 复测命令：
 

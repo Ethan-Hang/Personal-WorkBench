@@ -119,6 +119,13 @@ import type {
   TextIndexRepository,
   TextIndexStats,
 } from '../reader/text-index-repository.js';
+import type { OcrJobDraft, OcrJobRecord, OcrPageDraft, OcrRepository } from '../ocr/repository.js';
+import type {
+  AnnotatedExportJobChanges,
+  AnnotatedExportJobDraft,
+  AnnotatedExportJobRecord,
+  AnnotatedExportRepository,
+} from '../annotated-export/repository.js';
 import {
   canonicalResearchLibrarySchema,
   type CanonicalResearchLibrary,
@@ -169,6 +176,43 @@ function toTextIndexJob(row: Row): TextIndexJobRecord {
     totalPages: integer(row, 'total_pages'),
     assetHash: text(row, 'asset_hash'),
     parserVersion: text(row, 'parser_version'),
+    errorCode: nullableText(row, 'error_code'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    completedAt: nullableText(row, 'completed_at'),
+  };
+}
+
+function toOcrJob(row: Row): OcrJobRecord {
+  return {
+    id: text(row, 'id'),
+    assetId: text(row, 'asset_id'),
+    assetHash: text(row, 'asset_hash'),
+    status: text(row, 'status') as OcrJobRecord['status'],
+    languages: JSON.parse(text(row, 'languages_json')) as OcrJobRecord['languages'],
+    engine: text(row, 'engine'),
+    engineVersion: text(row, 'engine_version'),
+    languagePackVersion: text(row, 'language_pack_version'),
+    nextPage: integer(row, 'next_page'),
+    totalPages: integer(row, 'total_pages'),
+    errorCode: nullableText(row, 'error_code'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    completedAt: nullableText(row, 'completed_at'),
+  };
+}
+
+function toAnnotatedExportJob(row: Row): AnnotatedExportJobRecord {
+  return {
+    id: text(row, 'id'),
+    assetId: text(row, 'asset_id'),
+    status: text(row, 'status') as AnnotatedExportJobRecord['status'],
+    optionsJson: text(row, 'options_json'),
+    targetPath: text(row, 'target_path'),
+    tempPath: nullableText(row, 'temp_path'),
+    completedAnnotations: integer(row, 'completed_annotations'),
+    totalAnnotations: integer(row, 'total_annotations'),
+    reportJson: nullableText(row, 'report_json'),
     errorCode: nullableText(row, 'error_code'),
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at'),
@@ -692,7 +736,13 @@ function decodeAdvancedCursor(cursor: string): { version: 1; sort: string; id: s
 
 /** SQLite 只存在于 storage 适配器内，连接在组合根按当前账号动态注入。 */
 export class SqliteResearchRepository
-  implements ResearchRepository, ReaderRepository, AnnotationRepository, TextIndexRepository
+  implements
+    ResearchRepository,
+    ReaderRepository,
+    AnnotationRepository,
+    TextIndexRepository,
+    OcrRepository,
+    AnnotatedExportRepository
 {
   constructor(
     private readonly getSqlite: () => Database.Database,
@@ -1279,6 +1329,357 @@ export class SqliteResearchRepository
       source: text(row, 'source') as PageTextSearchResult['source'],
       ...pageTextMatch(row, query.query),
     }));
+  }
+
+  async getLatestOcrJob(assetId: string): Promise<OcrJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT * FROM research_ocr_jobs
+         WHERE asset_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .get(assetId) as Row | undefined;
+    return row ? toOcrJob(row) : null;
+  }
+
+  async getOcrJob(jobId: string): Promise<OcrJobRecord | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_ocr_jobs WHERE id = ?').get(jobId) as
+      Row | undefined;
+    return row ? toOcrJob(row) : null;
+  }
+
+  async getActiveOcrJob(): Promise<OcrJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT * FROM research_ocr_jobs
+         WHERE status IN ('queued', 'running') ORDER BY created_at, id LIMIT 1`,
+      )
+      .get() as Row | undefined;
+    return row ? toOcrJob(row) : null;
+  }
+
+  async createOcrJob(draft: OcrJobDraft): Promise<OcrJobRecord> {
+    return this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare("DELETE FROM research_page_text WHERE asset_id = ? AND source = 'ocr'")
+        .run(draft.assetId);
+      const row = this.sqlite
+        .prepare(
+          `INSERT INTO research_ocr_jobs
+           (id, asset_id, asset_hash, status, languages_json, engine, engine_version,
+            language_pack_version, next_page, total_pages, temp_root, error_code,
+            created_at, updated_at, completed_at)
+           VALUES (?, ?, ?, 'queued', ?, ?, ?, ?, 1, 0, NULL, NULL, ?, ?, NULL)
+           RETURNING *`,
+        )
+        .get(
+          draft.id,
+          draft.assetId,
+          draft.assetHash,
+          JSON.stringify(draft.languages),
+          draft.engine,
+          draft.engineVersion,
+          draft.languagePackVersion,
+          timestamp,
+          timestamp,
+        ) as Row;
+      return toOcrJob(row);
+    })();
+  }
+
+  async setOcrJobStatus(
+    jobId: string,
+    status: OcrJobRecord['status'],
+    errorCode: string | null = null,
+  ): Promise<OcrJobRecord | null> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_ocr_jobs
+         SET status = ?, error_code = ?, updated_at = ?,
+             completed_at = CASE WHEN ? = 'completed' THEN ? ELSE NULL END
+         WHERE id = ? RETURNING *`,
+      )
+      .get(status, errorCode, timestamp, status, timestamp, jobId) as Row | undefined;
+    return row ? toOcrJob(row) : null;
+  }
+
+  async setOcrTotalPages(jobId: string, totalPages: number): Promise<OcrJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_ocr_jobs SET total_pages = ?, updated_at = ?
+         WHERE id = ? AND status = 'running' RETURNING *`,
+      )
+      .get(totalPages, this.clock(), jobId) as Row | undefined;
+    return row ? toOcrJob(row) : null;
+  }
+
+  async commitOcrPage(draft: OcrPageDraft): Promise<OcrJobRecord | null> {
+    return this.sqlite.transaction(() => {
+      const jobRow = this.sqlite
+        .prepare('SELECT * FROM research_ocr_jobs WHERE id = ?')
+        .get(draft.jobId) as Row | undefined;
+      if (!jobRow || text(jobRow, 'status') !== 'running') {
+        return jobRow ? toOcrJob(jobRow) : null;
+      }
+      const job = toOcrJob(jobRow);
+      const timestamp = this.clock();
+      const languagesKey = job.languages.join('+');
+      const positionJson = JSON.stringify({
+        pageSize: draft.pageSize,
+        positions: draft.positions,
+      });
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_ocr_page_cache
+           (asset_id, asset_hash, page_number, languages_key, engine, engine_version,
+            language_pack_version, text_content, position_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(asset_id, asset_hash, page_number, languages_key, engine,
+             engine_version, language_pack_version) DO UPDATE SET
+             text_content = excluded.text_content, position_json = excluded.position_json,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          job.assetId,
+          job.assetHash,
+          draft.pageNumber,
+          languagesKey,
+          job.engine,
+          job.engineVersion,
+          job.languagePackVersion,
+          draft.textContent,
+          positionJson,
+          timestamp,
+          timestamp,
+        );
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_page_text
+           (asset_id, page_number, source, content_hash, text_content, position_json,
+            generator, generator_version, created_at, updated_at)
+           VALUES (?, ?, 'ocr', ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(asset_id, page_number) DO UPDATE SET
+             source = excluded.source, content_hash = excluded.content_hash,
+             text_content = excluded.text_content, position_json = excluded.position_json,
+             generator = excluded.generator, generator_version = excluded.generator_version,
+             updated_at = excluded.updated_at
+           WHERE research_page_text.source = 'ocr' OR trim(research_page_text.text_content) = ''`,
+        )
+        .run(
+          job.assetId,
+          draft.pageNumber,
+          job.assetHash,
+          draft.textContent,
+          positionJson,
+          job.engine,
+          `${job.engineVersion}:${job.languagePackVersion}:${languagesKey}`,
+          timestamp,
+          timestamp,
+        );
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_ocr_jobs
+           SET next_page = max(next_page, ?), total_pages = ?, updated_at = ?
+           WHERE id = ? AND status = 'running' RETURNING *`,
+        )
+        .get(draft.pageNumber + 1, draft.totalPages, timestamp, draft.jobId) as Row | undefined;
+      return row ? toOcrJob(row) : null;
+    })();
+  }
+
+  async completeOcrJobFromCache(jobId: string): Promise<OcrJobRecord | null> {
+    return this.sqlite.transaction(() => {
+      const currentRow = this.sqlite
+        .prepare('SELECT * FROM research_ocr_jobs WHERE id = ?')
+        .get(jobId) as Row | undefined;
+      if (!currentRow) return null;
+      const current = toOcrJob(currentRow);
+      const languagesKey = current.languages.join('+');
+      const previous = this.sqlite
+        .prepare(
+          `SELECT total_pages FROM research_ocr_jobs
+           WHERE id <> ? AND asset_id = ? AND asset_hash = ? AND languages_json = ?
+             AND engine = ? AND engine_version = ? AND language_pack_version = ?
+             AND status = 'completed' AND total_pages > 0
+           ORDER BY completed_at DESC, id DESC LIMIT 1`,
+        )
+        .get(
+          jobId,
+          current.assetId,
+          current.assetHash,
+          JSON.stringify(current.languages),
+          current.engine,
+          current.engineVersion,
+          current.languagePackVersion,
+        ) as Row | undefined;
+      if (!previous) return null;
+      const totalPages = integer(previous, 'total_pages');
+      const cached = this.sqlite
+        .prepare(
+          `SELECT * FROM research_ocr_page_cache
+           WHERE asset_id = ? AND asset_hash = ? AND languages_key = ? AND engine = ?
+             AND engine_version = ? AND language_pack_version = ?
+           ORDER BY page_number`,
+        )
+        .all(
+          current.assetId,
+          current.assetHash,
+          languagesKey,
+          current.engine,
+          current.engineVersion,
+          current.languagePackVersion,
+        ) as Row[];
+      if (
+        cached.length !== totalPages ||
+        cached.some((row, index) => integer(row, 'page_number') !== index + 1)
+      ) {
+        return null;
+      }
+      const timestamp = this.clock();
+      const write = this.sqlite.prepare(
+        `INSERT INTO research_page_text
+         (asset_id, page_number, source, content_hash, text_content, position_json,
+          generator, generator_version, created_at, updated_at)
+         VALUES (?, ?, 'ocr', ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(asset_id, page_number) DO UPDATE SET
+           source = excluded.source, content_hash = excluded.content_hash,
+           text_content = excluded.text_content, position_json = excluded.position_json,
+           generator = excluded.generator, generator_version = excluded.generator_version,
+           updated_at = excluded.updated_at
+         WHERE research_page_text.source = 'ocr' OR trim(research_page_text.text_content) = ''`,
+      );
+      for (const page of cached) {
+        write.run(
+          current.assetId,
+          integer(page, 'page_number'),
+          current.assetHash,
+          text(page, 'text_content'),
+          nullableText(page, 'position_json'),
+          current.engine,
+          `${current.engineVersion}:${current.languagePackVersion}:${languagesKey}`,
+          timestamp,
+          timestamp,
+        );
+      }
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_ocr_jobs
+           SET status = 'completed', next_page = ?, total_pages = ?, error_code = NULL,
+               updated_at = ?, completed_at = ? WHERE id = ? RETURNING *`,
+        )
+        .get(totalPages + 1, totalPages, timestamp, timestamp, jobId) as Row;
+      return toOcrJob(row);
+    })();
+  }
+
+  async markRecoverableOcrJobsInterrupted(): Promise<string[]> {
+    return this.sqlite.transaction(() => {
+      const rows = this.sqlite
+        .prepare(
+          `SELECT id FROM research_ocr_jobs
+           WHERE status IN ('queued', 'running', 'interrupted') ORDER BY created_at, id`,
+        )
+        .all() as Array<{ id: string }>;
+      this.sqlite
+        .prepare(
+          `UPDATE research_ocr_jobs
+           SET status = 'interrupted', error_code = 'PROCESS_RESTARTED', updated_at = ?
+           WHERE status = 'running'`,
+        )
+        .run(this.clock());
+      return rows.map((row) => row.id);
+    })();
+  }
+
+  async createAnnotatedExportJob(
+    draft: AnnotatedExportJobDraft,
+  ): Promise<AnnotatedExportJobRecord> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `INSERT INTO research_annotated_export_jobs
+         (id, asset_id, status, options_json, target_path, temp_path,
+          completed_annotations, total_annotations, report_json, error_code,
+          created_at, updated_at, completed_at)
+         VALUES (?, ?, 'queued', ?, ?, ?, 0, ?, NULL, NULL, ?, ?, NULL)
+         RETURNING *`,
+      )
+      .get(
+        draft.id,
+        draft.assetId,
+        draft.optionsJson,
+        draft.targetPath,
+        draft.tempPath,
+        draft.totalAnnotations,
+        timestamp,
+        timestamp,
+      ) as Row;
+    return toAnnotatedExportJob(row);
+  }
+
+  async getAnnotatedExportJob(id: string): Promise<AnnotatedExportJobRecord | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_annotated_export_jobs WHERE id = ?')
+      .get(id) as Row | undefined;
+    return row ? toAnnotatedExportJob(row) : null;
+  }
+
+  async getActiveAnnotatedExportJob(): Promise<AnnotatedExportJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT * FROM research_annotated_export_jobs
+         WHERE status IN ('queued', 'running') ORDER BY created_at, id LIMIT 1`,
+      )
+      .get() as Row | undefined;
+    return row ? toAnnotatedExportJob(row) : null;
+  }
+
+  async updateAnnotatedExportJob(
+    id: string,
+    changes: AnnotatedExportJobChanges,
+  ): Promise<AnnotatedExportJobRecord | null> {
+    const current = await this.getAnnotatedExportJob(id);
+    if (!current) return null;
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_annotated_export_jobs
+         SET status = ?, options_json = ?, temp_path = ?, completed_annotations = ?, total_annotations = ?,
+             report_json = ?, error_code = ?, completed_at = ?, updated_at = ?
+         WHERE id = ? RETURNING *`,
+      )
+      .get(
+        changes.status ?? current.status,
+        changes.optionsJson ?? current.optionsJson,
+        changes.tempPath === undefined ? current.tempPath : changes.tempPath,
+        changes.completedAnnotations ?? current.completedAnnotations,
+        changes.totalAnnotations ?? current.totalAnnotations,
+        changes.reportJson === undefined ? current.reportJson : changes.reportJson,
+        changes.errorCode === undefined ? current.errorCode : changes.errorCode,
+        changes.completedAt === undefined ? current.completedAt : changes.completedAt,
+        this.clock(),
+        id,
+      ) as Row | undefined;
+    return row ? toAnnotatedExportJob(row) : null;
+  }
+
+  async markRecoverableAnnotatedExportJobsInterrupted(): Promise<AnnotatedExportJobRecord[]> {
+    return this.sqlite.transaction(() => {
+      const rows = this.sqlite
+        .prepare(
+          `SELECT * FROM research_annotated_export_jobs
+           WHERE status IN ('queued', 'running', 'interrupted') ORDER BY created_at, id`,
+        )
+        .all() as Row[];
+      this.sqlite
+        .prepare(
+          `UPDATE research_annotated_export_jobs
+           SET status = 'interrupted', error_code = 'PROCESS_RESTARTED', updated_at = ?
+           WHERE status IN ('queued', 'running')`,
+        )
+        .run(this.clock());
+      return rows.map(toAnnotatedExportJob);
+    })();
   }
 
   async listReadingContexts(status: ReadingContextStatus | 'all'): Promise<ReadingContext[]> {

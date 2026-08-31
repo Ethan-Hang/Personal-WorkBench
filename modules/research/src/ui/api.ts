@@ -2,6 +2,9 @@ import type { z } from 'zod';
 import { apiRequest, jsonBody } from '@workbench/ui';
 import {
   RESEARCH_API_V1,
+  annotatedExportJobSchema,
+  annotatedExportOpenLocationResponseSchema,
+  annotatedExportPreviewSchema,
   annotationRevisionSchema,
   annotationSchema,
   bulkWorkPreviewSchema,
@@ -18,7 +21,9 @@ import {
   managedStorageStatusSchema,
   importSessionsResponseSchema,
   mergeRecordViewSchema,
+  ocrJobSchema,
   pickPdfResponseSchema,
+  pickAnnotatedExportTargetResponseSchema,
   portableExportJobSchema,
   portableExportPreviewSchema,
   pageTextSearchResponseSchema,
@@ -38,6 +43,9 @@ import {
   workMergePreviewSchema,
   worksPageResponseSchema,
   type AddLocalAttachmentInput,
+  type AnnotatedExportJob,
+  type AnnotatedExportPreview,
+  type AnnotatedExportPreviewInput,
   type BulkWorkActionInput,
   type ConfirmImportInput,
   type CreateAnnotationInput,
@@ -52,7 +60,11 @@ import {
   type MergeWorksInput,
   type ManagedRootMigrationJob,
   type ManagedStorageStatus,
+  type OcrJob,
+  type OcrLanguage,
   type PrepareImportInput,
+  type PickAnnotatedExportTargetInput,
+  type PickAnnotatedExportTargetResponse,
   type PortableExportJob,
   type PortableExportPreview,
   type PortableExportPreviewInput,
@@ -69,6 +81,8 @@ import {
   type ReadingContext,
   type ReadingContextCatalog,
   type SaveReaderStateInput,
+  type RetryAnnotatedExportInput,
+  type StartAnnotatedExportInput,
   type SystemView,
   type UpdateAnnotationInput,
   type UpdateCollectionInput,
@@ -159,6 +173,40 @@ export async function postRebuildTextIndex(
   priorityPage: number,
 ): Promise<TextIndexJob> {
   return postTextIndexAction(RESEARCH_API_V1.assetTextIndexRebuild(assetId), priorityPage);
+}
+
+export async function fetchOcrJob(assetId: string): Promise<OcrJob | null> {
+  const response = (await apiRequest(RESEARCH_API_V1.assetOcr(assetId))) as { job: unknown };
+  return ocrJobSchema.nullable().parse(response.job);
+}
+
+async function postOcrAction(url: string, languages?: OcrLanguage[]): Promise<OcrJob> {
+  return ocrJobSchema.parse(
+    await apiRequest(
+      url,
+      languages ? jsonBody('POST', { languages, confirmed: true }) : { method: 'POST' },
+    ),
+  );
+}
+
+export async function postStartOcr(assetId: string, languages: OcrLanguage[]): Promise<OcrJob> {
+  return postOcrAction(RESEARCH_API_V1.assetOcrStart(assetId), languages);
+}
+
+export async function postPauseOcr(assetId: string): Promise<OcrJob> {
+  return postOcrAction(RESEARCH_API_V1.assetOcrPause(assetId));
+}
+
+export async function postCancelOcr(assetId: string): Promise<OcrJob> {
+  return postOcrAction(RESEARCH_API_V1.assetOcrCancel(assetId));
+}
+
+export async function postResumeOcr(assetId: string): Promise<OcrJob> {
+  return postOcrAction(RESEARCH_API_V1.assetOcrResume(assetId));
+}
+
+export async function postRebuildOcr(assetId: string, languages: OcrLanguage[]): Promise<OcrJob> {
+  return postOcrAction(RESEARCH_API_V1.assetOcrRebuild(assetId), languages);
 }
 
 export async function fetchPageTextSearch(
@@ -268,6 +316,61 @@ export async function fetchAnnotationRevisions(id: string): Promise<AnnotationRe
   return annotationRevisionSchema
     .array()
     .parse(await apiRequest(RESEARCH_API_V1.annotationRevisions(id)));
+}
+
+export async function postAnnotatedExportPreview(
+  assetId: string,
+  input: AnnotatedExportPreviewInput,
+): Promise<AnnotatedExportPreview> {
+  return annotatedExportPreviewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.assetAnnotatedExportPreview(assetId), jsonBody('POST', input)),
+  );
+}
+
+export async function postPickAnnotatedExportTarget(
+  assetId: string,
+  input: PickAnnotatedExportTargetInput,
+): Promise<PickAnnotatedExportTargetResponse> {
+  return pickAnnotatedExportTargetResponseSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.assetAnnotatedExportPickTarget(assetId),
+      jsonBody('POST', input),
+    ),
+  );
+}
+
+export async function postAnnotatedExport(
+  assetId: string,
+  input: StartAnnotatedExportInput,
+): Promise<AnnotatedExportJob> {
+  return annotatedExportJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.assetAnnotatedExports(assetId), jsonBody('POST', input)),
+  );
+}
+
+export async function fetchAnnotatedExport(id: string): Promise<AnnotatedExportJob> {
+  return annotatedExportJobSchema.parse(await apiRequest(RESEARCH_API_V1.annotatedExportJob(id)));
+}
+
+export async function postCancelAnnotatedExport(id: string): Promise<AnnotatedExportJob> {
+  return annotatedExportJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.annotatedExportCancel(id), { method: 'POST' }),
+  );
+}
+
+export async function postRetryAnnotatedExport(
+  id: string,
+  input: RetryAnnotatedExportInput,
+): Promise<AnnotatedExportJob> {
+  return annotatedExportJobSchema.parse(
+    await apiRequest(RESEARCH_API_V1.annotatedExportRetry(id), jsonBody('POST', input)),
+  );
+}
+
+export async function postOpenAnnotatedExportLocation(id: string): Promise<{ opened: true }> {
+  return annotatedExportOpenLocationResponseSchema.parse(
+    await apiRequest(RESEARCH_API_V1.annotatedExportOpenLocation(id), { method: 'POST' }),
+  );
 }
 
 export async function postPortableExportPreview(

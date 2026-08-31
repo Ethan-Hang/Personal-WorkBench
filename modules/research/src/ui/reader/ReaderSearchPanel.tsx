@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@workbench/ui';
-import type { PageTextSearchResult, TextIndexJob } from '../../contract.js';
+import type { OcrJob, OcrLanguage, PageTextSearchResult, TextIndexJob } from '../../contract.js';
 
 export type TextSearchScope = 'document' | 'library';
 export type TextIndexControl = 'start' | 'pause' | 'cancel' | 'resume' | 'rebuild';
+export type OcrControl = 'start' | 'pause' | 'cancel' | 'resume' | 'rebuild';
 
 const STATUS_LABELS: Record<TextIndexJob['status'], string> = {
   queued: '等待索引',
@@ -16,39 +17,75 @@ const STATUS_LABELS: Record<TextIndexJob['status'], string> = {
   'ocr-recommended': '建议 OCR',
 };
 
+const OCR_STATUS_LABELS: Record<OcrJob['status'], string> = {
+  queued: '等待识别',
+  running: '正在识别',
+  paused: '已暂停',
+  completed: '识别完成',
+  cancelled: '已取消',
+  failed: '识别失败',
+  interrupted: '等待恢复',
+};
+
 export function ReaderSearchPanel({
   job,
+  ocrJob,
   query,
   scope,
   results,
   busy,
+  ocrBusy,
   searching,
   error,
   onSearch,
   onScope,
   onControl,
+  onOcrControl,
   onLocate,
 }: {
   job: TextIndexJob | null;
+  ocrJob: OcrJob | null;
   query: string;
   scope: TextSearchScope;
   results: PageTextSearchResult[];
   busy: boolean;
+  ocrBusy: boolean;
   searching: boolean;
   error: string | null;
   onSearch: (query: string) => void;
   onScope: (scope: TextSearchScope) => void;
   onControl: (control: TextIndexControl) => void;
+  onOcrControl: (control: OcrControl, languages: OcrLanguage[]) => void;
   onLocate: (result: PageTextSearchResult) => void;
 }) {
   const [draft, setDraft] = useState(query);
+  const [ocrLanguages, setOcrLanguages] = useState<OcrLanguage[]>(['chi_sim', 'eng']);
   useEffect(() => setDraft(query), [query]);
+  useEffect(() => {
+    if (ocrJob) setOcrLanguages(ocrJob.languages);
+  }, [ocrJob]);
   const progress = job?.totalPages ? Math.min(1, job.indexedPages / job.totalPages) : 0;
+  const ocrProgress = ocrJob?.totalPages
+    ? Math.min(1, ocrJob.processedPages / ocrJob.totalPages)
+    : 0;
   const canResume =
     job?.status === 'paused' ||
     job?.status === 'cancelled' ||
     job?.status === 'failed' ||
     job?.status === 'interrupted';
+  const canResumeOcr =
+    ocrJob?.status === 'paused' ||
+    ocrJob?.status === 'cancelled' ||
+    ocrJob?.status === 'failed' ||
+    ocrJob?.status === 'interrupted';
+  const ocrActive = ocrJob?.status === 'queued' || ocrJob?.status === 'running';
+  const toggleOcrLanguage = (language: OcrLanguage) => {
+    setOcrLanguages((current) =>
+      current.includes(language)
+        ? current.filter((candidate) => candidate !== language)
+        : [...current, language].sort(),
+    );
+  };
 
   return (
     <div className="px-4 py-4">
@@ -105,6 +142,98 @@ export function ReaderSearchPanel({
         {job?.errorCode && job.status !== 'ocr-recommended' && (
           <p className="mt-2 break-all font-mono text-[10px] text-critical">{job.errorCode}</p>
         )}
+      </section>
+
+      <section className="border-b border-line py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted">本地 OCR</p>
+            <p className="mt-1 text-xs font-semibold text-ink">
+              {ocrJob ? OCR_STATUS_LABELS[ocrJob.status] : '尚未启动'}
+            </p>
+          </div>
+          <span className="font-mono text-[10px] text-muted">
+            {ocrJob
+              ? `${ocrJob.processedPages}/${ocrJob.totalPages || '—'}`
+              : `预计 ${job?.totalPages || '—'} 页`}
+          </span>
+        </div>
+        <div className="mt-2 h-1 overflow-hidden rounded-full bg-line">
+          <div
+            className="h-full bg-accent transition-[width] duration-200"
+            style={{ width: `${ocrProgress * 100}%` }}
+          />
+        </div>
+        <p className="mt-2 text-[11px] leading-5 text-secondary">
+          {job?.status === 'ocr-recommended'
+            ? 'PDF 文本层为空或过少，搜索会漏掉扫描页，因此建议识别。'
+            : '用于扫描页和图片型正文；已有可靠 PDF 文本的页面会保留原文。'}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-3 text-[11px] text-secondary">
+          {(
+            [
+              ['chi_sim', '简体中文'],
+              ['eng', '英文'],
+            ] as const
+          ).map(([language, label]) => (
+            <label key={language} className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={ocrLanguages.includes(language)}
+                disabled={ocrActive || ocrBusy}
+                onChange={() => toggleOcrLanguage(language)}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {!ocrJob && (
+            <Button
+              size="sm"
+              disabled={ocrBusy || ocrLanguages.length === 0}
+              onClick={() => onOcrControl('start', ocrLanguages)}
+            >
+              确认并启动
+            </Button>
+          )}
+          {ocrActive && (
+            <>
+              <Button size="sm" disabled={ocrBusy} onClick={() => onOcrControl('pause', [])}>
+                暂停
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={ocrBusy}
+                onClick={() => onOcrControl('cancel', [])}
+              >
+                取消
+              </Button>
+            </>
+          )}
+          {canResumeOcr && (
+            <Button size="sm" disabled={ocrBusy} onClick={() => onOcrControl('resume', [])}>
+              继续
+            </Button>
+          )}
+          {ocrJob && !ocrActive && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={ocrBusy || ocrLanguages.length === 0}
+              onClick={() => onOcrControl('rebuild', ocrLanguages)}
+            >
+              从头重建
+            </Button>
+          )}
+        </div>
+        {ocrJob?.errorCode && (
+          <p className="mt-2 break-all font-mono text-[10px] text-critical">{ocrJob.errorCode}</p>
+        )}
+        <p className="mt-2 text-[10px] leading-4 text-muted">
+          只在本机运行一个 OCR worker；识别期间暂停后台正文索引，原始 PDF 不会改写。
+        </p>
       </section>
 
       <section className="pt-4">

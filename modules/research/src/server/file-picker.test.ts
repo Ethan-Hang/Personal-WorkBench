@@ -67,4 +67,28 @@ describe('PDF 系统文件选择器', () => {
       [],
     );
   });
+
+  it('macOS 保存选择器返回单个 PDF 路径并可在 Finder 中显示', async () => {
+    const fake = fakeExec([{ stdout: '/Users/me/annotated.pdf\n' }, { stdout: '' }]);
+    const picker = createSystemPdfFilePicker('darwin', fake.execute);
+    await expect(picker.savePdf({ suggestedName: 'paper-annotated.pdf' })).resolves.toBe(
+      '/Users/me/annotated.pdf',
+    );
+    await expect(picker.reveal('/Users/me/annotated.pdf')).resolves.toBe(true);
+    expect(fake.calls[0]?.args.join(' ')).toContain('choose file name');
+    expect(fake.calls[1]).toEqual({ command: 'open', args: ['-R', '/Users/me/annotated.pdf'] });
+  });
+
+  it('Windows 保存选择器启用覆盖确认并使用 Explorer 定位文件', async () => {
+    const fake = fakeExec([{ stdout: 'C:\\Exports\\annotated.pdf\r\n' }, { stdout: '' }]);
+    const picker = createSystemPdfFilePicker('win32', fake.execute);
+    await expect(picker.savePdf({ suggestedName: 'paper:annotated?.pdf' })).resolves.toBe(
+      'C:\\Exports\\annotated.pdf',
+    );
+    await expect(picker.reveal('C:\\Exports\\annotated.pdf')).resolves.toBe(true);
+    expect(fake.calls[0]?.args.join(' ')).toContain('$dialog.OverwritePrompt = $true');
+    expect(fake.calls[0]?.args.join(' ')).toContain('$dialog.AddExtension = $true');
+    expect(fake.calls[0]?.args.join(' ')).toContain("$dialog.FileName = 'paper-annotated-.pdf'");
+    expect(fake.calls[1]?.command).toBe('explorer.exe');
+  });
 });

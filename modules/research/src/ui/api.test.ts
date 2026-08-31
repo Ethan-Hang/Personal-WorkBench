@@ -3,9 +3,11 @@ import { RESEARCH_API_V1 } from '../contract.js';
 import {
   fetchAttachmentDeletionPreview,
   fetchManagedStorageStatus,
+  fetchOcrJob,
   fetchPageTextSearch,
   fetchTextIndexJob,
   fetchAnnotations,
+  fetchAnnotatedExport,
   fetchReadingContexts,
   fetchReaderManifest,
   fetchWorks,
@@ -13,14 +15,21 @@ import {
   patchAnnotation,
   postCheckLocation,
   postAnnotation,
+  postAnnotatedExport,
+  postAnnotatedExportPreview,
+  postCancelAnnotatedExport,
   postReadingContext,
+  postOpenAnnotatedExportLocation,
+  postPickAnnotatedExportTarget,
   postPermanentDeleteAttachment,
   postManagedRootMigration,
   postCancelManagedRootMigration,
   postPrepareImport,
+  postStartOcr,
   postStartTextIndex,
   postRestoreAttachment,
   postRestoreAnnotation,
+  postRetryAnnotatedExport,
   postRetryManagedRootMigration,
   postUploadPdf,
   putWorkCollections,
@@ -106,6 +115,36 @@ describe('research ui api', () => {
     expect(calls[2]?.url).toContain('query=search&assetId=asset-1');
   });
 
+  it('OCR 客户端明确提交语言和用户确认', async () => {
+    respondWith({ job: null });
+    await expect(fetchOcrJob('asset-1')).resolves.toBeNull();
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.assetOcr('asset-1'));
+
+    respondWith({
+      id: 'ocr-1',
+      assetId: 'asset-1',
+      assetHash: 'a'.repeat(64),
+      status: 'queued',
+      languages: ['chi_sim', 'eng'],
+      engine: 'tesseract.js',
+      engineVersion: '7.0.0',
+      languagePackVersion: 'packs-v1',
+      nextPage: 1,
+      totalPages: 0,
+      processedPages: 0,
+      errorCode: null,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: null,
+    });
+    await postStartOcr('asset-1', ['eng', 'chi_sim']);
+    expect(calls[1]).toMatchObject({
+      url: RESEARCH_API_V1.assetOcrStart('asset-1'),
+      init: { method: 'POST' },
+    });
+    expect(parsedBody(calls[1]!)).toEqual({ languages: ['eng', 'chi_sim'], confirmed: true });
+  });
+
   it('批注和上下文客户端保留图层、锚点与 revision 请求', async () => {
     const context = {
       id: 'context-1',
@@ -186,6 +225,68 @@ describe('research ui api', () => {
     respondWith({ ...annotation, revision: 4 });
     await postRestoreAnnotation(annotation.id, 3);
     expect(calls[6]?.url).toBe(RESEARCH_API_V1.annotationRestore(annotation.id));
+  });
+
+  it('带批注副本客户端完整保留选择、预览、任务控制与位置操作', async () => {
+    const options = {
+      includeGeneral: true,
+      contextIds: ['context-1'],
+      targetPath: '/exports/paper.pdf',
+      overwriteConfirmed: false,
+    };
+    respondWith({ path: options.targetPath, cancelled: false });
+    await postPickAnnotatedExportTarget('asset-1', { suggestedName: 'paper.pdf' });
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.assetAnnotatedExportPickTarget('asset-1'));
+
+    respondWith({
+      assetId: 'asset-1',
+      sourceHash: 'a'.repeat(64),
+      sourceBytes: 42,
+      estimatedOutputBytes: 84,
+      pageCount: 1,
+      annotationCount: 0,
+      standardCount: 0,
+      flattenedCount: 0,
+      skippedCount: 0,
+      targetPath: options.targetPath,
+      targetExists: false,
+      decisions: [],
+      warnings: ['输出是新的完整重写副本'],
+    });
+    await postAnnotatedExportPreview('asset-1', options);
+    expect(parsedBody(calls[1]!)).toMatchObject({
+      includeGeneral: true,
+      contextIds: ['context-1'],
+    });
+
+    const job = {
+      id: 'export-1',
+      assetId: 'asset-1',
+      status: 'queued',
+      options,
+      targetPath: options.targetPath,
+      completedAnnotations: 0,
+      totalAnnotations: 0,
+      report: null,
+      errorCode: null,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: null,
+    };
+    respondWith(job);
+    await postAnnotatedExport('asset-1', options);
+    expect(calls[2]?.url).toBe(RESEARCH_API_V1.assetAnnotatedExports('asset-1'));
+
+    respondWith(job);
+    await fetchAnnotatedExport(job.id);
+    respondWith({ ...job, status: 'cancelled', errorCode: 'EXPORT_CANCELLED' });
+    await postCancelAnnotatedExport(job.id);
+    respondWith({ ...job, options: { ...options, overwriteConfirmed: true } });
+    await postRetryAnnotatedExport(job.id, { overwriteConfirmed: true });
+    expect(parsedBody(calls[5]!)).toEqual({ overwriteConfirmed: true });
+    respondWith({ opened: true });
+    await expect(postOpenAnnotatedExportLocation(job.id)).resolves.toEqual({ opened: true });
+    expect(calls[6]?.url).toBe(RESEARCH_API_V1.annotatedExportOpenLocation(job.id));
   });
 
   it('阅读器 manifest 与状态保存共用 Asset 路径和契约', async () => {

@@ -374,14 +374,14 @@ node .\scripts\research-reader-compat.mjs --phase b2 --browser
 
 **提交：** `feat(research): add resumable local pdf ocr`
 
-- [ ] 定义可替换 `OcrEngine`，生产适配器使用 Tesseract.js 独立子进程，默认单 worker。
-- [ ] 把 `tesseract.js@7.0.0` 放入实际运行依赖，验证 workspace 安装、打包入口和 Windows 子进程能够直接解析依赖。
-- [ ] 在确定随应用分发前记录英语和简体中文语言包的来源、固定版本、许可证、hash 与缓存位置；运行时不临时下载未固定版本。
-- [ ] 用户选择语言并确认后才创建任务；每页识别成功后原子写 page text 和 checkpoint，再进入 FTS。
-- [ ] 取消终止整个子进程并在 250 ms 预算内收敛；失败/重启保留最后成功页，可重试或从头重建。
-- [ ] OCR 缓存按 Asset hash、引擎、语言和语言包版本命中；版本变化后旧结果保留可审计状态但不进入当前索引。
-- [ ] UI 显示为什么建议 OCR、预计页数、语言、进度、暂停/取消、错误、恢复和资源提示。
-- [ ] 测试生成中英文、扫描型、混合文本/图片、取消、崩溃、重启、版本失效与并发拒绝。
+- [x] 定义可替换 `OcrEngine`，生产适配器使用 Tesseract.js 独立子进程，默认单 worker。
+- [x] 把 `tesseract.js@7.0.0` 和 Canvas 放入实际运行依赖；workspace 与 macOS 子进程入口已直接验证，锁文件保留 Windows x64/arm64 Canvas 包，Windows 入口由 B3 兼容脚本补测。
+- [x] 记录英语和简体中文语言包的来源、固定版本、许可证、hash 与缓存位置；运行时不临时下载未固定版本。
+- [x] 用户选择语言并确认后才创建任务；每页识别成功后原子写 page text 和 checkpoint，再进入 FTS。
+- [x] 取消终止整个子进程并在 250 ms 预算内收敛；失败/重启保留最后成功页，可重试或从头重建。
+- [x] OCR 缓存按 Asset hash、引擎、语言和语言包版本命中；版本变化后旧结果保留可审计状态但不进入当前索引。
+- [x] UI 显示为什么建议 OCR、预计页数、语言、进度、暂停/取消、错误、恢复和资源提示。
+- [x] 测试生成中英文、扫描代理、原生正文与 OCR 混合页、取消、崩溃、重启、版本失效与并发拒绝。
 
 **验证：**
 
@@ -390,24 +390,51 @@ npx vitest run modules/research/src/ocr modules/research/src/storage/ocr-jobs.te
 npm run research:b0 -- --ocr --pdf "/path/to/scanned.pdf"
 ```
 
+语言包随应用从 npm 包固定分发，不在任务运行时访问语言包 CDN：
+
+| 语言     | npm 包                             | 数据版本         | 许可证 | SHA-256                                                            |
+| -------- | ---------------------------------- | ---------------- | ------ | ------------------------------------------------------------------ |
+| 英语     | `@tesseract.js-data/eng@1.0.0`     | `4.0.0_best_int` | MIT    | `45b4cb346724ac1774f1c36f42f182b887bcdb28ebe63e6fff90ac41f3fcff91` |
+| 简体中文 | `@tesseract.js-data/chi_sim@1.0.0` | `4.0.0_best_int` | MIT    | `b8a23f10c7de500891eb458a8adc9cc58ab7f242f08b7d149f5e9aea4ad5db7c` |
+
+原包文件只读保留在 npm 安装位置。OCR 启动前校验 hash，再复制到工作台数据目录下的 `ocr-cache/tessdata-cache/fixed-language-packs`；Tesseract 的派生缓存位于同一 `tessdata-cache`。任务缓存键包含 Asset hash、引擎名与版本、语言集合和语言包版本。
+
+macOS 或 Windows 均可按模块运行 B3 兼容检查：
+
+```bash
+node scripts/research-reader-compat.mjs --phase b3 --browser --ocr
+```
+
+如需加入本机真实扫描件，追加 `--scanned-pdf "/path/to/scanned.pdf"`；Windows PowerShell 使用对应的 `C:\path\to\scanned.pdf`。脚本只把实际运行平台记为 `passed`，另一平台保持 `not-run`。
+
+**阶段记录（2026-08-30，macOS）：** Apple M3、24 GiB、APFS、Node.js 25.1.0、Microsoft Edge 151.0.4129.107。B3 领域、存储、路由、真实 worker 与 UI API 共 25 项通过；固定本地中英文语言包的生成语料准确率均为 1，子进程取消 2.36 ms，恢复后准确率为 1。浏览器在 1440、1024、768、390 四个宽度使用全新 profile，OCR 控件、语言选择、资源说明和扫描代理推荐状态均通过；浏览器实际确认并启动两页扫描代理，任务完成到 2/2。原始 Asset 未改写，临时 PDF、数据库、profile 和 OCR 缓存由脚本清理。真实私有扫描 PDF 尚未加入本轮语料；Windows 11 x64 的 `b3-local-ocr-worker-and-recovery` 与 `b3-local-ocr-controls` 为 `not-run`。
+
 ### Task 11：实现带批注副本导出与报告
 
 **提交：** `feat(research): export annotated pdf copies`
 
-- [ ] 先以固定 PDF fixture 验证 PDF 写库的标准 annotation、Unicode、旋转页和增量对象能力，通过后锁定依赖版本；失败则只对可靠类型采用扁平化，不伪装为可编辑批注。
-- [ ] 导出预览列出范围、可见上下文、批注总数、标准写入数、扁平化数、跳过数和目标大小。
-- [ ] 输出选择器只返回用户确认的新路径；目标存在时再次确认，临时文件与最终文件必须位于同一卷以便原子发布。
-- [ ] 能可靠表达的文本标记、便笺和区域批注写入标准 PDF annotation；其余类型在页面上扁平化。
-- [ ] 报告逐项记录批注 ID、revision、上下文、处理方式和警告，不包含密码或用户未选择的正文。
-- [ ] 导出完成后核对输入 Asset hash 未变、输出可由 PDF.js 打开、页数一致；取消/失败删除临时输出。
-- [ ] 导出任务可查询、取消和重试；输出不自动导回文献库，用户需要时走普通附件导入。
-- [ ] UI 提供预览、目标选择、进度、取消、结果和打开输出位置。
+- [x] 先以固定 PDF fixture 验证 PDF 写库的标准 annotation、Unicode、旋转页和增量对象能力，通过后锁定依赖版本；`pdf-lib@1.17.1` 已锁定。它可以读取带增量更新段的输入，但输出采用完整重写，不声明增量保存。
+- [x] 导出预览列出范围、可见上下文、批注总数、标准写入数、扁平化数、跳过数和目标大小。
+- [x] 输出选择器只返回用户确认的新路径；目标存在时再次确认，临时文件与最终文件位于同一目录以便原子发布。覆盖时先把旧目标移为同目录备份，发布失败则恢复。
+- [x] 高亮、下划线、删除线、便笺和区域批注写入标准 PDF annotation；页书签写入页面边缘并在报告中标成 `flattened`。
+- [x] 报告逐项记录批注 ID、revision、上下文、处理方式和警告，不包含密码或批注正文。
+- [x] 导出完成后核对输入 Asset hash 未变、输出可由 PDF.js 打开、页数一致；取消/失败删除临时输出。
+- [x] 导出任务可查询、取消和重试；输出不自动导回文献库，用户需要时走普通附件导入。
+- [x] UI 提供当前可见层范围、预览、系统目标选择、覆盖确认、进度、取消、重试、结果和打开输出位置。
 
 **验证：**
 
 ```bash
 npx vitest run modules/research/src/interop/annotated-export.test.ts modules/research/src/server/annotated-export-routes.test.ts
 ```
+
+macOS 或 Windows 均按 B3 测试模块运行：
+
+```bash
+node scripts/research-reader-compat.mjs --phase b3 --browser --ocr
+```
+
+**阶段记录（2026-08-30，macOS）：** `pdf-lib@1.17.1`（MIT）固定 fixture 通过标准文本标记、区域、中文便笺、旋转页、书签扁平化和带增量更新段输入验证；输出为可由 PDF.js 重新打开的完整重写副本。导出领域、存储、路由、文件选择器、契约和 UI API 专项共 46 项通过，兼容脚本中的 B3 OCR 与导出模块共 39 项通过；仓库完整检查为 1506 项通过、4 项跳过，生产 Vite 构建通过。真实 Edge 使用全新 profile 在 1440、1024、768、390 四个宽度打开导出流程，当前可见层、系统选择器入口、预览前锁定和无横向溢出均通过；另保留扫描代理 OCR 2/2、加密、损坏、缺失和恢复状态检查。原始 Asset hash、既有目标保护、同目录临时文件清理、覆盖备份恢复边界和重启恢复均有自动测试。Windows 11 x64 的 `b3-annotated-pdf-export-and-recovery` 与 `b3-annotated-export-controls` 为 `not-run`，运行同一 B3 命令后再更新。
 
 ### Task 12：完成切片 B 最终验收
 

@@ -23,7 +23,7 @@ function parseArgs(argv) {
       console.log(`Research reader visual QA
 
 Usage:
-  node scripts/research-reader-visual-qa.mjs [--phase b1|b2] [--output PATH] [--keep-data] [--serve]
+  node scripts/research-reader-visual-qa.mjs [--phase b1|b2|b3] [--output PATH] [--keep-data] [--serve]
 
 Environment:
   RESEARCH_READER_BROWSER  Edge/Chrome executable override`);
@@ -32,7 +32,9 @@ Environment:
       throw new Error(`unknown argument: ${value}`);
     }
   }
-  if (!['b1', 'b2'].includes(options.phase)) throw new Error('--phase must be b1 or b2');
+  if (!['b1', 'b2', 'b3'].includes(options.phase)) {
+    throw new Error('--phase must be b1, b2, or b3');
+  }
   return options;
 }
 
@@ -40,7 +42,7 @@ function pdfEscape(value) {
   return value.replaceAll('\\', '\\\\').replaceAll('(', '\\(').replaceAll(')', '\\)');
 }
 
-function makeTextPdf({ pageCount, paddingBytes = 0, textPrefix }) {
+function makeTextPdf({ blank = false, pageCount, paddingBytes = 0, textPrefix }) {
   const fontObjectNumber = 3 + pageCount * 2;
   const pageObjectNumbers = Array.from({ length: pageCount }, (_, index) => 3 + index * 2);
   const objects = [
@@ -51,16 +53,17 @@ function makeTextPdf({ pageCount, paddingBytes = 0, textPrefix }) {
     const pageNumber = index + 1;
     const contentObjectNumber = pageObjectNumbers[index] + 1;
     const padding = paddingBytes > 0 ? `\n%${'x'.repeat(Math.max(0, paddingBytes - 2))}` : '';
-    const content =
-      [
-        'BT',
-        '/F1 14 Tf',
-        '72 720 Td',
-        `(${pdfEscape(`${textPrefix} page ${pageNumber}`)}) Tj`,
-        '0 -24 Td',
-        `(searchable reader visual QA token page-${pageNumber}) Tj`,
-        'ET',
-      ].join('\n') + padding;
+    const content = blank
+      ? `q\nQ${padding}`
+      : [
+          'BT',
+          '/F1 14 Tf',
+          '72 720 Td',
+          `(${pdfEscape(`${textPrefix} page ${pageNumber}`)}) Tj`,
+          '0 -24 Td',
+          `(searchable reader visual QA token page-${pageNumber}) Tj`,
+          'ET',
+        ].join('\n') + padding;
     objects.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792]
          /Resources << /Font << /F1 ${fontObjectNumber} 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`,
@@ -678,6 +681,90 @@ async function openB2SidePanel(cdp) {
   }
 }
 
+async function verifyB3Panel(cdp, expectRecommendation, startOcr) {
+  await evaluateValue(
+    cdp,
+    `Array.from(document.querySelectorAll('[role="tab"]')).find((node) => node.textContent?.trim() === '正文')?.click()`,
+  );
+  await waitForExpression(
+    cdp,
+    `document.body.innerText.includes('本地 OCR') && document.body.innerText.includes('确认并启动')`,
+    'local OCR controls did not render',
+  );
+  if (expectRecommendation) {
+    await waitForExpression(
+      cdp,
+      `document.body.innerText.includes('建议 OCR') && document.body.innerText.includes('PDF 文本层为空或过少')`,
+      'blank PDF did not reach the OCR recommendation state',
+      20_000,
+    );
+  }
+  const controls = await evaluateValue(
+    cdp,
+    `({
+      english: Array.from(document.querySelectorAll('label')).some((node) => node.textContent?.includes('英文')),
+      simplifiedChinese: Array.from(document.querySelectorAll('label')).some((node) => node.textContent?.includes('简体中文')),
+      resourceTip: document.body.innerText.includes('一个 OCR worker') && document.body.innerText.includes('原始 PDF 不会改写')
+    })`,
+  );
+  if (!controls?.english || !controls?.simplifiedChinese || !controls?.resourceTip) {
+    throw new Error(`local OCR panel is incomplete: ${JSON.stringify(controls)}`);
+  }
+  if (startOcr) {
+    await evaluateValue(
+      cdp,
+      `Array.from(document.querySelectorAll('button')).find((node) => node.textContent?.trim() === '确认并启动')?.click()`,
+    );
+    await waitForExpression(
+      cdp,
+      `document.body.innerText.includes('识别完成') && document.body.innerText.includes('2/2')`,
+      'browser-started OCR did not complete',
+      30_000,
+    );
+  }
+  return { ...controls, recommendation: expectRecommendation, startedAndCompleted: startOcr };
+}
+
+async function verifyAnnotatedExportDialog(cdp) {
+  await evaluateValue(
+    cdp,
+    `Array.from(document.querySelectorAll('button')).find((node) =>
+      node.textContent?.trim() === '导出副本')?.click()`,
+  );
+  await waitForExpression(
+    cdp,
+    `document.body.innerText.includes('导出带批注副本') &&
+      document.body.innerText.includes('原文件保持不变') &&
+      document.body.innerText.includes('范围取自阅读器当前可见层')`,
+    'annotated export dialog did not render',
+  );
+  const checks = await evaluateValue(
+    cdp,
+    `(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      const bounds = dialog?.getBoundingClientRect();
+      const choose = Array.from(document.querySelectorAll('button')).find((node) =>
+        node.textContent?.trim() === '选择位置');
+      const exportButton = Array.from(dialog?.querySelectorAll('button') ?? []).find((node) =>
+        node.textContent?.trim() === '导出副本');
+      return {
+        dialogVisible: Boolean(dialog && bounds && bounds.width > 0 && bounds.height > 0),
+        fitsViewport: Boolean(bounds && bounds.left >= 0 && bounds.right <= innerWidth &&
+          bounds.top >= 0 && bounds.bottom <= innerHeight),
+        noHorizontalOverflow: document.documentElement.scrollWidth <= innerWidth,
+        currentLayers: document.body.innerText.includes('通用批注') &&
+          document.body.innerText.includes('Visual review A'),
+        systemPicker: Boolean(choose),
+        exportLockedBeforePreview: Boolean(exportButton?.disabled),
+      };
+    })()`,
+  );
+  if (Object.values(checks ?? {}).some((value) => value !== true)) {
+    throw new Error(`annotated export dialog is incomplete: ${JSON.stringify(checks)}`);
+  }
+  return checks;
+}
+
 async function captureCase({
   browser,
   outputRoot,
@@ -689,6 +776,10 @@ async function captureCase({
   expected,
   verifySelection = false,
   verifyB2 = false,
+  verifyB3 = false,
+  verifyAnnotatedExport = false,
+  expectOcrRecommendation = false,
+  startOcr = false,
   openB2Panel = false,
   verifyEmptyB2 = false,
 }) {
@@ -754,6 +845,8 @@ async function captureCase({
     let selectedText = null;
     let copiedText = null;
     let b2Checks = null;
+    let b3Checks = null;
+    let annotatedExportChecks = null;
     if (verifySelection) {
       const selectionDeadline = Date.now() + 10_000;
       let rect = null;
@@ -850,6 +943,8 @@ async function captureCase({
       );
     }
     if (verifyB2) b2Checks = await verifyB2Interactions(cdp, width, height);
+    if (verifyB3) b3Checks = await verifyB3Panel(cdp, expectOcrRecommendation, startOcr);
+    if (verifyAnnotatedExport) annotatedExportChecks = await verifyAnnotatedExportDialog(cdp);
     const captured = await cdp.send('Page.captureScreenshot', {
       format: 'png',
       fromSurface: true,
@@ -862,7 +957,18 @@ async function captureCase({
         `${id} screenshot size ${png.width}x${png.height}, expected ${width}x${height}`,
       );
     }
-    return { id, width, height, screenshotPath, selectedText, copiedText, b2Checks, ...png };
+    return {
+      id,
+      width,
+      height,
+      screenshotPath,
+      selectedText,
+      copiedText,
+      b2Checks,
+      b3Checks,
+      annotatedExportChecks,
+      ...png,
+    };
   } finally {
     cdp?.close();
     await stopProcess(browserProcess);
@@ -944,7 +1050,8 @@ async function main() {
       'reader-encrypted.pdf',
       'Reader Encrypted State',
     );
-    const b2Seed = options.phase === 'b2' ? await seedB2Data(apiBase, normal) : null;
+    const b2Seed =
+      options.phase === 'b2' || options.phase === 'b3' ? await seedB2Data(apiBase, normal) : null;
     const empty =
       options.phase === 'b2'
         ? await seedPdf(
@@ -952,6 +1059,15 @@ async function main() {
             makeTextPdf({ pageCount: 2, textPrefix: 'Research Reader Empty State' }),
             'reader-empty-state.pdf',
             'Reader Empty State',
+          )
+        : null;
+    const scanProxy =
+      options.phase === 'b3'
+        ? await seedPdf(
+            apiBase,
+            makeTextPdf({ blank: true, pageCount: 2, textPrefix: 'unused' }),
+            'reader-scan-proxy.pdf',
+            'Reader Scan Proxy',
           )
         : null;
     const captures = [];
@@ -969,7 +1085,9 @@ async function main() {
           expected: { kind: 'selector', value: '[aria-label="第 1 页"]' },
           verifySelection: width === 1440,
           verifyB2: options.phase === 'b2' && width === 1440,
-          openB2Panel: options.phase === 'b2',
+          verifyB3: options.phase === 'b3',
+          verifyAnnotatedExport: options.phase === 'b3',
+          openB2Panel: options.phase === 'b2' || options.phase === 'b3',
         }),
       );
     }
@@ -986,6 +1104,24 @@ async function main() {
           expected: { kind: 'selector', value: '[aria-label="第 1 页"]' },
           openB2Panel: true,
           verifyEmptyB2: true,
+        }),
+      );
+    }
+    if (scanProxy) {
+      captures.push(
+        await captureCase({
+          browser,
+          outputRoot,
+          profileRoot,
+          url: `${webBase}/research/read/${encodeURIComponent(scanProxy.assetId)}`,
+          id: 'scan-proxy',
+          width: 1024,
+          height: 900,
+          expected: { kind: 'selector', value: '[aria-label="第 1 页"]' },
+          openB2Panel: true,
+          verifyB3: true,
+          expectOcrRecommendation: true,
+          startOcr: true,
         }),
       );
     }

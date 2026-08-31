@@ -1,7 +1,7 @@
 import { execFile, type ExecFileException } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { platform as currentPlatform } from 'node:os';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
 export type FilePickerPlatform = 'darwin' | 'win32' | 'linux' | string;
 
@@ -12,6 +12,16 @@ export interface PickPdfOptions {
 
 export interface PdfFilePicker {
   pick(options?: PickPdfOptions): Promise<string[]>;
+}
+
+export interface SavePdfOptions {
+  initialDir?: string;
+  suggestedName: string;
+}
+
+export interface PdfOutputDialog {
+  savePdf(options: SavePdfOptions): Promise<string | null>;
+  reveal(filePath: string): Promise<boolean>;
 }
 
 export type FilePickerExec = (
@@ -38,6 +48,18 @@ function splitOutput(stdout: string): string[] {
     .filter(Boolean);
 }
 
+function safeSuggestedName(value: string): string {
+  const invalid = '<>:"/\\|?*';
+  return (
+    Array.from(value, (character) =>
+      character.charCodeAt(0) < 32 || invalid.includes(character) ? '-' : character,
+    )
+      .join('')
+      .replace(/[. ]+$/g, '')
+      .trim() || 'annotated.pdf'
+  );
+}
+
 function run(
   execute: FilePickerExec,
   command: string,
@@ -53,7 +75,7 @@ function run(
 export function createSystemPdfFilePicker(
   platform: FilePickerPlatform = currentPlatform(),
   execute: FilePickerExec = execFile as FilePickerExec,
-): PdfFilePicker {
+): PdfFilePicker & PdfOutputDialog {
   return {
     async pick(options = {}) {
       const initialDir = usableInitialDir(options.initialDir);
@@ -106,6 +128,77 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
       }
 
       return [];
+    },
+
+    async savePdf(options) {
+      const initialDir = usableInitialDir(options.initialDir);
+      const suggestedName = safeSuggestedName(options.suggestedName);
+
+      if (platform === 'darwin') {
+        const escape = (value: string) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const defaultLocation = initialDir
+          ? ` default location POSIX file "${escape(initialDir)}"`
+          : '';
+        const script = `POSIX path of (choose file name with prompt "导出带批注 PDF 副本" default name "${escape(suggestedName)}"${defaultLocation})`;
+        return (await run(execute, 'osascript', ['-e', script]))?.[0] ?? null;
+      }
+
+      if (platform === 'win32') {
+        const escapedDir = initialDir.replace(/'/g, "''");
+        const escapedName = suggestedName.replace(/'/g, "''");
+        const script = `
+[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+$dialog = New-Object System.Windows.Forms.SaveFileDialog
+$dialog.Title = '导出带批注 PDF 副本'
+$dialog.Filter = 'PDF 文件 (*.pdf)|*.pdf'
+$dialog.FileName = '${escapedName}'
+$dialog.AddExtension = $true
+$dialog.DefaultExt = 'pdf'
+$dialog.OverwritePrompt = $true
+if ('${escapedDir}' -ne '') { $dialog.InitialDirectory = '${escapedDir}' }
+$dialog.RestoreDirectory = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  [Console]::WriteLine($dialog.FileName)
+}
+`.trim();
+        return (
+          (await run(execute, 'powershell', ['-NoProfile', '-STA', '-Command', script]))?.[0] ??
+          null
+        );
+      }
+
+      if (platform === 'linux') {
+        const initialPath = initialDir ? resolve(initialDir, suggestedName) : suggestedName;
+        const zenity = await run(execute, 'zenity', [
+          '--file-selection',
+          '--save',
+          '--confirm-overwrite',
+          '--title=导出带批注 PDF 副本',
+          '--file-filter=PDF 文件 | *.pdf',
+          `--filename=${initialPath}`,
+        ]);
+        if (zenity !== null) return zenity[0] ?? null;
+        return (
+          (
+            await run(execute, 'kdialog', ['--getsavefilename', initialPath, '*.pdf|PDF 文件'])
+          )?.[0] ?? null
+        );
+      }
+
+      return null;
+    },
+
+    async reveal(filePath) {
+      const absolute = resolve(filePath);
+      if (platform === 'darwin') return (await run(execute, 'open', ['-R', absolute])) !== null;
+      if (platform === 'win32') {
+        return (await run(execute, 'explorer.exe', [`/select,${absolute}`])) !== null;
+      }
+      if (platform === 'linux') {
+        return (await run(execute, 'xdg-open', [dirname(absolute)])) !== null;
+      }
+      return false;
     },
   };
 }
