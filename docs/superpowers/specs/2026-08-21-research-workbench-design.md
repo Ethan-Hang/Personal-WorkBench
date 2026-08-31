@@ -1,7 +1,7 @@
 # 独立论文管理与阅读工作台
 
 日期：2026-08-21
-状态：渐进式设计收敛中（切片 A、B、C 已完成 macOS 实施与验收；切片 D 计划已确认，D1、D2 已完成 macOS 实施与验收，D3 实施中；各平台结果按测试模块记录）
+状态：渐进式设计收敛中（切片 A、B、C、D 已完成 macOS 实施与验收；各平台结果按测试模块记录）
 分支：`feat/research-workbench`
 关联需求：`TASK-013`（仅作长期追踪编号；本文档不改变外部任务状态）
 
@@ -941,9 +941,9 @@ CSL 非标准键。已修改记录以当前内部值覆盖对应已知字段，�
 - **D3 扩展接口和最终验收**：完成版本化 `InteropAdapter` 能力契约、记录适配器、迁移/回归、10,000 条规模、
   文件输出与浏览器验收；其他能力只声明边界，不实现同步。
 
-D0 已完成并用于确定解析和 CSL 技术边界；唯一实施计划已确认，当前按 D1 → D2 → D3 连续实施。
+D0 已完成并用于确定解析和 CSL 技术边界；唯一实施计划已确认并完成 D1 → D2 → D3 连续实施。
 
-D3 将规范迁移格式升级为 canonical v3，纳入 interop source、record、record-to-entity 映射和 citation key 偏好。
+D3 已将规范迁移格式升级为 canonical v3，纳入 interop source、record、record-to-entity 映射和 citation key 偏好。
 导入/导出任务、预览、进度、CSL 渲染结果和缓存仍是可重建状态，不进入 canonical。v1/v2 文件按空 D 集合升级后
 继续可读，不改写原文件。
 
@@ -1280,6 +1280,18 @@ FTS 重建 20 s、检索 p95 1 s、普通列表/矩阵窗口/revision 保存各 
 | D-17 | 处理 10,000 条、至少 50 MiB 的三种输入并生成 10,000 条参考文献           | 记录数、诊断和输出校验正确；进度可见且可取消；单阶段不超过 120 秒、观测 RSS 不超过 2 GiB；临时输入与候选依赖执行后清理                       |
 | D-18 | 在 1440、1024、768、390 像素宽度完成导入审查、导出预览和引用复制         | 长字段、错误、冲突和损失报告可读；关键确认不被遮挡；键盘和窄屏流程可完成；平台状态按对应测试模块分别记录                                     |
 
+2026-08-31 的 macOS arm64 正式实现规模测试为每种格式生成 10,000 条、精确 50 MiB 输入。BibTeX、RIS、
+CSL JSON 解析分别为 42.21 s、0.65 s、0.21 s；对应映射均低于 48 ms。SQLite checkpoint 为 0.54 s，
+10,000 条预览为 0.12 s，三格式写出各低于 26 ms，10,000 条 APA 参考文献为 33.92 s，解析 worker 在
+53.01 s 时按第 400 条完整 checkpoint 取消。峰值 RSS 为 1421.59 MiB，临时目录在 8.04 ms 内清理；全部阶段
+低于 120 s 和 2 GiB 阈值。Windows 11 x64 的 parser/encoding、atomic-output、CSL、目标规模和真实浏览器
+模块仍为 `not-run`。
+
+同日 Edge 152 使用四个全新 profile 完成 1440、1024、768、390 四档真实浏览器验收。每档都经过导入冲突、
+无效记录与原文展开、导出预览和 citation key 保存、真实 Clipboard API 引用复制、写作板 citation intent 插入
+和草稿参考文献生成；页面没有横向溢出或 Research API 控制台错误。20 张截图完成尺寸和 SHA-256 校验后随隔离
+profile、数据库和测试输入一起清理。
+
 ### 17.11 D0 技术验证记录
 
 D0 使用 `scripts/research-interop-d0.mjs` 在操作系统临时目录安装固定候选版本，不修改仓库依赖或 lock 文件。正式模式
@@ -1397,8 +1409,8 @@ Windows 结果单独记录 Node.js、CPU、内存、耗时和 RSS，不从 macOS
   来源快照、revision、删除恢复、上游生命周期、界面和 C1–C3 边界；§17.8–§17.9 已给出精确验收与规模测试，
   可以进入实施计划。
 - **切片 D**：§8.3、§8.5、§13.2、§16 和 §17.10 已确定完整流程、字段映射、冲突、附件、引用输出、
-  扩展契约和精确验收；§17.11 已完成 D0 选型与 10,000 条 / 50 MiB 基准，可以编写唯一实施计划。
-  D1–D3 必须等该计划确认后才进入实现；完整 Zotero 迁移、附件备份和同步不作为开工条件。
+  扩展契约和精确验收；§17.11 已完成 D0 选型，D1–D3 已按唯一实施计划完成。完整 Zotero 迁移、附件备份和同步
+  仍不属于本切片。
 
 内置 AI Runtime 另行建立产品切片和实施计划；仅预留能力注册与兼容边界不会阻塞上述切片。
 
@@ -1412,13 +1424,18 @@ macOS arm64 最终验收。正式 Fastify + SQLite 流程贯通证据、三类�
 Markdown/CSV 和来源回跳；统一检索、目标规模、canonical v1/v2、缺失附件恢复、四宽度浏览器操作和上游
 生命周期回归通过。Windows 11 x64 的领域、文件输出、系统选择器、目标规模和真实浏览器模块保持 `not-run`。
 
-切片 D 的 D0 已按 §17.11 完成 macOS arm64 技术验证，唯一实施计划位于
-`docs/superpowers/plans/2026-08-31-research-workbench-slice-d.md`。计划已经确认，D1 已完成三格式记录级解析、
-格式影子、来源 key 差异、重复候选、附件确认、字段审查、事务提交、10,000 条分页与四宽度浏览器验收；
-D2 已完成三格式安全导出、稳定 citation key、APA/IEEE/Chicago 引用、写作板 citation intent、删除保护与真实浏览器验收，当前进入 D3。Windows 11 x64 的 D0–D2 解析、文件输出、系统选择器和浏览器模块保持 `not-run`。
+切片 D 已按 `docs/superpowers/plans/2026-08-31-research-workbench-slice-d.md` 完成 D0–D3 与 macOS arm64
+最终验收。三格式记录级解析、格式影子、字段审查、附件确认、事务提交、安全导出、稳定 citation key、
+APA/IEEE/Chicago 引用、写作板 citation intent、版本化 adapter 和 canonical v3 已贯通；正式目标规模与四宽度
+真实浏览器流程通过。Windows 11 x64 的 parser/encoding、atomic-output、系统选择器、CSL、目标规模和浏览器模块
+保持 `not-run`。
 
 ## 21. 变更记录
 
+- 2026-08-31：完成切片 D3 与切片 D macOS arm64 最终验收。版本化 `InteropAdapter` 只开放 records 导入导出，
+  其他能力明确 `unsupported`；canonical v3 无损携带 interop source/record/entity、字段决定、写作 citation intent
+  与 key 偏好，并排除本地来源路径、任务和预览。正式实现通过三种 10,000 条 / 50 MiB 输入、10,000 条 CSL、
+  checkpoint 取消、四宽度全新 Edge profile、真实剪贴板和临时产物清理；Windows 对应模块保持 `not-run`。
 - 2026-08-31：完成切片 D2 macOS 实施与验收。三格式冻结预览、同格式原文重放、未知字段保留、稳定 citation key、UTF-8 原子输出、APA/IEEE/Chicago 引用和写作板 citation intent 已贯通；永久删除、Work 合并与撤销同步处理写作引用。真实浏览器完成导出预览、key 偏好、剪贴板复制、参考文献表、写作板插入和四宽度检查。全仓库 203 个测试文件中 199 个通过、4 个按既有条件跳过，共 1,593 项通过、4 项跳过。Windows D2 文件输出、系统选择器和浏览器模块保持 `not-run`。
 - 2026-08-31：确认切片 D 唯一实施计划并完成 D1 macOS 实施与验收。三格式记录级解析、局部错误、格式影子、
   来源 key 相同/变化内容、标识符重复候选、人工字段保护、附件逐项确认、事务提交、10,000 条分页和导入箱 UI

@@ -181,6 +181,71 @@ function seedAllEntities(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite
          VALUES (?, ?, ?, 'primary-pdf', ?, 'active', ?)`,
       )
       .run('attachment-1', 'edition-1', 'asset-1', 'paper.pdf', NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_sources
+         (id, format, display_name, source_path, content_hash, byte_size, encoding,
+          parser_name, parser_version, created_at)
+         VALUES (?, 'bibtex', 'library.bib', '/private/source/library.bib', ?, 128, 'utf-8',
+                 'retorquere-bibtex-parser', '10.0.1', ?)`,
+      )
+      .run('interop-source-1', 'b'.repeat(64), NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_import_jobs
+         (id, source_id, request_id, status, total_count, processed_count, checkpoint_ordinal,
+          revision, created_at, updated_at, completed_at)
+         VALUES ('interop-job-1', 'interop-source-1', 'canonical-fixture', 'completed', 1, 1, 1,
+                 2, ?, ?, ?)`,
+      )
+      .run(NOW, NOW, NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_records
+         (id, source_id, job_id, ordinal, source_key, raw_hash, raw_record, summary,
+          format_shadow_json, mapped_json, diagnostics_json, decision_json, status, revision,
+          committed_source_record_id, committed_work_id, committed_edition_id, created_at, updated_at)
+         VALUES ('interop-record-1', 'interop-source-1', 'interop-job-1', 0, 'canonicalKey', ?,
+                 '@article{canonicalKey, custom={keep}}', 'Canonical Work', ?, ?, ?, ?,
+                 'committed', 3, 'source-1', 'work-1', 'edition-1', ?, ?)`,
+      )
+      .run(
+        'c'.repeat(64),
+        JSON.stringify({ type: 'article', fields: { custom: 'keep' } }),
+        JSON.stringify({ title: 'Canonical Work', identifiers: [] }),
+        JSON.stringify([{ code: 'unknown-field', field: 'custom' }]),
+        JSON.stringify({
+          action: 'accept',
+          fieldSuggestions: [
+            {
+              field: 'title',
+              currentValue: 'Old',
+              sourceValue: 'Canonical Work',
+              selectedValue: 'Canonical Work',
+              selection: 'source',
+              userConfirmed: true,
+              conflict: true,
+            },
+          ],
+          attachmentCandidates: [],
+        }),
+        NOW,
+        NOW,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_record_entities
+         (id, record_id, work_id, edition_id, action, is_current, created_at)
+         VALUES ('interop-entity-1', 'interop-record-1', 'work-1', 'edition-1', 'created', 1, ?)`,
+      )
+      .run(NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_citation_key_preferences
+         (id, work_id, edition_id, preferred_key, source, revision, created_at, updated_at)
+         VALUES ('citation-key-1', 'work-1', 'edition-1', 'canonicalKey', 'user', 2, ?, ?)`,
+      )
+      .run(NOW, NOW);
   });
   transaction();
 }
@@ -191,7 +256,7 @@ describe('research canonical JSON', () => {
     try {
       seedAllEntities(database.sqlite);
       const canonical = await database.repo.exportCanonicalSnapshot(NOW);
-      expect(canonical.schemaVersion).toBe(2);
+      expect(canonical.schemaVersion).toBe(3);
       expect(canonical.sourceRecords[0]).toMatchObject({
         provider: 'example-provider',
         rawPayload: JSON.stringify({ title: 'Canonical Work', unmapped: { nested: true } }),
@@ -210,11 +275,25 @@ describe('research canonical JSON', () => {
         assets: [{ id: 'asset-1', contentHash: HASH }],
         locations: [{ id: 'location-1', mode: 'managed' }],
         attachments: [{ id: 'attachment-1', assetId: 'asset-1' }],
+        interop: {
+          sources: [{ id: 'interop-source-1', displayName: 'library.bib' }],
+          records: [
+            {
+              id: 'interop-record-1',
+              formatShadow: { type: 'article', fields: { custom: 'keep' } },
+              decision: { fieldSuggestions: [{ userConfirmed: true }] },
+            },
+          ],
+          recordEntities: [{ id: 'interop-entity-1', workId: 'work-1' }],
+          citationKeyPreferences: [{ id: 'citation-key-1', preferredKey: 'canonicalKey' }],
+        },
       });
+      expect(JSON.stringify(canonical)).not.toContain('/private/source/library.bib');
       const report = validateCanonicalRoundTrip(canonical);
       expect(report.valid).toBe(true);
-      expect(report.recordCount).toBe(18);
+      expect(report.recordCount).toBe(22);
       expect(report.verifiedKinds).toContain('sourceRecords');
+      expect(report.verifiedKinds).toContain('interop.records');
       expect(report.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     } finally {
       database.sqlite.close();
@@ -225,27 +304,37 @@ describe('research canonical JSON', () => {
     const database = makeResearchDatabase(() => NOW);
     try {
       const canonical = await database.repo.exportCanonicalSnapshot(NOW);
-      expect(() => validateCanonicalRoundTrip({ ...canonical, schemaVersion: 3 })).toThrow();
+      expect(() => validateCanonicalRoundTrip({ ...canonical, schemaVersion: 4 })).toThrow();
     } finally {
       database.sqlite.close();
     }
   });
 
-  it('继续读取 schema v1，并在恢复前补为空的 reader 与 knowledge 数据组', async () => {
+  it('继续读取 schema v1/v2，并在恢复前补齐 v3 空数据组', async () => {
     const database = makeResearchDatabase(() => NOW);
     try {
       seedAllEntities(database.sqlite);
       const current = await database.repo.exportCanonicalSnapshot(NOW);
-      if (current.schemaVersion !== 2) throw new Error('expected canonical v2');
+      if (current.schemaVersion !== 3) throw new Error('expected canonical v3');
       const legacy: Record<string, unknown> = { ...current, schemaVersion: 1 };
       delete legacy.reader;
       delete legacy.knowledge;
+      delete legacy.interop;
       const report = validateCanonicalRoundTrip(legacy);
       expect(report).toMatchObject({ valid: true, schemaVersion: 1, recordCount: 18 });
       expect(normalizeCanonicalResearchLibrary(legacy)).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         reader: { annotations: [], annotationRevisions: [] },
         knowledge: { notes: [], evidence: [], claims: [], writingDocuments: [] },
+        interop: { sources: [], records: [], recordEntities: [], citationKeyPreferences: [] },
+      });
+
+      const v2: Record<string, unknown> = { ...current, schemaVersion: 2 };
+      delete v2.interop;
+      expect(validateCanonicalRoundTrip(v2)).toMatchObject({ valid: true, schemaVersion: 2 });
+      expect(normalizeCanonicalResearchLibrary(v2)).toMatchObject({
+        schemaVersion: 3,
+        interop: { sources: [], records: [], recordEntities: [], citationKeyPreferences: [] },
       });
     } finally {
       database.sqlite.close();

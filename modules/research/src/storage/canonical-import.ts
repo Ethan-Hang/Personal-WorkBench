@@ -3,7 +3,7 @@ import {
   canonicalResearchLibrarySchema,
   normalizeCanonicalResearchLibrary,
   type CanonicalResearchLibrary,
-  type CanonicalResearchLibraryV2,
+  type CanonicalResearchLibraryV3,
 } from '../interop/canonical.js';
 
 type RecordValue = string | number | null;
@@ -55,11 +55,12 @@ export function canonicalRecordCount(canonical: CanonicalResearchLibrary): numbe
     canonical.locations.length +
     canonical.attachments.length;
   if (canonical.schemaVersion === 1) return base;
-  return (
+  const current =
     base +
     Object.values(canonical.reader).reduce((total, rows) => total + rows.length, 0) +
-    Object.values(canonical.knowledge).reduce((total, rows) => total + rows.length, 0)
-  );
+    Object.values(canonical.knowledge).reduce((total, rows) => total + rows.length, 0);
+  if (canonical.schemaVersion === 2) return current;
+  return current + Object.values(canonical.interop).reduce((total, rows) => total + rows.length, 0);
 }
 
 export const canonicalDestinationTables = [
@@ -98,6 +99,10 @@ export const canonicalDestinationTables = [
   'research_writing_sections',
   'research_writing_blocks',
   'research_knowledge_revisions',
+  'research_interop_sources',
+  'research_interop_records',
+  'research_interop_record_entities',
+  'research_citation_key_preferences',
 ] as const;
 
 export function canonicalTargetIsEmpty(sqlite: Database.Database): boolean {
@@ -148,6 +153,26 @@ export function canonicalConflictIds(
       column: 'id',
       ids: canonical.knowledge.writingDocuments.map((row) => row.id),
     },
+    {
+      table: 'research_interop_sources',
+      column: 'id',
+      ids: canonical.interop.sources.map((row) => row.id),
+    },
+    {
+      table: 'research_interop_records',
+      column: 'id',
+      ids: canonical.interop.records.map((row) => row.id),
+    },
+    {
+      table: 'research_interop_record_entities',
+      column: 'id',
+      ids: canonical.interop.recordEntities.map((row) => row.id),
+    },
+    {
+      table: 'research_citation_key_preferences',
+      column: 'id',
+      ids: canonical.interop.citationKeyPreferences.map((row) => row.id),
+    },
   ];
   const conflicts: string[] = [];
   for (const group of groups) {
@@ -162,7 +187,7 @@ export function canonicalConflictIds(
   return conflicts;
 }
 
-function baseSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[] {
+function baseSpecs(canonical: CanonicalResearchLibraryV3): ErasedTableSpec[] {
   return tableSpecs(
     {
       table: 'research_works',
@@ -540,7 +565,7 @@ function baseSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[] {
   );
 }
 
-function readerSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[] {
+function readerSpecs(canonical: CanonicalResearchLibraryV3): ErasedTableSpec[] {
   return tableSpecs(
     {
       table: 'research_reading_contexts',
@@ -654,7 +679,7 @@ function readerSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[] {
   );
 }
 
-function knowledgeSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[] {
+function knowledgeSpecs(canonical: CanonicalResearchLibraryV3): ErasedTableSpec[] {
   const structured = (row: {
     status: string;
     revision: number;
@@ -986,6 +1011,9 @@ function knowledgeSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[
         'evidence_id',
         'claim_id',
         'matrix_id',
+        'work_id',
+        'edition_id',
+        'citation_intent_json',
         'target_label',
         'position',
         'status',
@@ -1005,6 +1033,9 @@ function knowledgeSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[
         row.evidenceId,
         row.claimId,
         row.matrixId,
+        row.workId,
+        row.editionId,
+        row.citation === null ? null : json(row.citation),
         row.targetLabel,
         row.position,
         ...structured(row),
@@ -1033,6 +1064,155 @@ function knowledgeSpecs(canonical: CanonicalResearchLibraryV2): ErasedTableSpec[
       ],
     },
   );
+}
+
+const canonicalInteropJobId = (sourceId: string): string => `canonical-v3-job:${sourceId}`;
+
+function interopSpecs(canonical: CanonicalResearchLibraryV3): ErasedTableSpec[] {
+  return tableSpecs(
+    {
+      table: 'research_interop_sources',
+      columns: [
+        'id',
+        'format',
+        'display_name',
+        'source_path',
+        'content_hash',
+        'byte_size',
+        'encoding',
+        'parser_name',
+        'parser_version',
+        'created_at',
+      ],
+      rows: canonical.interop.sources,
+      values: (row) => [
+        row.id,
+        row.format,
+        row.displayName,
+        `canonical://restored/${row.id}`,
+        row.contentHash,
+        row.byteSize,
+        row.encoding,
+        row.parserName,
+        row.parserVersion,
+        row.createdAt,
+      ],
+    },
+    {
+      table: 'research_interop_records',
+      columns: [
+        'id',
+        'source_id',
+        'job_id',
+        'ordinal',
+        'source_key',
+        'raw_hash',
+        'raw_record',
+        'summary',
+        'format_shadow_json',
+        'mapped_json',
+        'diagnostics_json',
+        'decision_json',
+        'status',
+        'revision',
+        'committed_source_record_id',
+        'committed_work_id',
+        'committed_edition_id',
+        'created_at',
+        'updated_at',
+      ],
+      rows: canonical.interop.records,
+      values: (row) => [
+        row.id,
+        row.sourceId,
+        canonicalInteropJobId(row.sourceId),
+        row.ordinal,
+        row.sourceKey,
+        row.rawHash,
+        row.rawRecord,
+        row.summary,
+        json(row.formatShadow),
+        row.mapped === null ? null : json(row.mapped),
+        json(row.diagnostics),
+        row.decision === null ? null : json(row.decision),
+        row.status,
+        row.revision,
+        row.committedSourceRecordId,
+        row.committedWorkId,
+        row.committedEditionId,
+        row.createdAt,
+        row.updatedAt,
+      ],
+    },
+    {
+      table: 'research_interop_record_entities',
+      columns: ['id', 'record_id', 'work_id', 'edition_id', 'action', 'is_current', 'created_at'],
+      rows: canonical.interop.recordEntities,
+      values: (row) => [
+        row.id,
+        row.recordId,
+        row.workId,
+        row.editionId,
+        row.action,
+        boolean(row.isCurrent),
+        row.createdAt,
+      ],
+    },
+    {
+      table: 'research_citation_key_preferences',
+      columns: [
+        'id',
+        'work_id',
+        'edition_id',
+        'preferred_key',
+        'source',
+        'revision',
+        'created_at',
+        'updated_at',
+      ],
+      rows: canonical.interop.citationKeyPreferences,
+      values: (row) => [
+        row.id,
+        row.workId,
+        row.editionId,
+        row.preferredKey,
+        row.source,
+        row.revision,
+        row.createdAt,
+        row.updatedAt,
+      ],
+    },
+  );
+}
+
+function insertCanonicalInteropJobs(
+  sqlite: Database.Database,
+  canonical: CanonicalResearchLibraryV3,
+): void {
+  const insert = sqlite.prepare(
+    `INSERT INTO research_interop_import_jobs
+     (id, source_id, request_id, status, total_count, processed_count, checkpoint_ordinal,
+      error_code, error_detail, cancel_requested, revision, created_at, updated_at, completed_at)
+     VALUES (?, ?, ?, 'completed', ?, ?, ?, NULL, NULL, 0, 1, ?, ?, ?)`,
+  );
+  for (const source of canonical.interop.sources) {
+    const records = canonical.interop.records.filter((record) => record.sourceId === source.id);
+    const checkpoint = records.reduce(
+      (maximum, record) => Math.max(maximum, record.ordinal + 1),
+      0,
+    );
+    insert.run(
+      canonicalInteropJobId(source.id),
+      source.id,
+      `canonical-v3:${source.id}`,
+      records.length,
+      records.length,
+      checkpoint,
+      source.createdAt,
+      source.createdAt,
+      source.createdAt,
+    );
+  }
 }
 
 function insertSpec(sqlite: Database.Database, spec: ErasedTableSpec): number {
@@ -1117,6 +1297,10 @@ export function importCanonicalIntoEmptyDatabase(
     ]) {
       recordCount += insertSpec(sqlite, spec);
     }
+    const interop = interopSpecs(canonical);
+    recordCount += insertSpec(sqlite, interop[0]!);
+    insertCanonicalInteropJobs(sqlite, canonical);
+    for (const spec of interop.slice(1)) recordCount += insertSpec(sqlite, spec);
     const updateWork = sqlite.prepare(
       `UPDATE research_works SET preferred_edition_id = ?, redirect_to_work_id = ? WHERE id = ?`,
     );

@@ -2,8 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { Cite, plugins } from '@citation-js/core';
 import '@citation-js/plugin-csl';
 import { describe, expect, it } from 'vitest';
-import type { InteropRepository } from '../records/repository.js';
-import type { ExportRecordProjection } from '../export/model.js';
+import { toCslRecord, type ExportRecordProjection } from '../export/model.js';
 import {
   CitationProcessor,
   cslHtmlToMarkdown,
@@ -72,30 +71,38 @@ const records = [
   }),
 ];
 
-function repository(): InteropRepository {
+function citationItem(
+  value: (typeof records)[number],
+  overrides: Partial<{
+    locator: string | null;
+    label: string | null;
+    prefix: string | null;
+    suffix: string | null;
+    suppressAuthor: boolean;
+  }> = {},
+) {
   return {
-    projectExportRecords: () => records,
-  } as unknown as InteropRepository;
+    workId: value.work.id,
+    csl: toCslRecord({ ...value, citationKey: value.work.id }),
+    locator: null,
+    label: null,
+    prefix: null,
+    suffix: null,
+    suppressAuthor: false,
+    ...overrides,
+  };
 }
 
 describe('CitationProcessor', () => {
   it('固定资产 hash 通过并为三种样式生成三种安全表示', async () => {
     await expect(verifyCitationAssets()).resolves.toBeUndefined();
-    const processor = new CitationProcessor(repository());
+    const processor = new CitationProcessor();
     for (const style of ['apa', 'ieee', 'chicago-author-date'] as const) {
       const result = await processor.render({
         style,
         locale: 'en-US',
         mode: 'bibliography',
-        items: records.map((value) => ({
-          workId: value.work.id,
-          editionId: value.edition!.id,
-          locator: null,
-          label: null,
-          prefix: null,
-          suffix: null,
-          suppressAuthor: false,
-        })),
+        items: records.map((value) => citationItem(value)),
       });
       expect(result).toMatchObject({
         style,
@@ -111,29 +118,19 @@ describe('CitationProcessor', () => {
   });
 
   it('文内引用保留 locator、prefix、suffix 和输入顺序', async () => {
-    const result = await new CitationProcessor(repository()).render({
+    const result = await new CitationProcessor().render({
       style: 'apa',
       locale: 'en-US',
       mode: 'citation',
       items: [
-        {
-          workId: 'smith-b',
-          editionId: 'smith-b-edition',
+        citationItem(records[1]!, {
           locator: '17',
           label: 'page',
           prefix: 'see ',
           suffix: ', emphasis added',
           suppressAuthor: false,
-        },
-        {
-          workId: 'organization',
-          editionId: 'organization-edition',
-          locator: null,
-          label: null,
-          prefix: null,
-          suffix: null,
-          suppressAuthor: false,
-        },
+        }),
+        citationItem(records[2]!),
       ],
     });
     expect(result.text).toContain('17');
@@ -147,19 +144,11 @@ describe('CitationProcessor', () => {
     const locale = await readFile(new URL('./assets/locales-en-US.xml', import.meta.url), 'utf8');
     plugins.config.get('@csl').styles.add('workbench-apa', style);
     plugins.config.get('@csl').locales.add('en-US', locale);
-    const direct = await new CitationProcessor(repository()).render({
+    const direct = await new CitationProcessor().render({
       style: 'apa',
       locale: 'en-US',
       mode: 'bibliography',
-      items: records.map((value) => ({
-        workId: value.work.id,
-        editionId: value.edition!.id,
-        locator: null,
-        label: null,
-        prefix: null,
-        suffix: null,
-        suppressAuthor: false,
-      })),
+      items: records.map((value) => citationItem(value)),
     });
     const items = records.map((value) => ({
       id: value.work.id,

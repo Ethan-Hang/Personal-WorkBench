@@ -159,6 +159,19 @@ function nullableInteger(row: Row, key: string): number | null {
   return (row[key] as number | null | undefined) ?? null;
 }
 
+function portableInteropJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(portableInteropJson);
+  if (!value || typeof value !== 'object') return value;
+  const record = Object.fromEntries(
+    Object.entries(value).map(([key, nested]) => [key, portableInteropJson(nested)]),
+  );
+  if ('sourceValue' in record && 'resolvedPath' in record && 'action' in record) {
+    record.resolvedPath = null;
+    if ('exists' in record) record.exists = null;
+  }
+  return record;
+}
+
 function toReaderState(row: Row): ReaderStateRecord {
   return {
     assetId: text(row, 'asset_id'),
@@ -5233,7 +5246,7 @@ export class SqliteResearchRepository
     const rows = (table: string, order = 'id') =>
       this.sqlite.prepare(`SELECT * FROM ${table} ORDER BY ${order}`).all() as Row[];
     return canonicalResearchLibrarySchema.parse({
-      schemaVersion: 2,
+      schemaVersion: 3,
       exportedAt,
       generator: 'personal-workbench/research',
       works: rows('research_works').map((row) => ({
@@ -5635,6 +5648,14 @@ export class SqliteResearchRepository
           evidenceId: nullableText(row, 'evidence_id'),
           claimId: nullableText(row, 'claim_id'),
           matrixId: nullableText(row, 'matrix_id'),
+          workId: nullableText(row, 'work_id'),
+          editionId: nullableText(row, 'edition_id'),
+          citation: nullableText(row, 'citation_intent_json')
+            ? {
+                ...JSON.parse(text(row, 'citation_intent_json')),
+                editionId: nullableText(row, 'edition_id'),
+              }
+            : null,
           targetLabel: nullableText(row, 'target_label'),
           position: integer(row, 'position'),
           status: text(row, 'status'),
@@ -5651,6 +5672,60 @@ export class SqliteResearchRepository
           snapshot: JSON.parse(text(row, 'snapshot_json')),
           reason: text(row, 'reason'),
           createdAt: text(row, 'created_at'),
+        })),
+      },
+      interop: {
+        sources: rows('research_interop_sources').map((row) => ({
+          id: text(row, 'id'),
+          format: text(row, 'format'),
+          displayName: text(row, 'display_name'),
+          contentHash: text(row, 'content_hash'),
+          byteSize: integer(row, 'byte_size'),
+          encoding: text(row, 'encoding'),
+          parserName: text(row, 'parser_name'),
+          parserVersion: text(row, 'parser_version'),
+          createdAt: text(row, 'created_at'),
+        })),
+        records: rows('research_interop_records').map((row) => ({
+          id: text(row, 'id'),
+          sourceId: text(row, 'source_id'),
+          ordinal: integer(row, 'ordinal'),
+          sourceKey: nullableText(row, 'source_key'),
+          rawHash: text(row, 'raw_hash'),
+          rawRecord: text(row, 'raw_record'),
+          summary: text(row, 'summary'),
+          formatShadow: portableInteropJson(JSON.parse(text(row, 'format_shadow_json'))),
+          mapped: nullableText(row, 'mapped_json') ? JSON.parse(text(row, 'mapped_json')) : null,
+          diagnostics: JSON.parse(text(row, 'diagnostics_json')),
+          decision: nullableText(row, 'decision_json')
+            ? portableInteropJson(JSON.parse(text(row, 'decision_json')))
+            : null,
+          status: text(row, 'status'),
+          revision: integer(row, 'revision'),
+          committedSourceRecordId: nullableText(row, 'committed_source_record_id'),
+          committedWorkId: nullableText(row, 'committed_work_id'),
+          committedEditionId: nullableText(row, 'committed_edition_id'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
+        })),
+        recordEntities: rows('research_interop_record_entities').map((row) => ({
+          id: text(row, 'id'),
+          recordId: text(row, 'record_id'),
+          workId: nullableText(row, 'work_id'),
+          editionId: nullableText(row, 'edition_id'),
+          action: text(row, 'action'),
+          isCurrent: integer(row, 'is_current') === 1,
+          createdAt: text(row, 'created_at'),
+        })),
+        citationKeyPreferences: rows('research_citation_key_preferences').map((row) => ({
+          id: text(row, 'id'),
+          workId: text(row, 'work_id'),
+          editionId: nullableText(row, 'edition_id'),
+          preferredKey: text(row, 'preferred_key'),
+          source: text(row, 'source'),
+          revision: integer(row, 'revision'),
+          createdAt: text(row, 'created_at'),
+          updatedAt: text(row, 'updated_at'),
         })),
       },
     });

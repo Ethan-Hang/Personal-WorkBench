@@ -71,7 +71,7 @@ describe('research portable export routes', () => {
       });
       expect(preview.statusCode).toBe(200);
       expect(canonicalImportPreviewSchema.parse(preview.json())).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         targetEmpty: true,
         workCount: 1,
       });

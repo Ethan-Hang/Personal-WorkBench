@@ -10,9 +10,9 @@ import { ResearchContentStore } from '../files/content-store.js';
 import { validateCanonicalRoundTrip } from '../storage/canonical-roundtrip.js';
 import {
   canonicalResearchLibrarySchema,
-  canonicalResearchLibraryV2Schema,
+  canonicalResearchLibraryV3Schema,
   normalizeCanonicalResearchLibrary,
-  type CanonicalResearchLibraryV2,
+  type CanonicalResearchLibraryV3,
 } from './canonical.js';
 import {
   canonicalRecordCount,
@@ -41,12 +41,12 @@ export class CanonicalRestoreError extends Error {
 
 interface LoadedCanonical {
   sourcePath: string;
-  schemaVersion: 1 | 2;
-  canonical: CanonicalResearchLibraryV2;
+  schemaVersion: 1 | 2 | 3;
+  canonical: CanonicalResearchLibraryV3;
 }
 
 interface AssetPlan {
-  asset: CanonicalResearchLibraryV2['assets'][number];
+  asset: CanonicalResearchLibraryV3['assets'][number];
   objectKey: string;
   portablePath: string;
   sourcePath: string | null;
@@ -117,7 +117,7 @@ async function planAssets(
   contentStore: ResearchContentStore,
   signal?: AbortSignal,
 ): Promise<RestorePlan> {
-  const locationsByAsset = new Map<string, CanonicalResearchLibraryV2['locations']>();
+  const locationsByAsset = new Map<string, CanonicalResearchLibraryV3['locations']>();
   for (const location of loaded.canonical.locations) {
     const current = locationsByAsset.get(location.assetId) ?? [];
     current.push(location);
@@ -181,7 +181,8 @@ function previewWarnings(
   conflictIds: string[],
 ): string[] {
   const warnings: string[] = [];
-  if (loaded.schemaVersion === 1) warnings.push('旧版 schema v1 将按 v2 结构导入');
+  if (loaded.schemaVersion < 3)
+    warnings.push(`旧版 schema v${loaded.schemaVersion} 将按 v3 结构导入`);
   if (!targetEmpty) warnings.push('当前资料库不是空库，不能执行恢复');
   if (conflictIds.length > 0) warnings.push(`发现 ${conflictIds.length} 个 ID 冲突`);
   if (plan.missingAssetCount > 0) {
@@ -246,8 +247,8 @@ function prepareImportedCanonical(
   managed: Map<string, ManagedLocation>,
   managedRoot: string,
   at: string,
-): CanonicalResearchLibraryV2 {
-  const canonical = canonicalResearchLibraryV2Schema.parse(structuredClone(loaded.canonical));
+): CanonicalResearchLibraryV3 {
+  const canonical = canonicalResearchLibraryV3Schema.parse(structuredClone(loaded.canonical));
   const usedLocationIds = new Set(canonical.locations.map((location) => location.id));
   for (const planned of plan.assets) {
     const assetLocations = canonical.locations.filter(
@@ -319,7 +320,7 @@ function prepareImportedCanonical(
       });
     }
   }
-  return canonicalResearchLibraryV2Schema.parse(canonical);
+  return canonicalResearchLibraryV3Schema.parse(canonical);
 }
 
 export interface RestoreCanonicalOptions {

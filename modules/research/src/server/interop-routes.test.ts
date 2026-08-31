@@ -11,6 +11,8 @@ import {
   interopExportJobViewSchema,
   interopExportPreviewSchema,
   citationRenderResultSchema,
+  interopAdapterListSchema,
+  interopAdapterNegotiationResultSchema,
 } from '../contract.js';
 import type { MetadataCoordinator } from '../metadata/coordinator.js';
 import { SqliteInteropRepository } from '../storage/sqlite-interop-repository.js';
@@ -108,6 +110,54 @@ async function waitForExport(app: Awaited<ReturnType<typeof buildApp>>, id: stri
 }
 
 describe('research interop HTTP API', () => {
+  it('公开稳定 adapter registry，并让未实现能力明确返回 unsupported', async () => {
+    const { app, sqlite } = await fixture('@article{a, title={A}}');
+    try {
+      const listed = interopAdapterListSchema.parse(
+        (await app.inject({ method: 'GET', url: RESEARCH_API_V1.interopAdapters })).json(),
+      );
+      expect(listed.adapters.map((adapter) => adapter.id)).toEqual(['bibtex', 'ris', 'csl-json']);
+
+      const negotiated = interopAdapterNegotiationResultSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.interopAdapterNegotiate,
+            payload: {
+              adapterId: 'bibtex',
+              capability: 'records',
+              operation: 'export',
+              protocolVersion: '1.0.0',
+            },
+          })
+        ).json(),
+      );
+      expect(negotiated).toMatchObject({ supported: true, adapterId: 'bibtex' });
+
+      const unsupported = interopAdapterNegotiationResultSchema.parse(
+        (
+          await app.inject({
+            method: 'POST',
+            url: RESEARCH_API_V1.interopAdapterNegotiate,
+            payload: {
+              adapterId: 'bibtex',
+              capability: 'annotations',
+              operation: 'import',
+              protocolVersion: '1.0.0',
+            },
+          })
+        ).json(),
+      );
+      expect(unsupported).toMatchObject({
+        supported: false,
+        diagnostics: [{ code: 'capability-unsupported' }],
+      });
+    } finally {
+      await app.close();
+      sqlite.close();
+    }
+  });
+
   it('完成选择、解析、分页审查、决定和事务提交', async () => {
     const { app, sqlite, source } = await fixture(`@article{smith2026,
   title = {Research Interop},

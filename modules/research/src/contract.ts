@@ -124,6 +124,8 @@ export const RESEARCH_API_V1 = {
   interopExports: `${API_ROOT}/interop/exports`,
   interopExport: (id: string) => `${API_ROOT}/interop/exports/${id}`,
   interopExportCancel: (id: string) => `${API_ROOT}/interop/exports/${id}/cancel`,
+  interopAdapters: `${API_ROOT}/interop/adapters`,
+  interopAdapterNegotiate: `${API_ROOT}/interop/adapters/negotiate`,
   interopCitationKey: (workId: string) => `${API_ROOT}/interop/citation-keys/${workId}`,
   interopCitationRender: `${API_ROOT}/interop/citations/render`,
   notes: `${API_ROOT}/notes`,
@@ -1343,7 +1345,7 @@ export type CanonicalImportPreviewInput = z.infer<typeof canonicalImportPreviewI
 
 export const canonicalImportPreviewSchema = z.object({
   sourcePath: z.string().min(1),
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   targetEmpty: z.boolean(),
   recordCount: z.number().int().nonnegative(),
   workCount: z.number().int().nonnegative(),
@@ -1362,7 +1364,7 @@ export const startCanonicalImportInputSchema = canonicalImportPreviewInputSchema
 export type StartCanonicalImportInput = z.infer<typeof startCanonicalImportInputSchema>;
 
 export const canonicalImportReportSchema = z.object({
-  schemaVersion: z.union([z.literal(1), z.literal(2)]),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   importedRecords: z.number().int().nonnegative(),
   importedWorks: z.number().int().nonnegative(),
   importedAttachments: z.number().int().nonnegative(),
@@ -3176,6 +3178,105 @@ export const citationRenderResultSchema = z.object({
   html: z.string().max(10_000_000),
 });
 export type CitationRenderResult = z.infer<typeof citationRenderResultSchema>;
+
+export const INTEROP_ADAPTER_PROTOCOL_VERSION = '1.0.0' as const;
+export const INTEROP_ADAPTER_CAPABILITIES = [
+  'records',
+  'collections',
+  'tags',
+  'attachment-manifest',
+  'annotations',
+  'cursor',
+] as const;
+export const INTEROP_ADAPTER_OPERATIONS = ['import', 'export'] as const;
+export const INTEROP_ADAPTER_NEGOTIATION_CODES = [
+  'unknown-adapter',
+  'unknown-capability',
+  'incompatible-version',
+  'capability-unsupported',
+] as const;
+
+export const interopAdapterCapabilitySchema = z.object({
+  capability: z.enum(INTEROP_ADAPTER_CAPABILITIES),
+  import: z.enum(['supported', 'unsupported']),
+  export: z.enum(['supported', 'unsupported']),
+});
+
+export const interopAdapterDescriptorSchema = z.object({
+  id: interopFormatSchema,
+  displayName: z.string().min(1).max(200),
+  adapterVersion: z.string().min(1).max(200),
+  protocolVersions: z.array(z.string().min(1).max(50)).min(1),
+  capabilities: z.array(interopAdapterCapabilitySchema).length(INTEROP_ADAPTER_CAPABILITIES.length),
+});
+export type InteropAdapterDescriptor = z.infer<typeof interopAdapterDescriptorSchema>;
+
+export const interopAdapterListSchema = z.object({
+  protocolVersion: z.literal(INTEROP_ADAPTER_PROTOCOL_VERSION),
+  adapters: z.array(interopAdapterDescriptorSchema),
+});
+
+export const interopAdapterNegotiationInputSchema = z.object({
+  adapterId: z.string().trim().min(1).max(200),
+  capability: z.string().trim().min(1).max(200),
+  operation: z.enum(INTEROP_ADAPTER_OPERATIONS),
+  protocolVersion: z.string().trim().min(1).max(50),
+});
+export type InteropAdapterNegotiationInput = z.infer<typeof interopAdapterNegotiationInputSchema>;
+
+const interopAdapterNegotiationDiagnosticSchema = z.object({
+  code: z.enum(INTEROP_ADAPTER_NEGOTIATION_CODES),
+  message: z.string().min(1).max(2_000),
+});
+
+export const interopAdapterNegotiationResultSchema = z.discriminatedUnion('supported', [
+  z.object({
+    supported: z.literal(true),
+    adapterId: interopFormatSchema,
+    capability: z.enum(INTEROP_ADAPTER_CAPABILITIES),
+    operation: z.enum(INTEROP_ADAPTER_OPERATIONS),
+    protocolVersion: z.literal(INTEROP_ADAPTER_PROTOCOL_VERSION),
+    adapterVersion: z.string().min(1).max(200),
+    diagnostics: z.array(interopAdapterNegotiationDiagnosticSchema).length(0),
+  }),
+  z.object({
+    supported: z.literal(false),
+    adapterId: z.string().min(1).max(200),
+    capability: z.string().min(1).max(200),
+    operation: z.enum(INTEROP_ADAPTER_OPERATIONS),
+    protocolVersion: z.string().min(1).max(50),
+    diagnostics: z.array(interopAdapterNegotiationDiagnosticSchema).min(1),
+  }),
+]);
+export type InteropAdapterNegotiationResult = z.infer<typeof interopAdapterNegotiationResultSchema>;
+
+export const interopAdapterCursorSchema = z.object({
+  value: z.string().min(1).max(2_000),
+  version: z.number().int().positive(),
+});
+
+export const interopAdapterRecordBatchSchema = z
+  .object({
+    adapterId: interopFormatSchema,
+    protocolVersion: z.literal(INTEROP_ADAPTER_PROTOCOL_VERSION),
+    cursor: interopAdapterCursorSchema.nullable(),
+    items: z.array(
+      z.object({
+        ordinal: z.number().int().nonnegative(),
+        sourceKey: z.string().max(2_000).nullable(),
+        status: z.enum(['processed', 'failed']),
+        payload: z.json().nullable(),
+        diagnostics: z.array(interopAdapterNegotiationDiagnosticSchema),
+      }),
+    ),
+    complete: z.boolean(),
+    nextCursor: interopAdapterCursorSchema.nullable(),
+  })
+  .refine((batch) => !batch.complete || batch.nextCursor === null, {
+    message: '完成批次不能继续返回 cursor',
+    path: ['nextCursor'],
+  });
+export type InteropAdapterRecordBatch = z.infer<typeof interopAdapterRecordBatchSchema>;
 
 export const deletionPreviewSchema = z.object({
   workId: researchIdSchema,

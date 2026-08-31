@@ -1,9 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import CSL from 'citeproc';
-import type { CitationRenderResult, CslStyle, RenderCitationInput } from '../../contract.js';
-import type { InteropRepository } from '../records/repository.js';
-import { toCslRecord } from '../export/model.js';
+import type { CitationRenderResult, CslStyle } from '../../contract.js';
 
 interface AssetManifest {
   assets: Record<string, { file: string; sha256: string }>;
@@ -94,6 +92,21 @@ export function cslHtmlToMarkdown(value: string): string {
     .trim();
 }
 
+export interface CitationProcessorInput {
+  style: CslStyle;
+  locale: 'en-US';
+  mode: 'citation' | 'bibliography';
+  items: Array<{
+    workId: string;
+    csl: Record<string, unknown>;
+    locator: string | null;
+    label: string | null;
+    prefix: string | null;
+    suffix: string | null;
+    suppressAuthor: boolean;
+  }>;
+}
+
 function renderWithEngine(input: {
   style: string;
   locale: string;
@@ -130,28 +143,13 @@ function renderWithEngine(input: {
 }
 
 export class CitationProcessor {
-  constructor(private readonly repository: InteropRepository) {}
-
-  async render(input: RenderCitationInput): Promise<CitationRenderResult> {
+  async render(input: CitationProcessorInput): Promise<CitationRenderResult> {
     const loaded = await assets();
-    const all = this.repository.projectExportRecords(
-      { kind: 'selection', workIds: input.items.map((item) => item.workId) },
-      'all',
-    );
-    const records = input.items.map((item, index) => {
-      const record =
-        all.find(
-          (candidate) =>
-            candidate.work.id === item.workId &&
-            (item.editionId === null || candidate.edition?.id === item.editionId),
-        ) ?? null;
-      if (!record) throw new Error(`citation item not found: ${item.workId}`);
-      const id = `citation-${index}-${item.workId}-${record.edition?.id ?? ''}`;
-      return { id, item, record: { ...record, citationKey: id } };
-    });
-    const itemMap = Object.fromEntries(
-      records.map(({ id, record }) => [id, { ...toCslRecord(record), id }]),
-    );
+    const records = input.items.map((item, index) => ({
+      id: `citation-${index}-${item.workId}`,
+      item,
+    }));
+    const itemMap = Object.fromEntries(records.map(({ id, item }) => [id, { ...item.csl, id }]));
     const citationItems = records.map(({ id, item }) => ({
       id,
       ...(item.locator ? { locator: item.locator } : {}),

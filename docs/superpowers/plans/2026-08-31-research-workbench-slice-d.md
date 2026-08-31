@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §8.3、§8.5、§13.2、§16“切片 D”、§17.10–§17.11。
 
-**Status:** 已确认，实施中。D0、D1 与 D2 已在 macOS arm64 完成，当前进入 D3；Windows 11 x64 的对应平台模块保持 `not-run`。
+**Status:** 已完成。D0–D3 已在 macOS arm64 完成实施与最终验收；Windows 11 x64 的对应平台模块保持 `not-run`。
 
 ## 执行方式
 
@@ -340,6 +340,26 @@ D2 实施记录（2026-08-31，macOS arm64）：
 4. `slice-d-workflow.test.ts` 以正式 Fastify + SQLite 完成 D-01–D-18，审计 source/record/assertion/entity/canonical 与文件临时产物。
 5. 运行 A/B/C 关键回归和全仓库 `npm run check`。若仍只出现已知 favicon 固定超时，需要用定向通过与完整日志证明是同一外部负载问题；新的 D 失败不能归入已知问题。
 6. 更新 spec 与本计划的真实平台状态、性能数字、测试数量和剩余待测项；整合临时提交，形成 D3/最终验收本地提交后停止。
+
+D3 实施记录（2026-08-31，macOS arm64）：
+
+- 版本化 `InteropAdapter` 已定义 descriptor、records import/export capability、协议协商、diagnostic、cursor 和
+  partial/empty batch 语义；BibTeX、RIS、CSL JSON 按稳定顺序注册，其他能力明确返回 `unsupported`。
+- canonical v3 已纳入 interop source、record、record entity、字段决定、citation key 偏好和写作 citation intent；
+  v1/v2 规范化为空 D 集合。恢复使用非本地 synthetic source/job 维持外键，不携带来源路径、原任务、导出预览、
+  CSL 输出或缓存；附件候选的本机解析路径在可移植快照中归零。
+- `CitationProcessor` 只接收规范 CSL item、固定 style/locale 和 citation 参数；Repository 查询由
+  `ResearchCitationService` 完成，引用引擎边界不依赖 SQLite 或 UI。
+- 正式 Fastify + SQLite 验收贯通三格式局部错误、冲突审查、附件忽略、事务提交、三格式安全输出、三样式引用、
+  写作引用、adapter 协商和 canonical v3 恢复，并审计 source/record/assertion/entity、外键与临时文件。
+- 正式规模为每种格式 10,000 条、精确 50 MiB：BibTeX/RIS/CSL JSON 解析 42.21 s / 0.65 s / 0.21 s，
+  SQLite checkpoint 0.54 s，预览 0.12 s，三格式写出各低于 26 ms，10,000 条 APA 参考文献 33.92 s，
+  取消 53.01 s、checkpoint 400，峰值 RSS 1421.59 MiB，临时目录清理 8.04 ms。全部阶段通过 120 s / 2 GiB 阈值。
+- Edge 152 在 1440、1024、768、390 四档均使用全新 profile，完成导入冲突、错误原文、导出 key、真实剪贴板、
+  写作 citation intent 和草稿参考文献；20 张临时截图完成尺寸与 SHA-256 校验后清理，无页面横向溢出或 Research API 控制台错误。
+- 兼容脚本将 macOS arm64 的 parser/encoding、atomic-output、CSL 和 adapter/canonical/acceptance 记录为
+  `passed`，Windows 11 x64 对应模块准确保留为 `not-run`。全仓库并行回归只有既有 favicon 构建测试触发固定
+  15 s 超时，其余 200 个文件、1,597 项测试通过；favicon 随后定向重跑 2.95 s 通过，D 定向回归全部通过。
 
 macOS 当前开发机最终命令预期为：
 

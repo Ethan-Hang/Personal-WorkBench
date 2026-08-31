@@ -29,9 +29,10 @@ import {
   evidenceSourceSnapshotSchema,
   matrixReviewBaselineSchema,
   researchSearchAstSchema,
+  writingCitationIntentSchema,
 } from '../contract.js';
 
-export const RESEARCH_CANONICAL_SCHEMA_VERSION = 2 as const;
+export const RESEARCH_CANONICAL_SCHEMA_VERSION = 3 as const;
 
 const id = z.string().min(1);
 const nullableText = z.string().nullable();
@@ -528,6 +529,23 @@ export const canonicalWritingSectionSchema = z
   })
   .strict();
 
+export const canonicalWritingBlockV2Schema = z
+  .object({
+    id,
+    documentId: id,
+    sectionId: id,
+    kind: z.enum(['text', 'note', 'evidence', 'claim', 'matrix']),
+    text: nullableText,
+    noteId: id.nullable(),
+    evidenceId: id.nullable(),
+    claimId: id.nullable(),
+    matrixId: id.nullable(),
+    targetLabel: nullableText,
+    position: z.number().int().nonnegative(),
+    ...canonicalStructuredStatus,
+  })
+  .strict();
+
 export const canonicalWritingBlockSchema = z
   .object({
     id,
@@ -539,11 +557,26 @@ export const canonicalWritingBlockSchema = z
     evidenceId: id.nullable(),
     claimId: id.nullable(),
     matrixId: id.nullable(),
+    workId: id.nullable(),
+    editionId: id.nullable(),
+    citation: writingCitationIntentSchema.nullable(),
     targetLabel: nullableText,
     position: z.number().int().nonnegative(),
     ...canonicalStructuredStatus,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.kind === 'citation') {
+      if (value.workId === null || value.citation === null) {
+        context.addIssue({ code: 'custom', message: '引用块必须包含 Work 与 citation intent' });
+      }
+      if (value.editionId !== value.citation?.editionId) {
+        context.addIssue({ code: 'custom', message: '引用块 Edition 与 intent 不一致' });
+      }
+    } else if (value.workId !== null || value.editionId !== null || value.citation !== null) {
+      context.addIssue({ code: 'custom', message: '非引用块不能包含 citation intent' });
+    }
+  });
 
 export const canonicalKnowledgeRevisionSchema = z
   .object({
@@ -567,7 +600,7 @@ export const canonicalReaderDataSchema = z
   })
   .strict();
 
-export const canonicalKnowledgeDataSchema = z
+export const canonicalKnowledgeDataV2Schema = z
   .object({
     notes: z.array(canonicalNoteSchema),
     evidence: z.array(canonicalEvidenceSchema),
@@ -581,8 +614,91 @@ export const canonicalKnowledgeDataSchema = z
     matrixCellEvidence: z.array(canonicalMatrixCellEvidenceSchema),
     writingDocuments: z.array(canonicalWritingDocumentSchema),
     writingSections: z.array(canonicalWritingSectionSchema),
-    writingBlocks: z.array(canonicalWritingBlockSchema),
+    writingBlocks: z.array(canonicalWritingBlockV2Schema),
     revisions: z.array(canonicalKnowledgeRevisionSchema),
+  })
+  .strict();
+
+export const canonicalKnowledgeDataSchema = canonicalKnowledgeDataV2Schema.extend({
+  writingBlocks: z.array(canonicalWritingBlockSchema),
+});
+
+export const canonicalInteropSourceSchema = z
+  .object({
+    id,
+    format: z.enum(['bibtex', 'ris', 'csl-json']),
+    displayName: z.string(),
+    contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+    byteSize: z.number().int().nonnegative().max(52_428_800),
+    encoding: z.literal('utf-8'),
+    parserName: z.string(),
+    parserVersion: z.string(),
+    createdAt: timestamp,
+  })
+  .strict();
+
+export const canonicalInteropRecordSchema = z
+  .object({
+    id,
+    sourceId: id,
+    ordinal: z.number().int().nonnegative(),
+    sourceKey: nullableText,
+    rawHash: z.string().regex(/^[a-f0-9]{64}$/),
+    rawRecord: z.string(),
+    summary: z.string(),
+    formatShadow: z.unknown(),
+    mapped: z.unknown().nullable(),
+    diagnostics: z.unknown(),
+    decision: z.unknown().nullable(),
+    status: z.enum([
+      'valid',
+      'invalid',
+      'needs-review',
+      'accepted',
+      'skipped',
+      'committed',
+      'failed',
+    ]),
+    revision: z.number().int().positive(),
+    committedSourceRecordId: id.nullable(),
+    committedWorkId: id.nullable(),
+    committedEditionId: id.nullable(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .strict();
+
+export const canonicalInteropRecordEntitySchema = z
+  .object({
+    id,
+    recordId: id,
+    workId: id.nullable(),
+    editionId: id.nullable(),
+    action: z.enum(['created', 'new-edition', 'matched', 'suggestions-only']),
+    isCurrent: z.boolean(),
+    createdAt: timestamp,
+  })
+  .strict();
+
+export const canonicalCitationKeyPreferenceSchema = z
+  .object({
+    id,
+    workId: id,
+    editionId: id.nullable(),
+    preferredKey: z.string().min(1).max(200),
+    source: z.enum(['generated', 'imported', 'user']),
+    revision: z.number().int().positive(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  })
+  .strict();
+
+export const canonicalInteropDataSchema = z
+  .object({
+    sources: z.array(canonicalInteropSourceSchema),
+    records: z.array(canonicalInteropRecordSchema),
+    recordEntities: z.array(canonicalInteropRecordEntitySchema),
+    citationKeyPreferences: z.array(canonicalCitationKeyPreferenceSchema),
   })
   .strict();
 
@@ -592,50 +708,84 @@ export const canonicalResearchLibraryV1Schema = z
 
 export const canonicalResearchLibraryV2Schema = z
   .object({
+    schemaVersion: z.literal(2),
+    ...canonicalBaseFields,
+    reader: canonicalReaderDataSchema,
+    knowledge: canonicalKnowledgeDataV2Schema,
+  })
+  .strict();
+
+export const canonicalResearchLibraryV3Schema = z
+  .object({
     schemaVersion: z.literal(RESEARCH_CANONICAL_SCHEMA_VERSION),
     ...canonicalBaseFields,
     reader: canonicalReaderDataSchema,
     knowledge: canonicalKnowledgeDataSchema,
+    interop: canonicalInteropDataSchema,
   })
   .strict();
 
 export const canonicalResearchLibrarySchema = z.discriminatedUnion('schemaVersion', [
   canonicalResearchLibraryV1Schema,
   canonicalResearchLibraryV2Schema,
+  canonicalResearchLibraryV3Schema,
 ]);
 
 export type CanonicalResearchLibrary = z.infer<typeof canonicalResearchLibrarySchema>;
 export type CanonicalResearchLibraryV1 = z.infer<typeof canonicalResearchLibraryV1Schema>;
 export type CanonicalResearchLibraryV2 = z.infer<typeof canonicalResearchLibraryV2Schema>;
+export type CanonicalResearchLibraryV3 = z.infer<typeof canonicalResearchLibraryV3Schema>;
 
-export function normalizeCanonicalResearchLibrary(input: unknown): CanonicalResearchLibraryV2 {
+export function normalizeCanonicalResearchLibrary(input: unknown): CanonicalResearchLibraryV3 {
   const canonical = canonicalResearchLibrarySchema.parse(input);
-  if (canonical.schemaVersion === 2) return canonical;
-  return canonicalResearchLibraryV2Schema.parse({
+  if (canonical.schemaVersion === 3) return canonical;
+  const reader =
+    canonical.schemaVersion === 2
+      ? canonical.reader
+      : {
+          contexts: [],
+          collectionContexts: [],
+          states: [],
+          annotations: [],
+          annotationRevisions: [],
+        };
+  const knowledge =
+    canonical.schemaVersion === 2
+      ? {
+          ...canonical.knowledge,
+          writingBlocks: canonical.knowledge.writingBlocks.map((block) => ({
+            ...block,
+            workId: null,
+            editionId: null,
+            citation: null,
+          })),
+        }
+      : {
+          notes: [],
+          evidence: [],
+          noteLinks: [],
+          claims: [],
+          claimEvidence: [],
+          matrices: [],
+          matrixColumns: [],
+          matrixRows: [],
+          matrixCells: [],
+          matrixCellEvidence: [],
+          writingDocuments: [],
+          writingSections: [],
+          writingBlocks: [],
+          revisions: [],
+        };
+  return canonicalResearchLibraryV3Schema.parse({
     ...canonical,
-    schemaVersion: 2,
-    reader: {
-      contexts: [],
-      collectionContexts: [],
-      states: [],
-      annotations: [],
-      annotationRevisions: [],
-    },
-    knowledge: {
-      notes: [],
-      evidence: [],
-      noteLinks: [],
-      claims: [],
-      claimEvidence: [],
-      matrices: [],
-      matrixColumns: [],
-      matrixRows: [],
-      matrixCells: [],
-      matrixCellEvidence: [],
-      writingDocuments: [],
-      writingSections: [],
-      writingBlocks: [],
-      revisions: [],
+    schemaVersion: 3,
+    reader,
+    knowledge,
+    interop: {
+      sources: [],
+      records: [],
+      recordEntities: [],
+      citationKeyPreferences: [],
     },
   });
 }

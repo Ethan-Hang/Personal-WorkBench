@@ -12,9 +12,14 @@ import {
   startInteropExportInputSchema,
   updateCitationKeyInputSchema,
   updateInteropRecordDecisionInputSchema,
+  interopAdapterNegotiationInputSchema,
 } from '../contract.js';
+import {
+  defaultInteropAdapterRegistry,
+  type InteropAdapterRegistry,
+} from '../interop/adapter/registry.js';
 import type { ResearchInteropExportService } from '../interop/export/service.js';
-import type { CitationProcessor } from '../interop/citation/processor.js';
+import type { ResearchCitationService } from '../interop/citation/service.js';
 import {
   InteropServiceError,
   type ResearchInteropImportService,
@@ -47,8 +52,17 @@ export function registerResearchInteropRoutes(
   app: FastifyInstance,
   service: ResearchInteropImportService,
   exportService?: ResearchInteropExportService,
-  citationProcessor?: CitationProcessor,
+  citationProcessor?: ResearchCitationService,
+  adapterRegistry: InteropAdapterRegistry = defaultInteropAdapterRegistry,
 ): void {
+  app.get(RESEARCH_API_V1.interopAdapters, async () => adapterRegistry.list());
+
+  app.post(RESEARCH_API_V1.interopAdapterNegotiate, async (request, reply) => {
+    const input = parseBody(interopAdapterNegotiationInputSchema, request.body, reply);
+    if ('sent' in input) return input;
+    return adapterRegistry.negotiate(input);
+  });
+
   app.post(RESEARCH_API_V1.interopImportPickSource, async (request, reply) => {
     const input = parseBody(pickInteropSourceInputSchema, request.body, reply);
     if ('sent' in input) return input;

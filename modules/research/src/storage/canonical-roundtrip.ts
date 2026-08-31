@@ -49,9 +49,16 @@ const knowledgeEntityKeys = [
   'revisions',
 ] as const;
 
+const interopEntityKeys = [
+  'sources',
+  'records',
+  'recordEntities',
+  'citationKeyPreferences',
+] as const;
+
 export interface CanonicalRoundTripReport {
   valid: true;
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   recordCount: number;
   fingerprint: string;
   verifiedKinds: string[];
@@ -95,12 +102,17 @@ export function validateCanonicalRoundTrip(input: unknown): CanonicalRoundTripRe
         const rows = canonical[key] as Array<{ id: string }>;
         writeRows(key, rows);
       }
-      if (canonical.schemaVersion === 2) {
+      if (canonical.schemaVersion !== 1) {
         for (const key of readerEntityKeys) {
           writeRows(`reader.${key}`, canonical.reader[key]);
         }
         for (const key of knowledgeEntityKeys) {
           writeRows(`knowledge.${key}`, canonical.knowledge[key]);
+        }
+      }
+      if (canonical.schemaVersion === 3) {
+        for (const key of interopEntityKeys) {
+          writeRows(`interop.${key}`, canonical.interop[key]);
         }
       }
     });
@@ -120,12 +132,17 @@ export function validateCanonicalRoundTrip(input: unknown): CanonicalRoundTripRe
           .all(kind) as Array<{ payload_json: string }>
       ).map((row) => JSON.parse(row.payload_json) as unknown);
     for (const key of baseEntityKeys) reconstructed[key] = readRows(key);
-    if (canonical.schemaVersion === 2) {
+    if (canonical.schemaVersion !== 1) {
       reconstructed.reader = Object.fromEntries(
         readerEntityKeys.map((key) => [key, readRows(`reader.${key}`)]),
       );
       reconstructed.knowledge = Object.fromEntries(
         knowledgeEntityKeys.map((key) => [key, readRows(`knowledge.${key}`)]),
+      );
+    }
+    if (canonical.schemaVersion === 3) {
+      reconstructed.interop = Object.fromEntries(
+        interopEntityKeys.map((key) => [key, readRows(`interop.${key}`)]),
       );
     }
     const reparsed = canonicalResearchLibrarySchema.parse(reconstructed);
@@ -137,19 +154,23 @@ export function validateCanonicalRoundTrip(input: unknown): CanonicalRoundTripRe
       schemaVersion: canonical.schemaVersion,
       recordCount:
         baseEntityKeys.reduce((total, key) => total + (canonical[key] as unknown[]).length, 0) +
-        (canonical.schemaVersion === 2
+        (canonical.schemaVersion !== 1
           ? readerEntityKeys.reduce((total, key) => total + canonical.reader[key].length, 0) +
             knowledgeEntityKeys.reduce((total, key) => total + canonical.knowledge[key].length, 0)
+          : 0) +
+        (canonical.schemaVersion === 3
+          ? interopEntityKeys.reduce((total, key) => total + canonical.interop[key].length, 0)
           : 0),
       fingerprint: createHash('sha256').update(actual).digest('hex'),
       verifiedKinds: [
         ...baseEntityKeys,
-        ...(canonical.schemaVersion === 2
+        ...(canonical.schemaVersion !== 1
           ? [
               ...readerEntityKeys.map((key) => `reader.${key}`),
               ...knowledgeEntityKeys.map((key) => `knowledge.${key}`),
             ]
           : []),
+        ...(canonical.schemaVersion === 3 ? interopEntityKeys.map((key) => `interop.${key}`) : []),
       ],
     };
   } finally {

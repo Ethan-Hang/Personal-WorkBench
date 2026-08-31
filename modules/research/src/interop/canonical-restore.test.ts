@@ -242,11 +242,95 @@ function seedKnowledgeLibrary(
       .run(NOW, NOW);
     sqlite
       .prepare(
+        `INSERT INTO research_writing_blocks
+         (id, document_id, section_id, kind, work_id, edition_id, citation_intent_json,
+          target_label, position, status, revision, created_at, updated_at)
+         VALUES ('block-citation-1', 'writing-1', 'section-1', 'citation', 'work-1',
+                 'edition-1', ?, 'Restorable Work', 1, 'active', 1, ?, ?)`,
+      )
+      .run(
+        JSON.stringify({
+          editionId: 'edition-1',
+          locator: '42',
+          label: 'page',
+          prefix: 'see ',
+          suffix: null,
+          suppressAuthor: false,
+        }),
+        NOW,
+        NOW,
+      );
+    sqlite
+      .prepare(
         `INSERT INTO research_knowledge_revisions
          (id, entity_type, entity_id, revision, snapshot_json, reason, created_at)
          VALUES ('knowledge-revision-1', 'note', 'note-1', 1, ?, 'update', ?)`,
       )
       .run(JSON.stringify({ title: 'Research note', body: 'Synthesis' }), NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_sources
+         (id, format, display_name, source_path, content_hash, byte_size, encoding,
+          parser_name, parser_version, created_at)
+         VALUES ('interop-source-1', 'bibtex', 'restore.bib', '/private/restore.bib', ?, 80,
+                 'utf-8', 'retorquere-bibtex-parser', '10.0.1', ?)`,
+      )
+      .run('d'.repeat(64), NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_import_jobs
+         (id, source_id, request_id, status, total_count, processed_count, checkpoint_ordinal,
+          revision, created_at, updated_at, completed_at)
+         VALUES ('interop-job-1', 'interop-source-1', 'restore-fixture', 'completed', 1, 1, 1,
+                 1, ?, ?, ?)`,
+      )
+      .run(NOW, NOW, NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_records
+         (id, source_id, job_id, ordinal, source_key, raw_hash, raw_record, summary,
+          format_shadow_json, mapped_json, diagnostics_json, decision_json, status, revision,
+          committed_work_id, committed_edition_id, created_at, updated_at)
+         VALUES ('interop-record-1', 'interop-source-1', 'interop-job-1', 0, 'restoreKey', ?,
+                 '@article{restoreKey, custom={preserve}}', 'Restorable Work', ?, ?, '[]', ?,
+                 'committed', 2, 'work-1', 'edition-1', ?, ?)`,
+      )
+      .run(
+        'e'.repeat(64),
+        JSON.stringify({ fields: { custom: 'preserve' } }),
+        JSON.stringify({ title: 'Restorable Work' }),
+        JSON.stringify({
+          action: 'accept',
+          fieldSuggestions: [
+            {
+              field: 'title',
+              currentValue: null,
+              sourceValue: 'Restorable Work',
+              selectedValue: 'Restorable Work',
+              selection: 'source',
+              userConfirmed: true,
+              conflict: false,
+            },
+          ],
+          attachmentCandidates: [],
+        }),
+        NOW,
+        NOW,
+      );
+    sqlite
+      .prepare(
+        `INSERT INTO research_interop_record_entities
+         (id, record_id, work_id, edition_id, action, is_current, created_at)
+         VALUES ('interop-entity-1', 'interop-record-1', 'work-1', 'edition-1', 'created', 1, ?)`,
+      )
+      .run(NOW);
+    sqlite
+      .prepare(
+        `INSERT INTO research_citation_key_preferences
+         (id, work_id, edition_id, preferred_key, source, revision, created_at, updated_at)
+         VALUES ('citation-key-1', 'work-1', 'edition-1', 'restoreKey', 'user', 3, ?, ?)`,
+      )
+      .run(NOW, NOW);
   })();
 }
 
@@ -275,7 +359,7 @@ describe('canonical restore', () => {
 
       const preview = await previewCanonicalRestore(target.repo, store, sourcePath);
       expect(preview).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         targetEmpty: true,
         workCount: 1,
         attachmentCount: 2,
@@ -289,7 +373,7 @@ describe('canonical restore', () => {
         completedAt: () => NOW,
       });
       expect(report).toMatchObject({
-        schemaVersion: 2,
+        schemaVersion: 3,
         importedWorks: 1,
         importedAttachments: 2,
         copiedAssets: 1,
@@ -315,6 +399,35 @@ describe('canonical restore', () => {
       expect(
         target.sqlite.prepare('SELECT COUNT(*) AS count FROM research_knowledge_revisions').get(),
       ).toEqual({ count: 1 });
+      expect(
+        target.sqlite
+          .prepare(`SELECT source_path FROM research_interop_sources WHERE id = 'interop-source-1'`)
+          .get(),
+      ).toEqual({ source_path: 'canonical://restored/interop-source-1' });
+      expect(
+        target.sqlite
+          .prepare(
+            `SELECT raw_record, decision_json FROM research_interop_records
+             WHERE id = 'interop-record-1'`,
+          )
+          .get(),
+      ).toMatchObject({ raw_record: '@article{restoreKey, custom={preserve}}' });
+      expect(
+        target.sqlite
+          .prepare(
+            `SELECT preferred_key, revision FROM research_citation_key_preferences
+             WHERE id = 'citation-key-1'`,
+          )
+          .get(),
+      ).toEqual({ preferred_key: 'restoreKey', revision: 3 });
+      expect(
+        target.sqlite
+          .prepare(
+            `SELECT work_id, edition_id, citation_intent_json FROM research_writing_blocks
+             WHERE id = 'block-citation-1'`,
+          )
+          .get(),
+      ).toMatchObject({ work_id: 'work-1', edition_id: 'edition-1' });
       expect(
         target.sqlite
           .prepare(
@@ -344,7 +457,7 @@ describe('canonical restore', () => {
     const target = makeResearchDatabase(() => NOW);
     try {
       const canonical = await source.repo.exportCanonicalSnapshot(NOW);
-      if (canonical.schemaVersion !== 2) throw new Error('expected canonical v2');
+      if (canonical.schemaVersion !== 3) throw new Error('expected canonical v3');
       canonical.editions.push({
         id: 'broken-edition',
         workId: 'missing-work',

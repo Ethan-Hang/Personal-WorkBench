@@ -24,6 +24,7 @@ import type { InteropRepository } from '../interop/records/repository.js';
 import { ResearchInteropImportService } from '../interop/records/service.js';
 import { ResearchInteropExportService } from '../interop/export/service.js';
 import { CitationProcessor, verifyCitationAssets } from '../interop/citation/processor.js';
+import { ResearchCitationService } from '../interop/citation/service.js';
 import {
   systemPdfFilePicker,
   type DocumentFileDialog,
@@ -156,7 +157,7 @@ export function createResearchServerModule(
       )
     : null;
   const citationProcessor = options.interopRepository
-    ? new CitationProcessor(options.interopRepository)
+    ? new ResearchCitationService(options.interopRepository, new CitationProcessor())
     : null;
 
   return {
