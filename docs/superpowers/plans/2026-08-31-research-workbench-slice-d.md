@@ -8,7 +8,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-research-workbench-design.md` §8.3、§8.5、§13.2、§16“切片 D”、§17.10–§17.11。
 
-**Status:** 待确认。D0 已在 macOS arm64 完成；本文件确认前不实施 D1–D3。Windows 11 x64 的 D0 模块保持 `not-run`。
+**Status:** 已确认，实施中。D0 与 D1 已在 macOS arm64 完成，当前进入 D2；Windows 11 x64 的 D0/D1 对应模块保持 `not-run`。
 
 ## 执行方式
 
@@ -254,6 +254,14 @@ npm run typecheck
 npm run lint -- --quiet
 git diff --check
 ```
+
+D1 实施记录（2026-08-31，macOS arm64）：
+
+- 三格式 parser、worker、mapper、Repository、正式 Fastify 路由与 SQLite 事务提交已经贯通；来源 key 能区分相同内容和变化内容，标识符候选复用现有 Research 重复规则。
+- 导入箱和文献库都能进入格式导入审查；50 条分页、当前/来源/最终值、原文诊断、重复动作、附件逐项确认和完成报告已经接通。
+- 10,000 条记录写入、末页读取、重复 key、账号切换、取消/中断 checkpoint、人工 assertion 保护和 revision 冲突自动测试通过。
+- 1440、1024、768、390 四个宽度已完成真实浏览器结构与无横向页面溢出检查；Windows 系统选择器、解析 worker 和真实浏览器保持 `not-run`。
+- 全仓库回归：196 个测试文件通过、4 个按既有条件跳过；1,577 项测试通过、4 项跳过。`typecheck`、ESLint、Prettier、Vite production build 与 `git diff --check` 通过；build 仅保留既有 chunk-size warning。
 
 ## D2：格式导出、citation key 与 CSL 引用
 

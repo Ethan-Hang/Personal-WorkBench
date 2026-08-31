@@ -24,6 +24,7 @@ import {
   SqliteResearchRepository,
 } from '@workbench/module-research/storage';
 import { SqliteKnowledgeRepository } from '@workbench/module-research/knowledge/storage';
+import { SqliteInteropRepository } from '@workbench/module-research/interop/storage';
 import { createTodoServerModule } from '@workbench/module-todo';
 import { SqliteTodoRepository } from '@workbench/module-todo/storage';
 import { workbenchServerModule } from '@workbench/module-workbench';
@@ -74,6 +75,7 @@ async function main() {
     const researchServerModule = createResearchServerModule({
       repository: new SqliteResearchRepository(getSqlite),
       knowledgeRepository: new SqliteKnowledgeRepository(getSqlite),
+      interopRepository: new SqliteInteropRepository(getSqlite),
       managedRoot: defaultResearchManagedRoot,
       managedRootController: researchManagedRoot,
     });

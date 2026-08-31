@@ -61,6 +61,7 @@ import { DuplicateMergeDialog } from './components/DuplicateMergeDialog.js';
 import { ExportDialog } from './components/ExportDialog.js';
 import { ImportInboxPanel } from './components/ImportInboxPanel.js';
 import { ImportDialog } from './components/ImportDialog.js';
+import { InteropImportDialog } from './components/InteropImportDialog.js';
 import type { ResearchLayout } from './components/LayoutSwitch.js';
 import { ManualWorkDialog } from './components/ManualWorkDialog.js';
 import { ManagedStorageDialog } from './components/ManagedStorageDialog.js';
@@ -107,6 +108,7 @@ export function ResearchLibraryPage() {
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null);
   const [selectedWorkIds, setSelectedWorkIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+  const [interopImportOpen, setInteropImportOpen] = useState(false);
   const [manualWorkOpen, setManualWorkOpen] = useState(false);
   const [manualWorkBusy, setManualWorkBusy] = useState(false);
   const [attachmentEditionId, setAttachmentEditionId] = useState<string | null>(null);
@@ -510,6 +512,7 @@ export function ResearchLibraryPage() {
     reconciling: reconcileMutation.isPending,
     onLayout: setLayout,
     onImport: () => setImportOpen(true),
+    onInteropImport: () => setInteropImportOpen(true),
     onInbox: () => setActiveView('inbox'),
     onManualWork: () => setManualWorkOpen(true),
     onReconcile: () => reconcileMutation.mutate(),
@@ -559,6 +562,7 @@ export function ResearchLibraryPage() {
               onLayout={setLayout}
               onLibrary={() => setActiveView('library')}
               onManualWork={() => setManualWorkOpen(true)}
+              onInteropImport={() => setInteropImportOpen(true)}
               onChanged={invalidate}
             />
           ) : layout === 'compact' ? (
@@ -575,6 +579,15 @@ export function ResearchLibraryPage() {
         onClose={() => setImportOpen(false)}
         onCommitted={() => {
           setMessage('PDF 已加入文献库');
+          void invalidate();
+        }}
+      />
+
+      <InteropImportDialog
+        open={interopImportOpen}
+        onClose={() => setInteropImportOpen(false)}
+        onCommitted={() => {
+          setMessage('文献数据已导入');
           void invalidate();
         }}
       />

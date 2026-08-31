@@ -110,6 +110,15 @@ export const RESEARCH_API_V1 = {
   canonicalImportPickSource: `${API_ROOT}/canonical-imports/pick-source`,
   canonicalImportPreview: `${API_ROOT}/canonical-imports/preview`,
   canonicalImports: `${API_ROOT}/canonical-imports`,
+  interopImportPickSource: `${API_ROOT}/interop/imports/pick-source`,
+  interopImports: `${API_ROOT}/interop/imports`,
+  interopImport: (id: string) => `${API_ROOT}/interop/imports/${id}`,
+  interopImportParse: (id: string) => `${API_ROOT}/interop/imports/${id}/parse`,
+  interopImportCancel: (id: string) => `${API_ROOT}/interop/imports/${id}/cancel`,
+  interopImportRecords: (id: string) => `${API_ROOT}/interop/imports/${id}/records`,
+  interopImportRecordDecision: (id: string, recordId: string) =>
+    `${API_ROOT}/interop/imports/${id}/records/${recordId}/decision`,
+  interopImportCommit: (id: string) => `${API_ROOT}/interop/imports/${id}/commit`,
   notes: `${API_ROOT}/notes`,
   note: (id: string) => `${API_ROOT}/notes/${id}`,
   noteRestore: (id: string) => `${API_ROOT}/notes/${id}/restore`,
@@ -2672,6 +2681,283 @@ export const relinkLocationResponseSchema = z.discriminatedUnion('kind', [
 export type RelinkLocationResponse = z.infer<typeof relinkLocationResponseSchema>;
 
 export const permanentDeleteInputSchema = z.object({ confirmationToken: z.string().min(1) });
+
+export const INTEROP_FORMATS = ['bibtex', 'ris', 'csl-json'] as const;
+export type InteropFormat = (typeof INTEROP_FORMATS)[number];
+
+export const INTEROP_IMPORT_JOB_STATUSES = [
+  'draft',
+  'parsing',
+  'awaiting-review',
+  'committing',
+  'completed',
+  'cancelled',
+  'failed',
+  'interrupted',
+] as const;
+export type InteropImportJobStatus = (typeof INTEROP_IMPORT_JOB_STATUSES)[number];
+
+export const INTEROP_RECORD_STATUSES = [
+  'valid',
+  'invalid',
+  'needs-review',
+  'accepted',
+  'skipped',
+  'committed',
+  'failed',
+] as const;
+export type InteropRecordStatus = (typeof INTEROP_RECORD_STATUSES)[number];
+
+export const INTEROP_DIAGNOSTIC_CODES = [
+  'unsupported-format',
+  'unsupported-encoding',
+  'malformed-boundary',
+  'invalid-record',
+  'duplicate-source-key',
+  'source-content-match',
+  'source-key-conflict',
+  'unknown-field',
+  'unknown-type',
+  'field-conflict',
+  'duplicate-candidate',
+  'attachment-unconfirmed',
+  'truncated-field',
+] as const;
+export type InteropDiagnosticCode = (typeof INTEROP_DIAGNOSTIC_CODES)[number];
+
+export const INTEROP_ERROR_CODES = [
+  'RESEARCH_INTEROP_UNSUPPORTED_FORMAT',
+  'RESEARCH_INTEROP_UNSUPPORTED_ENCODING',
+  'RESEARCH_INTEROP_MALFORMED_BOUNDARY',
+  'RESEARCH_INTEROP_INVALID_RECORD',
+  'RESEARCH_INTEROP_JOB_STATE_CONFLICT',
+  'RESEARCH_INTEROP_REVISION_CONFLICT',
+  'RESEARCH_INTEROP_ATTACHMENT_UNCONFIRMED',
+  'RESEARCH_INTEROP_CAPABILITY_UNSUPPORTED',
+] as const;
+export type InteropErrorCode = (typeof INTEROP_ERROR_CODES)[number];
+
+export const interopFormatSchema = z.enum(INTEROP_FORMATS);
+export const interopImportJobStatusSchema = z.enum(INTEROP_IMPORT_JOB_STATUSES);
+export const interopRecordStatusSchema = z.enum(INTEROP_RECORD_STATUSES);
+
+const interopJsonValueSchema: z.ZodType<unknown> = z.json();
+const interopFieldNameSchema = z.string().trim().min(1).max(160);
+
+export const interopDiagnosticSchema = z.object({
+  code: z.enum(INTEROP_DIAGNOSTIC_CODES),
+  severity: z.enum(['info', 'warning', 'error']),
+  message: z.string().min(1).max(2_000),
+  field: interopFieldNameSchema.nullable().default(null),
+  path: z.string().max(1_000).nullable().default(null),
+  line: z.number().int().positive().nullable().default(null),
+  recoverable: z.boolean().default(true),
+});
+export type InteropDiagnostic = z.infer<typeof interopDiagnosticSchema>;
+
+export const interopPersonSchema = z.object({
+  kind: z.enum(['structured', 'literal', 'organization']),
+  family: z.string().max(1_000).nullable().default(null),
+  given: z.string().max(1_000).nullable().default(null),
+  literal: z.string().max(2_000).nullable().default(null),
+  suffix: z.string().max(500).nullable().default(null),
+  nonDroppingParticle: z.string().max(500).nullable().default(null),
+});
+export type InteropPerson = z.infer<typeof interopPersonSchema>;
+
+export const interopDateSchema = z.object({
+  year: z.number().int().min(0).max(9999).nullable(),
+  month: z.number().int().min(1).max(12).nullable(),
+  day: z.number().int().min(1).max(31).nullable(),
+  literal: z.string().max(2_000).nullable(),
+});
+export type InteropDate = z.infer<typeof interopDateSchema>;
+
+export const interopMappedRecordSchema = z.object({
+  type: z.enum(WORK_TYPES),
+  sourceType: z.string().max(200).nullable(),
+  title: z.string().max(20_000),
+  abstract: z.string().max(200_000).nullable(),
+  issued: interopDateSchema.nullable(),
+  publicationTitle: z.string().max(20_000).nullable(),
+  publisher: z.string().max(20_000).nullable(),
+  volume: z.string().max(1_000).nullable(),
+  issue: z.string().max(1_000).nullable(),
+  pages: z.string().max(2_000).nullable(),
+  contributors: z.array(interopPersonSchema).max(10_000),
+  identifiers: z
+    .array(
+      z.object({
+        scheme: z.enum(IDENTIFIER_SCHEMES),
+        value: z.string().min(1).max(10_000),
+      }),
+    )
+    .max(10_000),
+  tagSuggestions: z.array(z.string().min(1).max(500)).max(10_000),
+});
+export type InteropMappedRecord = z.infer<typeof interopMappedRecordSchema>;
+
+export const interopAttachmentCandidateSchema = z.object({
+  id: researchIdSchema,
+  sourceValue: z.string().min(1).max(20_000),
+  resolvedPath: z.string().max(20_000).nullable(),
+  displayName: z.string().min(1).max(1_000),
+  mimeType: z.string().max(500).nullable(),
+  exists: z.boolean().nullable(),
+  action: z.enum(['unconfirmed', 'ignore', 'managed', 'linked']),
+});
+export type InteropAttachmentCandidate = z.infer<typeof interopAttachmentCandidateSchema>;
+
+export const interopFieldSuggestionSchema = z.object({
+  field: interopFieldNameSchema,
+  currentValue: interopJsonValueSchema.nullable(),
+  sourceValue: interopJsonValueSchema.nullable(),
+  selectedValue: interopJsonValueSchema.nullable(),
+  selection: z.enum(['current', 'source', 'custom']),
+  userConfirmed: z.boolean(),
+  conflict: z.boolean(),
+});
+export type InteropFieldSuggestion = z.infer<typeof interopFieldSuggestionSchema>;
+
+export const interopRecordDecisionSchema = z.object({
+  action: z.enum(['accept', 'skip', 'match-existing', 'create-new-edition', 'suggestions-only']),
+  workId: researchIdSchema.nullable().default(null),
+  editionId: researchIdSchema.nullable().default(null),
+  fieldSuggestions: z.array(interopFieldSuggestionSchema).max(500).default([]),
+  attachmentCandidates: z.array(interopAttachmentCandidateSchema).max(1_000).default([]),
+});
+export type InteropRecordDecision = z.infer<typeof interopRecordDecisionSchema>;
+
+export const interopSourceViewSchema = z.object({
+  id: researchIdSchema,
+  format: interopFormatSchema,
+  displayName: z.string().min(1).max(1_000),
+  sourcePath: z.string().min(1).max(20_000),
+  contentHash: z.string().regex(/^[0-9a-f]{64}$/),
+  byteSize: z.number().int().nonnegative().max(52_428_800),
+  encoding: z.literal('utf-8'),
+  parserName: z.string().min(1).max(200),
+  parserVersion: z.string().min(1).max(100),
+  createdAt: instantSchema,
+});
+export type InteropSourceView = z.infer<typeof interopSourceViewSchema>;
+
+export const interopRecordViewSchema = z.object({
+  id: researchIdSchema,
+  sourceId: researchIdSchema,
+  ordinal: z.number().int().nonnegative(),
+  sourceKey: z.string().max(2_000).nullable(),
+  rawHash: z.string().regex(/^[0-9a-f]{64}$/),
+  rawRecord: z.string().max(2_000_000),
+  summary: z.string().max(4_000),
+  formatShadow: interopJsonValueSchema,
+  mapped: interopMappedRecordSchema.nullable(),
+  diagnostics: z.array(interopDiagnosticSchema).max(10_000),
+  decision: interopRecordDecisionSchema.nullable(),
+  status: interopRecordStatusSchema,
+  revision: z.number().int().positive(),
+  committedWorkId: researchIdSchema.nullable(),
+  committedEditionId: researchIdSchema.nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+});
+export type InteropRecordView = z.infer<typeof interopRecordViewSchema>;
+
+export const interopImportSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  processed: z.number().int().nonnegative(),
+  valid: z.number().int().nonnegative(),
+  invalid: z.number().int().nonnegative(),
+  needsReview: z.number().int().nonnegative(),
+  accepted: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  committed: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  attachments: z.number().int().nonnegative(),
+});
+
+export const interopImportJobViewSchema = z.object({
+  id: researchIdSchema,
+  requestId: z.string().min(1).max(200),
+  source: interopSourceViewSchema,
+  status: interopImportJobStatusSchema,
+  summary: interopImportSummarySchema,
+  checkpointOrdinal: z.number().int().nonnegative(),
+  errorCode: z.enum(INTEROP_ERROR_CODES).nullable(),
+  errorDetail: z.string().max(4_000).nullable(),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type InteropImportJobView = z.infer<typeof interopImportJobViewSchema>;
+
+export const pickInteropSourceInputSchema = z.object({
+  format: interopFormatSchema.optional(),
+});
+
+export const pickedInteropSourceSchema = z.object({
+  path: z.string().min(1).max(20_000),
+  displayName: z.string().min(1).max(1_000),
+  byteSize: z.number().int().nonnegative().max(52_428_800),
+  inferredFormat: interopFormatSchema,
+});
+
+export const pickInteropSourceResponseSchema = z.object({
+  source: pickedInteropSourceSchema.nullable(),
+  cancelled: z.boolean(),
+});
+
+export const createInteropImportInputSchema = z.object({
+  requestId: z.string().min(1).max(200),
+  sourcePath: z.string().min(1).max(20_000),
+  displayName: z.string().min(1).max(1_000),
+  format: interopFormatSchema,
+});
+export type CreateInteropImportInput = z.infer<typeof createInteropImportInputSchema>;
+
+export const interopImportRecordsQuerySchema = z.object({
+  offset: z.coerce.number().int().nonnegative().default(0),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  status: interopRecordStatusSchema.optional(),
+});
+
+export const interopImportRecordsPageSchema = z.object({
+  items: z.array(interopRecordViewSchema),
+  total: z.number().int().nonnegative(),
+  offset: z.number().int().nonnegative(),
+  limit: z.number().int().positive().max(200),
+  nextOffset: z.number().int().nonnegative().nullable(),
+});
+
+export const updateInteropRecordDecisionInputSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+  decision: interopRecordDecisionSchema,
+});
+export type UpdateInteropRecordDecisionInput = z.infer<
+  typeof updateInteropRecordDecisionInputSchema
+>;
+
+export const commitInteropImportInputSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+
+export const commitInteropImportResultSchema = z.object({
+  created: z.number().int().nonnegative(),
+  newEdition: z.number().int().nonnegative(),
+  matched: z.number().int().nonnegative(),
+  suggestionsOnly: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  attachments: z.array(
+    z.object({
+      recordId: researchIdSchema,
+      candidateId: researchIdSchema,
+      status: z.enum(['ignored', 'attached', 'failed']),
+      error: z.string().nullable(),
+    }),
+  ),
+});
 
 export const deletionPreviewSchema = z.object({
   workId: researchIdSchema,

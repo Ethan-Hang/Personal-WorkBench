@@ -22,6 +22,9 @@ import {
   EDITION_KINDS,
   IMPORT_ITEM_STAGES,
   IMPORT_SESSION_STATUSES,
+  INTEROP_FORMATS,
+  INTEROP_IMPORT_JOB_STATUSES,
+  INTEROP_RECORD_STATUSES,
   KNOWLEDGE_BASIC_STATUSES,
   KNOWLEDGE_ENTITY_TYPES,
   KNOWLEDGE_REVISION_REASONS,
@@ -554,6 +557,204 @@ export const researchExportJobs = sqliteTable(
       enumSql('status', ['draft', 'running', 'completed', 'cancelled', 'failed']),
     ),
     index('idx_research_export_jobs_status').on(table.status, table.updatedAt),
+  ],
+);
+
+export const researchInteropSources = sqliteTable(
+  'research_interop_sources',
+  {
+    id: text('id').primaryKey(),
+    format: text('format').notNull(),
+    displayName: text('display_name').notNull(),
+    sourcePath: text('source_path').notNull(),
+    contentHash: text('content_hash').notNull(),
+    byteSize: integer('byte_size').notNull(),
+    encoding: text('encoding').notNull().default('utf-8'),
+    parserName: text('parser_name').notNull(),
+    parserVersion: text('parser_version').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    check('ck_research_interop_sources_format', enumSql('format', INTEROP_FORMATS)),
+    check(
+      'ck_research_interop_sources_hash',
+      sql.raw("length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'"),
+    ),
+    check('ck_research_interop_sources_size', sql`${table.byteSize} BETWEEN 0 AND 52428800`),
+    check('ck_research_interop_sources_encoding', sql.raw("encoding = 'utf-8'")),
+    index('idx_research_interop_sources_hash_format').on(table.contentHash, table.format),
+  ],
+);
+
+export const researchInteropImportJobs = sqliteTable(
+  'research_interop_import_jobs',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => researchInteropSources.id, { onDelete: 'cascade' }),
+    requestId: text('request_id').notNull(),
+    status: text('status').notNull().default('draft'),
+    totalCount: integer('total_count').notNull().default(0),
+    processedCount: integer('processed_count').notNull().default(0),
+    checkpointOrdinal: integer('checkpoint_ordinal').notNull().default(0),
+    errorCode: text('error_code'),
+    errorDetail: text('error_detail'),
+    cancelRequested: integer('cancel_requested', { mode: 'boolean' }).notNull().default(false),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    check('ck_research_interop_import_jobs_status', enumSql('status', INTEROP_IMPORT_JOB_STATUSES)),
+    check(
+      'ck_research_interop_import_jobs_counts',
+      sql`${table.totalCount} >= 0 AND ${table.processedCount} BETWEEN 0 AND ${table.totalCount} AND ${table.checkpointOrdinal} >= 0`,
+    ),
+    check('ck_research_interop_import_jobs_revision', sql`${table.revision} >= 1`),
+    unique('uq_research_interop_import_jobs_request').on(table.requestId),
+    index('idx_research_interop_import_jobs_status').on(table.status, table.updatedAt),
+    index('idx_research_interop_import_jobs_source').on(table.sourceId),
+  ],
+);
+
+export const researchInteropRecords = sqliteTable(
+  'research_interop_records',
+  {
+    id: text('id').primaryKey(),
+    sourceId: text('source_id')
+      .notNull()
+      .references(() => researchInteropSources.id, { onDelete: 'cascade' }),
+    jobId: text('job_id')
+      .notNull()
+      .references(() => researchInteropImportJobs.id, { onDelete: 'cascade' }),
+    ordinal: integer('ordinal').notNull(),
+    sourceKey: text('source_key'),
+    rawHash: text('raw_hash').notNull(),
+    rawRecord: text('raw_record').notNull(),
+    summary: text('summary').notNull().default(''),
+    formatShadowJson: text('format_shadow_json').notNull().default('{}'),
+    mappedJson: text('mapped_json'),
+    diagnosticsJson: text('diagnostics_json').notNull().default('[]'),
+    decisionJson: text('decision_json'),
+    status: text('status').notNull(),
+    revision: integer('revision').notNull().default(1),
+    committedSourceRecordId: text('committed_source_record_id').references(
+      () => researchSourceRecords.id,
+      { onDelete: 'set null' },
+    ),
+    committedWorkId: text('committed_work_id').references(() => researchWorks.id, {
+      onDelete: 'set null',
+    }),
+    committedEditionId: text('committed_edition_id').references(() => researchEditions.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    check('ck_research_interop_records_ordinal', sql`${table.ordinal} >= 0`),
+    check(
+      'ck_research_interop_records_hash',
+      sql.raw("length(raw_hash) = 64 AND raw_hash NOT GLOB '*[^0-9a-f]*'"),
+    ),
+    check('ck_research_interop_records_status', enumSql('status', INTEROP_RECORD_STATUSES)),
+    check('ck_research_interop_records_revision', sql`${table.revision} >= 1`),
+    unique('uq_research_interop_records_source_ordinal').on(table.sourceId, table.ordinal),
+    index('idx_research_interop_records_job_status').on(table.jobId, table.status, table.ordinal),
+    index('idx_research_interop_records_source_key').on(table.sourceId, table.sourceKey),
+    index('idx_research_interop_records_key_hash').on(table.sourceKey, table.rawHash),
+    index('idx_research_interop_records_raw_hash').on(table.rawHash),
+  ],
+);
+
+export const researchInteropRecordEntities = sqliteTable(
+  'research_interop_record_entities',
+  {
+    id: text('id').primaryKey(),
+    recordId: text('record_id')
+      .notNull()
+      .references(() => researchInteropRecords.id, { onDelete: 'cascade' }),
+    workId: text('work_id').references(() => researchWorks.id, { onDelete: 'set null' }),
+    editionId: text('edition_id').references(() => researchEditions.id, { onDelete: 'set null' }),
+    action: text('action').notNull(),
+    isCurrent: integer('is_current', { mode: 'boolean' }).notNull().default(true),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (table) => [
+    check(
+      'ck_research_interop_record_entities_action',
+      enumSql('action', ['created', 'new-edition', 'matched', 'suggestions-only']),
+    ),
+    uniqueIndex('uq_research_interop_record_entities_current')
+      .on(table.recordId)
+      .where(sql`${table.isCurrent} = 1`),
+    index('idx_research_interop_record_entities_work').on(table.workId, table.editionId),
+  ],
+);
+
+export const researchInteropExportJobs = sqliteTable(
+  'research_interop_export_jobs',
+  {
+    id: text('id').primaryKey(),
+    requestId: text('request_id').notNull(),
+    status: text('status').notNull().default('draft'),
+    format: text('format').notNull(),
+    scopeJson: text('scope_json').notNull(),
+    editionPolicy: text('edition_policy').notNull().default('preferred'),
+    frozenEntitiesJson: text('frozen_entities_json').notNull(),
+    previewToken: text('preview_token'),
+    targetPath: text('target_path'),
+    lossReportJson: text('loss_report_json'),
+    resultJson: text('result_json'),
+    errorCode: text('error_code'),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    completedAt: text('completed_at'),
+  },
+  (table) => [
+    check(
+      'ck_research_interop_export_jobs_status',
+      enumSql('status', ['draft', 'previewed', 'running', 'completed', 'cancelled', 'failed']),
+    ),
+    check('ck_research_interop_export_jobs_format', enumSql('format', INTEROP_FORMATS)),
+    check(
+      'ck_research_interop_export_jobs_edition_policy',
+      enumSql('edition_policy', ['preferred', 'all']),
+    ),
+    check('ck_research_interop_export_jobs_revision', sql`${table.revision} >= 1`),
+    unique('uq_research_interop_export_jobs_request').on(table.requestId),
+    index('idx_research_interop_export_jobs_status').on(table.status, table.updatedAt),
+  ],
+);
+
+export const researchCitationKeyPreferences = sqliteTable(
+  'research_citation_key_preferences',
+  {
+    id: text('id').primaryKey(),
+    workId: text('work_id')
+      .notNull()
+      .references(() => researchWorks.id, { onDelete: 'cascade' }),
+    editionId: text('edition_id').references(() => researchEditions.id, { onDelete: 'cascade' }),
+    preferredKey: text('preferred_key').notNull(),
+    source: text('source').notNull(),
+    revision: integer('revision').notNull().default(1),
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (table) => [
+    check(
+      'ck_research_citation_key_preferences_source',
+      enumSql('source', ['generated', 'imported', 'user']),
+    ),
+    check('ck_research_citation_key_preferences_revision', sql`${table.revision} >= 1`),
+    uniqueIndex('uq_research_citation_key_preferences_target').on(
+      table.workId,
+      sql`ifnull(${table.editionId}, '')`,
+    ),
+    index('idx_research_citation_key_preferences_key').on(table.preferredKey),
   ],
 );
 

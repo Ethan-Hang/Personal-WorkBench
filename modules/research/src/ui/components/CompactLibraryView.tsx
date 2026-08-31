@@ -38,6 +38,7 @@ export interface CompactLibraryViewProps {
   reconciling: boolean;
   onLayout: (layout: ResearchLayout) => void;
   onImport: () => void;
+  onInteropImport: () => void;
   onInbox: () => void;
   onManualWork: () => void;
   onReconcile: () => void;
@@ -91,6 +92,7 @@ export function CompactLibraryView({
   reconciling,
   onLayout,
   onImport,
+  onInteropImport,
   onInbox,
   onManualWork,
   onReconcile,
@@ -156,6 +158,9 @@ export function CompactLibraryView({
           </Button>
           <Button variant="primary" size="sm" icon={<IconPlus size={13} />} onClick={onImport}>
             导入 PDF
+          </Button>
+          <Button size="sm" icon={<IconDatabase size={13} />} onClick={onInteropImport}>
+            导入文献数据
           </Button>
         </div>
       </header>

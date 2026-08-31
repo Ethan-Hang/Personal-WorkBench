@@ -20,7 +20,7 @@ function seedWork(sqlite: ReturnType<typeof makeResearchDatabase>['sqlite'], id:
 }
 
 describe('research migrations', () => {
-  it('建立 48 张规范领域表和三个 FTS5 搜索索引且迁移可重复执行', () => {
+  it('建立 54 张规范领域表和三个 FTS5 搜索索引且迁移可重复执行', () => {
     const { db, sqlite } = makeResearchDatabase();
     const tables = sqlite
       .prepare(
@@ -33,7 +33,7 @@ describe('research migrations', () => {
       )
       .all() as Array<{ name: string }>;
 
-    expect(tables).toHaveLength(48);
+    expect(tables).toHaveLength(54);
     expect(tables.map((table) => table.name)).toContain('research_works');
     expect(tables.map((table) => table.name)).toContain('research_export_jobs');
     expect(tables.map((table) => table.name)).toContain('research_metadata_cache');
@@ -48,6 +48,12 @@ describe('research migrations', () => {
     expect(tables.map((table) => table.name)).toContain('research_claims');
     expect(tables.map((table) => table.name)).toContain('research_matrices');
     expect(tables.map((table) => table.name)).toContain('research_writing_documents');
+    expect(tables.map((table) => table.name)).toContain('research_interop_sources');
+    expect(tables.map((table) => table.name)).toContain('research_interop_import_jobs');
+    expect(tables.map((table) => table.name)).toContain('research_interop_records');
+    expect(tables.map((table) => table.name)).toContain('research_interop_record_entities');
+    expect(tables.map((table) => table.name)).toContain('research_interop_export_jobs');
+    expect(tables.map((table) => table.name)).toContain('research_citation_key_preferences');
     expect(
       sqlite
         .prepare(

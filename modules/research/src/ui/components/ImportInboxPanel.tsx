@@ -86,6 +86,7 @@ export function ImportInboxPanel({
   onLayout,
   onLibrary,
   onManualWork,
+  onInteropImport,
   onChanged,
 }: {
   layout: ResearchLayout;
@@ -93,6 +94,7 @@ export function ImportInboxPanel({
   onLayout: (layout: ResearchLayout) => void;
   onLibrary: () => void;
   onManualWork: () => void;
+  onInteropImport: () => void;
   onChanged: () => Promise<void>;
 }) {
   const queryClient = useQueryClient();
@@ -338,6 +340,9 @@ export function ImportInboxPanel({
                   onClick={chooseLocalBatch}
                 >
                   本机多选 PDF
+                </Button>
+                <Button icon={<IconDatabase size={13} />} disabled={busy} onClick={onInteropImport}>
+                  BibTeX / RIS / CSL JSON
                 </Button>
                 {storageMode === 'managed' && (
                   <label className="inline-flex cursor-pointer items-center rounded-control border border-line bg-surface px-3 py-[7px] text-xs font-semibold text-ink transition hover:bg-surface-2">

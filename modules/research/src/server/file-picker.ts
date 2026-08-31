@@ -37,6 +37,13 @@ export interface DocumentFileDialog {
   pickDocument(options: { initialDir?: string; format: 'json' }): Promise<string | null>;
 }
 
+export interface InteropSourcePicker {
+  pickInteropSource(options?: {
+    initialDir?: string;
+    format?: 'bibtex' | 'ris' | 'csl-json';
+  }): Promise<string | null>;
+}
+
 export type FilePickerExec = (
   file: string,
   args: readonly string[],
@@ -94,7 +101,7 @@ function run(
 export function createSystemPdfFilePicker(
   platform: FilePickerPlatform = currentPlatform(),
   execute: FilePickerExec = execFile as FilePickerExec,
-): PdfFilePicker & PdfOutputDialog & DocumentFileDialog {
+): PdfFilePicker & PdfOutputDialog & DocumentFileDialog & InteropSourcePicker {
   return {
     async pick(options = {}) {
       const initialDir = usableInitialDir(options.initialDir);
@@ -322,6 +329,76 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
               '--getopenfilename',
               initialDir || '.',
               `${format.pattern}|${format.label}`,
+            ])
+          )?.[0] ?? null
+        );
+      }
+      return null;
+    },
+
+    async pickInteropSource(options = {}) {
+      const initialDir = usableInitialDir(options.initialDir);
+      const extension =
+        options.format === 'ris' ? 'ris' : options.format === 'csl-json' ? 'json' : 'bib';
+      const label =
+        options.format === 'ris'
+          ? 'RIS 文件'
+          : options.format === 'csl-json'
+            ? 'CSL JSON 文件'
+            : options.format === 'bibtex'
+              ? 'BibTeX 文件'
+              : '文献交换文件';
+      const pattern = options.format ? `*.${extension}` : '*.bib;*.bibtex;*.ris;*.json';
+      if (platform === 'darwin') {
+        const defaultLocation = initialDir
+          ? ` default location POSIX file "${initialDir.replace(/"/g, '\\"')}"`
+          : '';
+        const types =
+          options.format === 'ris'
+            ? '{"ris"}'
+            : options.format === 'csl-json'
+              ? '{"public.json"}'
+              : options.format === 'bibtex'
+                ? '{"bib", "bibtex"}'
+                : '{"bib", "bibtex", "ris", "public.json"}';
+        const script = `POSIX path of (choose file with prompt "选择文献交换文件" of type ${types}${defaultLocation})`;
+        return (await run(execute, 'osascript', ['-e', script]))?.[0] ?? null;
+      }
+      if (platform === 'win32') {
+        const escapedDir = initialDir.replace(/'/g, "''");
+        const script = `
+[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = '选择文献交换文件'
+$dialog.Filter = '${label} (${pattern})|${pattern}|所有文件 (*.*)|*.*'
+$dialog.Multiselect = $false
+if ('${escapedDir}' -ne '') { $dialog.InitialDirectory = '${escapedDir}' }
+$dialog.RestoreDirectory = $false
+if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  [Console]::WriteLine($dialog.FileName)
+}
+`.trim();
+        return (
+          (await run(execute, 'powershell', ['-NoProfile', '-STA', '-Command', script]))?.[0] ??
+          null
+        );
+      }
+      if (platform === 'linux') {
+        const zenityArgs = [
+          '--file-selection',
+          '--title=选择文献交换文件',
+          `--file-filter=${label} | ${pattern.replaceAll(';', ' ')}`,
+        ];
+        if (initialDir) zenityArgs.push(`--filename=${initialDir}/`);
+        const zenity = await run(execute, 'zenity', zenityArgs);
+        if (zenity !== null) return zenity[0] ?? null;
+        return (
+          (
+            await run(execute, 'kdialog', [
+              '--getopenfilename',
+              initialDir || '.',
+              `${pattern.replaceAll(';', ' ')}|${label}`,
             ])
           )?.[0] ?? null
         );

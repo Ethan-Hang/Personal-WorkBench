@@ -71,6 +71,13 @@
       "when": 1788092311000,
       "tag": "0009_research_scale_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788169000000,
+      "tag": "0010_research_interop",
+      "breakpoints": true
     }
   ]
 }

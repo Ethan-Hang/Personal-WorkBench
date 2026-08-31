@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "runtimePackages": [
+    {
+      "name": "@citation-js/core",
+      "version": "0.8.2",
+      "license": "MIT",
+      "upstream": "https://github.com/citation-js/citation-js/tree/main/packages/core",
+      "integrity": "sha512-poAcV+QQOsoZ8TGqR0B76D/G2DrnMnVeAROIpNsgavm1wECTupj3a4WqbiGje2KzuZLQ496e2ZD1pl9twzyM4g==",
+      "status": "installed"
+    },
+    {
+      "name": "@citation-js/plugin-bibtex",
+      "version": "0.8.2",
+      "license": "MIT",
+      "upstream": "https://github.com/citation-js/citation-js/tree/main/packages/plugin-bibtex",
+      "integrity": "sha512-H9NXF5jTXxIvpc/87I9Lz79QZ02q5O+WKSSNetK5RiDkxeCo6USt44uOTeHkuFEkVWUpb9ol0T8GSwXdGl+/bw==",
+      "status": "installed"
+    },
+    {
+      "name": "@citation-js/plugin-ris",
+      "version": "0.8.2",
+      "license": "MIT",
+      "upstream": "https://github.com/citation-js/citation-js/tree/main/packages/plugin-ris",
+      "integrity": "sha512-y10o2CAElniVN613/9KYeLGHyWy0ZUlSYKcNruWP6BmQlDjRhR3n/xDbiiWJrAXosw9Z0yF1Xicw/aRzxS1Ywg==",
+      "status": "installed"
+    },
+    {
+      "name": "@retorquere/bibtex-parser",
+      "version": "10.0.1",
+      "license": "ISC",
+      "upstream": "https://github.com/retorquere/bibtex-parser",
+      "integrity": "sha512-o18pUbuH1P5aw2Y/AggWe+7ocPQj6ZreimSK9viY/GKIHE2jX4qbmx9Z54+EQ1Q8zZSKiXmY5MHHpbdCtlD0Ig==",
+      "status": "installed"
+    },
+    {
+      "name": "citeproc-js",
+      "version": "2.4.63",
+      "license": "CPAL-1.0 OR AGPL-1.0",
+      "upstream": "https://github.com/Juris-M/citeproc-js",
+      "integrity": null,
+      "status": "d2-license-gate"
+    }
+  ],
+  "plannedCslAssets": [
+    {
+      "name": "ieee",
+      "upstreamCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
+      "sha256": "b4c7619fc16c45a31e4cc3271eab94ffe83192d3b4c7fc729470a3b459448de3",
+      "status": "d2-pending"
+    },
+    {
+      "name": "chicago-author-date",
+      "upstreamCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
+      "sha256": "002fade78d7e4fe9d42936a16b43a8066b097013f6255df40b1bfba6631eff9b",
+      "status": "d2-pending"
+    },
+    {
+      "name": "apa",
+      "upstreamCommit": "7b826e23c26b71a36a8d0abaa6ac4bc5aa893bb8",
+      "sha256": null,
+      "status": "d2-pending"
+    },
+    {
+      "name": "locales-en-US",
+      "upstreamCommit": null,
+      "sha256": null,
+      "status": "d2-pending"
+    }
+  ]
+}

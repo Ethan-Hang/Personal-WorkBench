@@ -20,15 +20,19 @@ import type { OcrEngine } from '../ocr/engine.js';
 import type { OcrRepository } from '../ocr/repository.js';
 import { ResearchOcrService } from '../ocr/service.js';
 import type { AnnotatedPdfWriter } from '../interop/annotated-export.js';
+import type { InteropRepository } from '../interop/records/repository.js';
+import { ResearchInteropImportService } from '../interop/records/service.js';
 import {
   systemPdfFilePicker,
   type DocumentFileDialog,
+  type InteropSourcePicker,
   type PdfFilePicker,
   type PdfOutputDialog,
 } from './file-picker.js';
 import { registerResearchAnnotatedExportRoutes } from './annotated-export-routes.js';
 import { registerResearchAnnotationRoutes } from './annotation-routes.js';
 import { registerResearchKnowledgeRoutes } from './knowledge-routes.js';
+import { registerResearchInteropRoutes } from './interop-routes.js';
 import { registerResearchReaderRoutes } from './reader-routes.js';
 import { registerResearchTextIndexRoutes } from './text-index-routes.js';
 import { registerResearchOcrRoutes } from './ocr-routes.js';
@@ -44,6 +48,7 @@ export interface ResearchServerModuleOptions {
     OcrRepository &
     AnnotatedExportRepository;
   knowledgeRepository?: KnowledgeRepository;
+  interopRepository?: InteropRepository;
   managedRoot: () => string;
   managedRootController?: ManagedRootController;
   contentStore?: ResearchContentStore;
@@ -56,6 +61,7 @@ export interface ResearchServerModuleOptions {
   ocrCacheRoot?: () => string;
   metadata?: ReturnType<typeof createMetadataCoordinator>;
   filePicker?: PdfFilePicker;
+  interopFilePicker?: InteropSourcePicker;
   pdfOutputDialog?: PdfOutputDialog;
   documentDialog?: DocumentFileDialog;
   annotatedExportWriter?: AnnotatedPdfWriter;
@@ -127,6 +133,16 @@ export function createResearchServerModule(
       ...(options.clock ? { now: options.clock } : {}),
     },
   );
+  const interopService = options.interopRepository
+    ? new ResearchInteropImportService({
+        repository: options.interopRepository,
+        researchRepository: options.repository,
+        researchService: service,
+        filePicker: options.interopFilePicker ?? systemPdfFilePicker,
+        ...(options.createId ? { createId: options.createId } : {}),
+        ...(options.clock ? { clock: options.clock } : {}),
+      })
+    : null;
 
   return {
     id: RESEARCH_MODULE_ID,
@@ -140,16 +156,21 @@ export function createResearchServerModule(
       if (knowledgeService) {
         registerResearchKnowledgeRoutes(app as FastifyInstance, knowledgeService);
       }
+      if (interopService) {
+        registerResearchInteropRoutes(app as FastifyInstance, interopService);
+      }
       registerResearchAnnotatedExportRoutes(app as FastifyInstance, annotatedExportService);
       (app as FastifyInstance).addHook('onReady', async () => {
         await textIndexService.recoverInterruptedJobs();
         await ocrService.recoverInterruptedJobs();
         await annotatedExportService.recoverInterruptedJobs();
+        interopService?.recoverInterrupted();
       });
       (app as FastifyInstance).addHook('onClose', async () => {
         await annotatedExportService.shutdown();
         await ocrService.shutdown();
         await textIndexService.shutdown();
+        await interopService?.shutdown();
       });
     },
   };
@@ -162,4 +183,5 @@ export { ResearchKnowledgeService } from '../knowledge/service.js';
 export { ResearchTextIndexService } from '../reader/text-index-service.js';
 export { ResearchOcrService } from '../ocr/service.js';
 export { ResearchAnnotatedExportService } from '../annotated-export/service.js';
+export { ResearchInteropImportService } from '../interop/records/service.js';
 export type { ResearchRepository } from './repository.js';

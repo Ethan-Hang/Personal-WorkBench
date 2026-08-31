@@ -23,8 +23,12 @@ import {
   evidencePageSchema,
   evidenceRebindPreviewSchema,
   importCommitResultSchema,
+  commitInteropImportResultSchema,
   importInspectionResponseSchema,
   importSessionViewSchema,
+  interopImportJobViewSchema,
+  interopImportRecordsPageSchema,
+  interopRecordViewSchema,
   knowledgeSearchRebuildResponseSchema,
   knowledgeSearchResponseSchema,
   knowledgeExportPreviewSchema,
@@ -43,6 +47,7 @@ import {
   notesPageSchema,
   ocrJobSchema,
   pickPdfResponseSchema,
+  pickInteropSourceResponseSchema,
   pickDocumentPathResponseSchema,
   pickAnnotatedExportTargetResponseSchema,
   portableExportJobSchema,
@@ -92,6 +97,9 @@ import {
   type CreateWorkRelationInput,
   type CreateWritingDocumentInput,
   type ImportSessionStatus,
+  type CreateInteropImportInput,
+  type InteropFormat,
+  type UpdateInteropRecordDecisionInput,
   type KnowledgeSearchInput,
   type KnowledgeExportPreview,
   type KnowledgeExportPreviewInput,
@@ -175,6 +183,10 @@ export type ImportSessions = z.infer<typeof importSessionsResponseSchema>;
 export type ImportInspection = z.infer<typeof importInspectionResponseSchema>;
 export type ImportInspectionItem = ImportInspection['items'][number];
 export type ImportCommitResult = z.infer<typeof importCommitResultSchema>;
+export type InteropImportJob = z.infer<typeof interopImportJobViewSchema>;
+export type InteropRecord = z.infer<typeof interopRecordViewSchema>;
+export type InteropRecordsPage = z.infer<typeof interopImportRecordsPageSchema>;
+export type InteropCommitResult = z.infer<typeof commitInteropImportResultSchema>;
 export type DeletionPreview = z.infer<typeof deletionPreviewSchema>;
 export type TagView = z.infer<typeof tagViewSchema>;
 export type TagsResponse = z.infer<typeof tagsResponseSchema>;
@@ -1414,6 +1426,82 @@ export async function postCommitImport(sessionId: string): Promise<ImportCommitR
 export async function postCancelImport(sessionId: string): Promise<ImportSession> {
   return importSessionViewSchema.parse(
     await apiRequest(RESEARCH_API_V1.importCancel(sessionId), { method: 'POST' }),
+  );
+}
+
+export async function postPickInteropSource(format?: InteropFormat) {
+  return pickInteropSourceResponseSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.interopImportPickSource,
+      jsonBody('POST', format ? { format } : {}),
+    ),
+  );
+}
+
+export async function postCreateInteropImport(
+  input: CreateInteropImportInput,
+): Promise<InteropImportJob> {
+  return interopImportJobViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopImports, jsonBody('POST', input)),
+  );
+}
+
+export async function fetchInteropImport(id: string): Promise<InteropImportJob> {
+  return interopImportJobViewSchema.parse(await apiRequest(RESEARCH_API_V1.interopImport(id)));
+}
+
+export async function postStartInteropImport(id: string): Promise<InteropImportJob> {
+  return interopImportJobViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopImportParse(id), { method: 'POST' }),
+  );
+}
+
+export async function fetchInteropImportRecords(
+  id: string,
+  options: { offset?: number; limit?: number; status?: InteropRecord['status'] } = {},
+): Promise<InteropRecordsPage> {
+  const params = new URLSearchParams();
+  if (options.offset !== undefined) params.set('offset', String(options.offset));
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.status) params.set('status', options.status);
+  const query = params.toString();
+  return interopImportRecordsPageSchema.parse(
+    await apiRequest(
+      query
+        ? `${RESEARCH_API_V1.interopImportRecords(id)}?${query}`
+        : RESEARCH_API_V1.interopImportRecords(id),
+    ),
+  );
+}
+
+export async function putInteropRecordDecision(
+  jobId: string,
+  recordId: string,
+  input: UpdateInteropRecordDecisionInput,
+): Promise<InteropRecord> {
+  return interopRecordViewSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.interopImportRecordDecision(jobId, recordId),
+      jsonBody('PUT', input),
+    ),
+  );
+}
+
+export async function postCommitInteropImport(
+  id: string,
+  expectedRevision: number,
+): Promise<InteropCommitResult> {
+  return commitInteropImportResultSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.interopImportCommit(id),
+      jsonBody('POST', { expectedRevision }),
+    ),
+  );
+}
+
+export async function postCancelInteropImport(id: string): Promise<InteropImportJob> {
+  return interopImportJobViewSchema.parse(
+    await apiRequest(RESEARCH_API_V1.interopImportCancel(id), { method: 'POST' }),
   );
 }
 

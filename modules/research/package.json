@@ -9,12 +9,17 @@
     ".": "./src/server/index.ts",
     "./contract": "./src/contract.ts",
     "./knowledge/storage": "./src/storage/sqlite-knowledge-repository.ts",
+    "./interop/storage": "./src/storage/sqlite-interop-repository.ts",
     "./storage": "./src/storage/sqlite-repository.ts",
     "./ui": "./src/ui/index.tsx",
     "./ui/api": "./src/ui/api.ts"
   },
   "dependencies": {
+    "@citation-js/core": "0.8.2",
+    "@citation-js/plugin-bibtex": "0.8.2",
+    "@citation-js/plugin-ris": "0.8.2",
     "@napi-rs/canvas": "1.0.7",
+    "@retorquere/bibtex-parser": "10.0.1",
     "@tanstack/react-query": "^5.101.4",
     "@tesseract.js-data/chi_sim": "1.0.0",
     "@tesseract.js-data/eng": "1.0.0",
@@ -24,8 +29,8 @@
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.2",
     "fast-xml-parser": "5.11.0",
-    "pdfjs-dist": "6.2.108",
     "pdf-lib": "1.17.1",
+    "pdfjs-dist": "6.2.108",
     "react": "^19.2.8",
     "tesseract.js": "7.0.0",
     "zod": "^4.4.3"

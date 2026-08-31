@@ -11,6 +11,10 @@ import {
   evidenceSchema,
   evidenceSourceSnapshotSchema,
   importItemViewSchema,
+  interopImportJobViewSchema,
+  interopImportRecordsPageSchema,
+  interopRecordDecisionSchema,
+  interopRecordViewSchema,
   metadataAssertionViewSchema,
   ocrJobSchema,
   pageTextSearchResponseSchema,
@@ -56,6 +60,9 @@ describe('research contract', () => {
     expect(RESEARCH_API_V1.note('note-1')).toBe('/api/research/v1/notes/note-1');
     expect(RESEARCH_API_V1.evidenceRebind('evidence-1')).toBe(
       '/api/research/v1/evidence/evidence-1/rebind',
+    );
+    expect(RESEARCH_API_V1.interopImportRecordDecision('job-1', 'record-2')).toBe(
+      '/api/research/v1/interop/imports/job-1/records/record-2/decision',
     );
   });
 
@@ -535,5 +542,144 @@ describe('research contract', () => {
         lastCheckedAt: instant,
       }),
     ).toThrow();
+  });
+
+  it('互操作记录保留未知字段、格式影子和逐条诊断', () => {
+    const record = interopRecordViewSchema.parse({
+      id: 'record-1',
+      sourceId: 'source-1',
+      ordinal: 0,
+      sourceKey: 'smith2026',
+      rawHash: 'b'.repeat(64),
+      rawRecord: '@article{smith2026, custom = {kept}}',
+      summary: 'Research Workbench',
+      formatShadow: {
+        fields: { custom: 'kept' },
+        unknownFields: ['custom'],
+      },
+      mapped: {
+        type: 'article',
+        sourceType: 'article',
+        title: 'Research Workbench',
+        abstract: null,
+        issued: { year: 2026, month: null, day: null, literal: '2026' },
+        publicationTitle: null,
+        publisher: null,
+        volume: null,
+        issue: null,
+        pages: null,
+        contributors: [
+          {
+            kind: 'structured',
+            family: 'Smith',
+            given: 'Ada',
+            literal: null,
+            suffix: null,
+            nonDroppingParticle: null,
+          },
+        ],
+        identifiers: [{ scheme: 'doi', value: '10.1000/example' }],
+        tagSuggestions: [],
+      },
+      diagnostics: [
+        {
+          code: 'unknown-field',
+          severity: 'info',
+          message: '保留未知字段 custom',
+          field: 'custom',
+          path: null,
+          line: null,
+          recoverable: true,
+        },
+      ],
+      decision: null,
+      status: 'valid',
+      revision: 1,
+      committedWorkId: null,
+      committedEditionId: null,
+      createdAt: instant,
+      updatedAt: instant,
+    });
+
+    expect(record.formatShadow).toMatchObject({ fields: { custom: 'kept' } });
+    expect(record.diagnostics[0]?.code).toBe('unknown-field');
+  });
+
+  it('互操作契约支持部分无效、分页和明确的附件决定', () => {
+    const decision = interopRecordDecisionSchema.parse({
+      action: 'accept',
+      attachmentCandidates: [
+        {
+          id: 'attachment-candidate-1',
+          sourceValue: 'paper.pdf',
+          resolvedPath: '/tmp/paper.pdf',
+          displayName: 'paper.pdf',
+          mimeType: 'application/pdf',
+          exists: true,
+          action: 'linked',
+        },
+      ],
+    });
+    expect(decision.fieldSuggestions).toEqual([]);
+
+    const page = interopImportRecordsPageSchema.parse({
+      items: [],
+      total: 10_000,
+      offset: 9_950,
+      limit: 50,
+      nextOffset: null,
+    });
+    expect(page.total).toBe(10_000);
+
+    expect(() =>
+      interopImportRecordsPageSchema.parse({
+        items: [],
+        total: 10_000,
+        offset: 0,
+        limit: 201,
+        nextOffset: 201,
+      }),
+    ).toThrow();
+  });
+
+  it('互操作任务统计和 revision 经过同一 schema 往返', () => {
+    const job = interopImportJobViewSchema.parse({
+      id: 'job-1',
+      requestId: 'request-1',
+      source: {
+        id: 'source-1',
+        format: 'ris',
+        displayName: 'library.ris',
+        sourcePath: '/tmp/library.ris',
+        contentHash: 'a'.repeat(64),
+        byteSize: 2048,
+        encoding: 'utf-8',
+        parserName: '@citation-js/plugin-ris',
+        parserVersion: '0.8.2',
+        createdAt: instant,
+      },
+      status: 'awaiting-review',
+      summary: {
+        total: 2,
+        processed: 2,
+        valid: 1,
+        invalid: 1,
+        needsReview: 0,
+        accepted: 0,
+        skipped: 0,
+        committed: 0,
+        failed: 0,
+        attachments: 0,
+      },
+      checkpointOrdinal: 2,
+      errorCode: null,
+      errorDetail: null,
+      revision: 3,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: null,
+    });
+
+    expect(interopImportJobViewSchema.parse(JSON.parse(JSON.stringify(job)))).toEqual(job);
   });
 });
