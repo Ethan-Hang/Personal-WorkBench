@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Research reader B0: running</title>
+    <style>
+      body {
+        margin: 24px;
+        color: #18211c;
+        background: #f2f4ef;
+        font:
+          14px/1.5 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+      }
+      main {
+        max-width: 900px;
+        margin: auto;
+      }
+      canvas {
+        display: block;
+        width: 180px;
+        height: auto;
+      }
+      .pdf-page {
+        position: relative;
+        display: inline-block;
+        margin: 8px;
+        border: 1px solid #a9b2aa;
+      }
+      .textLayer {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        line-height: 1;
+        opacity: 0.15;
+        transform-origin: 0 0;
+      }
+      .textLayer span,
+      .textLayer br {
+        position: absolute;
+        color: transparent;
+        white-space: pre;
+        transform-origin: 0 0;
+      }
+      pre {
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Research reader B0 browser harness</h1>
+      <p id="status">Running PDF.js Range and resource-lifecycle checks…</p>
+      <section id="canvases"></section>
+      <pre id="result" data-status="running"></pre>
+    </main>
+    <script type="module">
+      import { GlobalWorkerOptions, TextLayer, getDocument } from '/vendor/pdf.mjs';
+
+      GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.mjs';
+      const resultNode = document.querySelector('#result');
+      const statusNode = document.querySelector('#status');
+      const canvasRoot = document.querySelector('#canvases');
+      const activeTasks = new Set();
+
+      function now() {
+        return performance.now();
+      }
+
+      function elapsed(start) {
+        return Number((performance.now() - start).toFixed(2));
+      }
+
+      function heapMiB() {
+        return performance.memory
+          ? Number((performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(2))
+          : null;
+      }
+
+      function summarizeServerMetrics(metrics) {
+        return {
+          abortedRequests: metrics.requests.filter((request) => request.aborted).length,
+          activeStreams: metrics.activeStreams,
+          bytesServed: metrics.bytesServed,
+          completedRequests: metrics.requests.filter((request) => request.completed).length,
+          rangeRequests: metrics.requests.filter((request) => request.status === 206).length,
+          requests: metrics.requests.length,
+        };
+      }
+
+      async function renderPage(documentProxy, pageNumber, retain = true) {
+        const page = await documentProxy.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1 });
+        const surface = document.createElement('article');
+        surface.className = 'pdf-page';
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const textLayerNode = document.createElement('div');
+        textLayerNode.className = 'textLayer';
+        surface.append(canvas, textLayerNode);
+        if (retain) canvasRoot.append(surface);
+        const started = now();
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+        const textLayer = new TextLayer({
+          container: textLayerNode,
+          textContentSource: page.streamTextContent({ includeMarkedContent: true }),
+          viewport,
+        });
+        await textLayer.render();
+        const renderMs = elapsed(started);
+        page.cleanup();
+        return {
+          canvas,
+          renderMs,
+          surface,
+          textDivCount: textLayer.textDivs.length,
+          textLayer,
+        };
+      }
+
+      async function openDocument(url) {
+        const started = now();
+        const task = getDocument({
+          disableAutoFetch: true,
+          disableStream: true,
+          isEvalSupported: false,
+          rangeChunkSize: 64 * 1024,
+          url,
+        });
+        activeTasks.add(task);
+        const documentProxy = await task.promise;
+        return { documentProxy, readyMs: elapsed(started), task };
+      }
+
+      async function destroyDocument(entry) {
+        entry.canvas.width = 1;
+        entry.canvas.height = 1;
+        entry.surface.remove();
+        await entry.task.destroy();
+        activeTasks.delete(entry.task);
+      }
+
+      async function run() {
+        const manifest = await fetch('/b0/manifest.json').then((response) => response.json());
+        const sample =
+          manifest.find((item) => item.kind === 'private-local' && item.linearized) ??
+          manifest.find((item) => item.id === 'generated-long') ??
+          manifest[0];
+        await fetch('/b0/metrics', { method: 'DELETE' });
+        const heapBeforeMiB = heapMiB();
+        const primary = await openDocument(sample.url);
+        const firstVisibleStarted = now();
+        const first = await renderPage(primary.documentProxy, 1);
+        const firstVisibleMs = elapsed(firstVisibleStarted);
+        const middlePage = Math.max(2, Math.floor(primary.documentProxy.numPages / 2));
+        const middleVisibleStarted = now();
+        const middle = await renderPage(primary.documentProxy, middlePage);
+        const middleVisibleMs = elapsed(middleVisibleStarted);
+        const lastVisibleStarted = now();
+        const last = await renderPage(primary.documentProxy, primary.documentProxy.numPages);
+        const lastVisibleMs = elapsed(lastVisibleStarted);
+        const afterPrimary = await fetch('/b0/metrics').then((response) => response.json());
+
+        const background = [];
+        for (let index = 0; index < 3; index += 1) {
+          const opened = await openDocument(sample.url);
+          const rendered = await renderPage(opened.documentProxy, index + 1);
+          background.push({ ...opened, ...rendered });
+        }
+        const heapWithTabsMiB = heapMiB();
+        const canvasesWithTabs = canvasRoot.querySelectorAll('canvas').length;
+        const textLayersWithTabs = canvasRoot.querySelectorAll('.textLayer').length;
+        const textRunsWithTabs = canvasRoot.querySelectorAll('.textLayer span').length;
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const heapAfterIdleMiB = heapMiB();
+        const afterIdle = await fetch('/b0/metrics').then((response) => response.json());
+        for (const entry of background) {
+          await destroyDocument(entry);
+        }
+        for (const rendered of [first, middle, last]) {
+          rendered.canvas.width = 1;
+          rendered.canvas.height = 1;
+          rendered.surface.remove();
+        }
+        canvasRoot.replaceChildren();
+        await primary.task.destroy();
+        activeTasks.delete(primary.task);
+        TextLayer.cleanup();
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        const finalServerMetrics = await fetch('/b0/metrics').then((response) => response.json());
+        const result = {
+          canvasesAfterDestroy: canvasRoot.querySelectorAll('canvas').length,
+          canvasesWithTabs,
+          firstVisibleFromOpenMs: Number((primary.readyMs + firstVisibleMs).toFixed(2)),
+          firstVisibleMs,
+          heapAfterIdleMiB,
+          heapAfterDestroyMiB: heapMiB(),
+          heapBeforeMiB,
+          heapWithTabsMiB,
+          loadingTasksAfterDestroy: activeTasks.size,
+          lastVisibleMs,
+          middlePageRenderMs: middle.renderMs,
+          middleVisibleMs,
+          pageCount: primary.documentProxy.numPages,
+          pdfReadyMs: primary.readyMs,
+          rangeAfterFirstDocument: summarizeServerMetrics(afterPrimary),
+          rangeAfterIdle: summarizeServerMetrics(afterIdle),
+          rangeFinal: summarizeServerMetrics(finalServerMetrics),
+          selectedSample: {
+            bytes: sample.bytes,
+            id: sample.id,
+            kind: sample.kind,
+            linearized: sample.linearized,
+          },
+          status: 'passed',
+          textLayersAfterDestroy: canvasRoot.querySelectorAll('.textLayer').length,
+          textLayersWithTabs,
+          textRunsAfterDestroy: canvasRoot.querySelectorAll('.textLayer span').length,
+          textRunsWithTabs,
+        };
+        await fetch('/b0/result', {
+          body: JSON.stringify(result),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        });
+        resultNode.dataset.status = 'complete';
+        resultNode.textContent = JSON.stringify(result, null, 2);
+        statusNode.textContent = 'Completed.';
+        document.title = 'Research reader B0: passed';
+      }
+
+      run().catch(async (error) => {
+        const result = { message: error?.message ?? String(error), status: 'failed' };
+        await fetch('/b0/result', {
+          body: JSON.stringify(result),
+          headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+        }).catch(() => undefined);
+        resultNode.dataset.status = 'failed';
+        resultNode.textContent = JSON.stringify(result, null, 2);
+        statusNode.textContent = 'Failed.';
+        document.title = 'Research reader B0: failed';
+      });
+    </script>
+  </body>
+</html>
