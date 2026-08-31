@@ -3,19 +3,29 @@ import { RESEARCH_API_V1 } from '../contract.js';
 import {
   fetchAttachmentDeletionPreview,
   fetchManagedStorageStatus,
+  fetchPageTextSearch,
+  fetchTextIndexJob,
+  fetchAnnotations,
+  fetchReadingContexts,
   fetchReaderManifest,
   fetchWorks,
   patchWorkMetadata,
+  patchAnnotation,
   postCheckLocation,
+  postAnnotation,
+  postReadingContext,
   postPermanentDeleteAttachment,
   postManagedRootMigration,
   postCancelManagedRootMigration,
   postPrepareImport,
+  postStartTextIndex,
   postRestoreAttachment,
+  postRestoreAnnotation,
   postRetryManagedRootMigration,
   postUploadPdf,
   putWorkCollections,
   putReaderState,
+  deleteResearchAnnotation,
 } from './api.js';
 
 type CapturedCall = { url: string; init: RequestInit | undefined };
@@ -50,6 +60,134 @@ afterEach(() => {
 });
 
 describe('research ui api', () => {
+  it('正文索引客户端保留任务控制、进度和页级搜索参数', async () => {
+    respondWith({ job: null });
+    await expect(fetchTextIndexJob('asset-1')).resolves.toBeNull();
+    expect(calls[0]?.url).toBe(RESEARCH_API_V1.assetTextIndex('asset-1'));
+
+    const job = {
+      assetId: 'asset-1',
+      status: 'queued',
+      nextPage: 1,
+      totalPages: 0,
+      indexedPages: 0,
+      textCharacters: 0,
+      assetHash: 'a'.repeat(64),
+      parserVersion: 'pdfjs-test',
+      errorCode: null,
+      createdAt: instant,
+      updatedAt: instant,
+      completedAt: null,
+    };
+    respondWith(job);
+    await postStartTextIndex('asset-1', 7);
+    expect(calls[1]).toMatchObject({
+      url: RESEARCH_API_V1.assetTextIndexStart('asset-1'),
+      init: { method: 'POST' },
+    });
+    expect(parsedBody(calls[1]!)).toEqual({ priorityPage: 7 });
+
+    respondWith({
+      results: [
+        {
+          assetId: 'asset-1',
+          displayName: 'paper.pdf',
+          pageNumber: 7,
+          source: 'pdf',
+          snippet: 'search result',
+          matchStart: 0,
+          matchEnd: 6,
+          pageSize: null,
+          position: null,
+        },
+      ],
+    });
+    await expect(fetchPageTextSearch('search', { assetId: 'asset-1' })).resolves.toHaveLength(1);
+    expect(calls[2]?.url).toContain('query=search&assetId=asset-1');
+  });
+
+  it('批注和上下文客户端保留图层、锚点与 revision 请求', async () => {
+    const context = {
+      id: 'context-1',
+      name: 'Review',
+      description: null,
+      color: null,
+      status: 'active',
+      createdAt: instant,
+      updatedAt: instant,
+      archivedAt: null,
+    };
+    respondWith({
+      general: { kind: 'general', id: 'general', name: '通用批注' },
+      contexts: [context],
+    });
+    expect((await fetchReadingContexts()).contexts[0]?.id).toBe('context-1');
+
+    respondWith(context);
+    await postReadingContext({ name: 'Review', description: null, color: null });
+    expect(calls[1]).toMatchObject({
+      url: RESEARCH_API_V1.readingContexts,
+      init: { method: 'POST' },
+    });
+
+    const annotation = {
+      id: 'annotation-1',
+      assetId: 'asset-1',
+      editionId: null,
+      contextId: 'context-1',
+      kind: 'highlight',
+      pageNumber: 1,
+      anchor: {
+        pageNumber: 1,
+        pageSize: { width: 612, height: 792 },
+        rect: null,
+        quads: [{ x1: 1, y1: 2, x2: 3, y2: 2, x3: 1, y3: 1, x4: 3, y4: 1 }],
+        textQuote: null,
+        assetHash: 'a'.repeat(64),
+        editionId: null,
+      },
+      body: null,
+      color: '#facc15',
+      status: 'active',
+      revision: 1,
+      createdAt: instant,
+      updatedAt: instant,
+      deletedAt: null,
+    };
+    respondWith(annotation);
+    await postAnnotation('asset-1', {
+      contextId: 'context-1',
+      kind: 'highlight',
+      anchor: annotation.anchor,
+      body: null,
+      color: '#facc15',
+    });
+    expect(calls[2]).toMatchObject({
+      url: RESEARCH_API_V1.assetAnnotations('asset-1'),
+      init: { method: 'POST' },
+    });
+
+    respondWith([annotation]);
+    await fetchAnnotations('asset-1', {
+      contextIds: ['context-1'],
+      includeGeneral: true,
+    });
+    expect(calls[3]?.url).toContain('contextIds=context-1');
+
+    respondWith({ ...annotation, body: 'updated', revision: 2 });
+    await patchAnnotation(annotation.id, { body: 'updated', expectedRevision: 1 });
+    expect(parsedBody(calls[4]!)).toEqual({ body: 'updated', expectedRevision: 1 });
+
+    respondWith({ ...annotation, status: 'deleted', revision: 3, deletedAt: instant });
+    await deleteResearchAnnotation(annotation.id, 2);
+    expect(calls[5]?.init?.method).toBe('DELETE');
+    expect(parsedBody(calls[5]!)).toEqual({ expectedRevision: 2 });
+
+    respondWith({ ...annotation, revision: 4 });
+    await postRestoreAnnotation(annotation.id, 3);
+    expect(calls[6]?.url).toBe(RESEARCH_API_V1.annotationRestore(annotation.id));
+  });
+
   it('阅读器 manifest 与状态保存共用 Asset 路径和契约', async () => {
     const state = {
       assetId: 'asset-1',

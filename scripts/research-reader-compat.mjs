@@ -30,6 +30,7 @@ function parseArgs(argv) {
 
 Usage:
   node scripts/research-reader-compat.mjs --phase b1 --browser [--pdf PATH]
+  node scripts/research-reader-compat.mjs --phase b2 --browser
   node scripts/research-reader-compat.mjs --phase all --browser --ocr --pdf PATH --scanned-pdf PATH
 
 The runner records compatibility by module and current platform. It never marks an untested
@@ -111,7 +112,7 @@ async function run(command, args) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.phase !== 'b1') {
+  if (!['b1', 'b2'].includes(options.phase)) {
     throw new Error(
       `${options.phase} compatibility modules are enabled when that phase is implemented`,
     );
@@ -121,31 +122,45 @@ async function main() {
     options.output ?? path.join(repoRoot, 'test-results', 'research-reader', `compat-${stamp}`),
   );
   await mkdir(outputRoot, { recursive: true });
-  const b0Output = path.join(outputRoot, 'b0.json');
-  const b0Args = [
-    '--expose-gc',
-    path.join(scriptDir, 'research-reader-b0.mjs'),
-    '--output',
-    b0Output,
-  ];
-  if (options.browser) b0Args.push('--browser');
-  if (options.ocr) b0Args.push('--ocr');
-  for (const filePath of options.pdfPaths) b0Args.push('--pdf', path.resolve(filePath));
-  if (options.scannedPdf) b0Args.push('--pdf', path.resolve(options.scannedPdf));
-  const b0Run = await run(process.execPath, b0Args);
-  const b0Result = JSON.parse(await readFile(b0Output, 'utf8'));
+  let moduleRun;
+  let b0Output = null;
+  let b0Result = null;
+  if (options.phase === 'b1') {
+    b0Output = path.join(outputRoot, 'b0.json');
+    const b0Args = [
+      '--expose-gc',
+      path.join(scriptDir, 'research-reader-b0.mjs'),
+      '--output',
+      b0Output,
+    ];
+    if (options.browser) b0Args.push('--browser');
+    if (options.ocr) b0Args.push('--ocr');
+    for (const filePath of options.pdfPaths) b0Args.push('--pdf', path.resolve(filePath));
+    if (options.scannedPdf) b0Args.push('--pdf', path.resolve(options.scannedPdf));
+    moduleRun = await run(process.execPath, b0Args);
+    b0Result = JSON.parse(await readFile(b0Output, 'utf8'));
+  } else {
+    moduleRun = await run(process.execPath, [
+      path.join(repoRoot, 'node_modules', 'vitest', 'vitest.mjs'),
+      'run',
+      'modules/research/src/acceptance/slice-b-workflow.test.ts',
+      'modules/research/src/reader/text-index-service.test.ts',
+    ]);
+  }
 
   let visualOutput = null;
   let visualRun = null;
+  let visualResult = null;
   if (options.browser) {
     visualOutput = path.join(outputRoot, 'visual');
     visualRun = await run(process.execPath, [
       path.join(scriptDir, 'research-reader-visual-qa.mjs'),
       '--phase',
-      'b1',
+      options.phase,
       '--output',
       visualOutput,
     ]);
+    visualResult = JSON.parse(await readFile(path.join(visualOutput, 'result.json'), 'utf8'));
   }
 
   const currentPlatform = `${process.platform}-${process.arch}`;
@@ -165,32 +180,49 @@ async function main() {
       cpu: cpus()[0]?.model ?? 'unknown',
       cpuCount: cpus().length,
       totalMemoryGiB: Number((totalmem() / 1024 / 1024 / 1024).toFixed(2)),
-      browser: b0Result.browser?.browserVersion ?? 'not-run',
+      browser: b0Result?.browser?.browserVersion ?? visualResult?.browser ?? 'not-run',
     },
-    corpus: ['generated text', '180-page non-linearized', 'blank', 'encrypted', 'corrupt'],
+    corpus:
+      options.phase === 'b1'
+        ? ['generated text', '180-page non-linearized', 'blank', 'encrypted', 'corrupt']
+        : [
+            'generated text',
+            '180-page non-linearized',
+            'annotations',
+            'empty state',
+            'page text index',
+          ],
     conditions: {
       visualProfiles: options.browser ? 'fresh profile per viewport and state' : 'not-run',
-      lifecycle: options.browser ? '20 rounds in one browser process' : 'not-run',
+      lifecycle:
+        options.phase === 'b1' && options.browser ? '20 rounds in one browser process' : 'not-run',
     },
-    cleanup: options.browser
-      ? {
-          canvases: b0Result.browser?.canvasesAfterDestroy,
-          textLayers: b0Result.browser?.textLayersAfterDestroy,
-          loadingTasks: b0Result.browser?.loadingTasksAfterDestroy,
-          activeStreams: b0Result.browser?.rangeFinal?.activeStreams,
-          lifecycleHeapGrowthMiB: b0Result.browser?.lifecycleHeapGrowthMiB,
-        }
-      : null,
+    cleanup:
+      options.phase === 'b1' && options.browser
+        ? {
+            canvases: b0Result.browser?.canvasesAfterDestroy,
+            textLayers: b0Result.browser?.textLayersAfterDestroy,
+            loadingTasks: b0Result.browser?.loadingTasksAfterDestroy,
+            activeStreams: b0Result.browser?.rangeFinal?.activeStreams,
+            lifecycleHeapGrowthMiB: b0Result.browser?.lifecycleHeapGrowthMiB,
+          }
+        : null,
     modules: [
       {
-        id: 'b1-pdfjs-range-resource-lifecycle',
+        id:
+          options.phase === 'b1'
+            ? 'b1-pdfjs-range-resource-lifecycle'
+            : 'b2-context-annotation-and-text-index',
         platform: currentPlatform,
         status: 'passed',
-        durationMs: b0Run.durationMs,
-        evidence: path.relative(repoRoot, b0Output),
+        durationMs: moduleRun.durationMs,
+        evidence:
+          options.phase === 'b1'
+            ? path.relative(repoRoot, b0Output)
+            : 'modules/research/src/acceptance/slice-b-workflow.test.ts',
       },
       {
-        id: 'b1-reader-ui-and-states',
+        id: options.phase === 'b1' ? 'b1-reader-ui-and-states' : 'b2-reader-ui-and-search',
         platform: currentPlatform,
         status: options.browser ? 'passed' : 'not-run',
         durationMs: visualRun?.durationMs ?? null,
@@ -198,13 +230,16 @@ async function main() {
       },
       ...pendingRequiredPlatforms.flatMap((platform) => [
         {
-          id: 'b1-pdfjs-range-resource-lifecycle',
+          id:
+            options.phase === 'b1'
+              ? 'b1-pdfjs-range-resource-lifecycle'
+              : 'b2-context-annotation-and-text-index',
           platform,
           status: 'not-run',
           evidence: null,
         },
         {
-          id: 'b1-reader-ui-and-states',
+          id: options.phase === 'b1' ? 'b1-reader-ui-and-states' : 'b2-reader-ui-and-search',
           platform,
           status: 'not-run',
           evidence: null,

@@ -69,6 +69,24 @@ export const RESEARCH_API_V1 = {
   readerManifest: (id: string) => `${API_ROOT}/assets/${id}/reader`,
   assetContent: (id: string) => `${API_ROOT}/assets/${id}/content`,
   readerState: (id: string) => `${API_ROOT}/assets/${id}/reader-state`,
+  assetTextIndex: (id: string) => `${API_ROOT}/assets/${id}/text-index`,
+  assetTextIndexStart: (id: string) => `${API_ROOT}/assets/${id}/text-index/start`,
+  assetTextIndexPause: (id: string) => `${API_ROOT}/assets/${id}/text-index/pause`,
+  assetTextIndexCancel: (id: string) => `${API_ROOT}/assets/${id}/text-index/cancel`,
+  assetTextIndexResume: (id: string) => `${API_ROOT}/assets/${id}/text-index/resume`,
+  assetTextIndexRebuild: (id: string) => `${API_ROOT}/assets/${id}/text-index/rebuild`,
+  pageTextSearch: `${API_ROOT}/page-text/search`,
+  readingContexts: `${API_ROOT}/reading-contexts`,
+  readingContext: (id: string) => `${API_ROOT}/reading-contexts/${id}`,
+  readingContextDeletionPreview: (id: string) =>
+    `${API_ROOT}/reading-contexts/${id}/deletion-preview`,
+  readingContextArchive: (id: string) => `${API_ROOT}/reading-contexts/${id}/archive`,
+  readingContextRestore: (id: string) => `${API_ROOT}/reading-contexts/${id}/restore`,
+  collectionReadingContext: (id: string) => `${API_ROOT}/collections/${id}/reading-context`,
+  assetAnnotations: (id: string) => `${API_ROOT}/assets/${id}/annotations`,
+  annotation: (id: string) => `${API_ROOT}/annotations/${id}`,
+  annotationRestore: (id: string) => `${API_ROOT}/annotations/${id}/restore`,
+  annotationRevisions: (id: string) => `${API_ROOT}/annotations/${id}/revisions`,
 } as const;
 
 export const WORK_TYPES = [
@@ -214,6 +232,13 @@ export const RESEARCH_ERROR_CODES = [
   'READER_NOT_PDF',
   'READER_RANGE_INVALID',
   'READER_STATE_CONFLICT',
+  'READER_INDEX_NOT_FOUND',
+  'READER_INDEX_FAILED',
+  'ANNOTATION_ASSET_NOT_FOUND',
+  'ANNOTATION_CONTEXT_NOT_FOUND',
+  'ANNOTATION_NOT_FOUND',
+  'ANNOTATION_CONFLICT',
+  'ANNOTATION_INVALID',
 ] as const;
 export type ResearchErrorCode = (typeof RESEARCH_ERROR_CODES)[number];
 
@@ -249,6 +274,11 @@ export type AnnotationKind = (typeof ANNOTATION_KINDS)[number];
 export const ANNOTATION_STATUSES = ['active', 'deleted', 'needs-review'] as const;
 export type AnnotationStatus = (typeof ANNOTATION_STATUSES)[number];
 
+export const GENERAL_READING_CONTEXT_ID = 'general' as const;
+
+export const READING_CONTEXT_ARCHIVE_STRATEGIES = ['move-to-general', 'keep-archived'] as const;
+export type ReadingContextArchiveStrategy = (typeof READING_CONTEXT_ARCHIVE_STRATEGIES)[number];
+
 export const DERIVED_JOB_STATUSES = [
   'queued',
   'running',
@@ -259,6 +289,9 @@ export const DERIVED_JOB_STATUSES = [
   'interrupted',
 ] as const;
 export type DerivedJobStatus = (typeof DERIVED_JOB_STATUSES)[number];
+
+export const TEXT_INDEX_STATUSES = [...DERIVED_JOB_STATUSES, 'ocr-recommended'] as const;
+export type TextIndexStatus = (typeof TEXT_INDEX_STATUSES)[number];
 
 export const instantSchema = z.string().datetime({ precision: 3 });
 export const researchIdSchema = z.string().min(1).max(128);
@@ -306,6 +339,229 @@ export const readerManifestSchema = z.object({
   state: readerStateSchema,
 });
 export type ReaderManifest = z.infer<typeof readerManifestSchema>;
+
+export const textIndexJobSchema = z.object({
+  assetId: researchIdSchema,
+  status: z.enum(TEXT_INDEX_STATUSES),
+  nextPage: z.number().int().positive(),
+  totalPages: z.number().int().nonnegative(),
+  indexedPages: z.number().int().nonnegative(),
+  textCharacters: z.number().int().nonnegative(),
+  assetHash: sha256Schema,
+  parserVersion: z.string().min(1),
+  errorCode: z.string().nullable(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  completedAt: instantSchema.nullable(),
+});
+export type TextIndexJob = z.infer<typeof textIndexJobSchema>;
+
+export const startTextIndexInputSchema = z.object({
+  priorityPage: z.number().int().positive().nullable().default(null),
+});
+export type StartTextIndexInput = z.infer<typeof startTextIndexInputSchema>;
+
+export const pageTextPositionSchema = z.object({
+  start: z.number().int().nonnegative(),
+  end: z.number().int().positive(),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().nonnegative(),
+  height: z.number().finite().nonnegative(),
+});
+export type PageTextPosition = z.infer<typeof pageTextPositionSchema>;
+
+export const pageTextSearchQuerySchema = z.object({
+  query: z.string().trim().min(1).max(500),
+  assetId: researchIdSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+export type PageTextSearchQuery = z.infer<typeof pageTextSearchQuerySchema>;
+
+export const generalReadingLayerSchema = z.object({
+  kind: z.literal('general'),
+  id: z.literal(GENERAL_READING_CONTEXT_ID),
+  name: z.literal('通用批注'),
+});
+export type GeneralReadingLayer = z.infer<typeof generalReadingLayerSchema>;
+
+export const readingContextSchema = z.object({
+  id: researchIdSchema,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(2_000).nullable(),
+  color: z.string().trim().min(1).max(64).nullable(),
+  status: z.enum(READING_CONTEXT_STATUSES),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  archivedAt: instantSchema.nullable(),
+});
+export type ReadingContext = z.infer<typeof readingContextSchema>;
+
+export const readingContextCatalogSchema = z.object({
+  general: generalReadingLayerSchema,
+  contexts: z.array(readingContextSchema),
+});
+export type ReadingContextCatalog = z.infer<typeof readingContextCatalogSchema>;
+
+export const createReadingContextInputSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().max(2_000).nullable().default(null),
+  color: z.string().trim().min(1).max(64).nullable().default(null),
+});
+export type CreateReadingContextInput = z.infer<typeof createReadingContextInputSchema>;
+
+export const updateReadingContextInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    description: z.string().max(2_000).nullable().optional(),
+    color: z.string().trim().min(1).max(64).nullable().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, '至少提供一个上下文字段');
+export type UpdateReadingContextInput = z.infer<typeof updateReadingContextInputSchema>;
+
+export const archiveReadingContextInputSchema = z.object({
+  strategy: z.enum(READING_CONTEXT_ARCHIVE_STRATEGIES),
+});
+export type ArchiveReadingContextInput = z.infer<typeof archiveReadingContextInputSchema>;
+
+export const readingContextDeletionPreviewSchema = z.object({
+  context: readingContextSchema,
+  annotationCount: z.number().int().nonnegative(),
+  activeAnnotationCount: z.number().int().nonnegative(),
+  deletedAnnotationCount: z.number().int().nonnegative(),
+  collectionCount: z.number().int().nonnegative(),
+});
+export type ReadingContextDeletionPreview = z.infer<typeof readingContextDeletionPreviewSchema>;
+
+export const collectionReadingContextSchema = z.object({
+  collectionId: researchIdSchema,
+  context: readingContextSchema.nullable(),
+  updatedAt: instantSchema.nullable(),
+});
+export type CollectionReadingContext = z.infer<typeof collectionReadingContextSchema>;
+
+export const setCollectionReadingContextInputSchema = z.object({
+  contextId: researchIdSchema.nullable(),
+});
+export type SetCollectionReadingContextInput = z.infer<
+  typeof setCollectionReadingContextInputSchema
+>;
+
+export const pdfPageSizeSchema = z.object({
+  width: z.number().finite().positive(),
+  height: z.number().finite().positive(),
+});
+export type PdfPageSize = z.infer<typeof pdfPageSizeSchema>;
+
+export const pdfRectSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().positive(),
+  height: z.number().finite().positive(),
+});
+export type PdfRect = z.infer<typeof pdfRectSchema>;
+
+export const pageTextSearchResultSchema = z.object({
+  assetId: researchIdSchema,
+  displayName: z.string().min(1),
+  pageNumber: z.number().int().positive(),
+  source: z.enum(['pdf', 'ocr']),
+  snippet: z.string(),
+  matchStart: z.number().int().nonnegative(),
+  matchEnd: z.number().int().nonnegative(),
+  pageSize: pdfPageSizeSchema.nullable(),
+  position: pdfRectSchema.nullable(),
+});
+export type PageTextSearchResult = z.infer<typeof pageTextSearchResultSchema>;
+
+export const pageTextSearchResponseSchema = z.object({
+  results: z.array(pageTextSearchResultSchema),
+});
+export type PageTextSearchResponse = z.infer<typeof pageTextSearchResponseSchema>;
+
+export const pdfQuadSchema = z.object({
+  x1: z.number().finite(),
+  y1: z.number().finite(),
+  x2: z.number().finite(),
+  y2: z.number().finite(),
+  x3: z.number().finite(),
+  y3: z.number().finite(),
+  x4: z.number().finite(),
+  y4: z.number().finite(),
+});
+export type PdfQuad = z.infer<typeof pdfQuadSchema>;
+
+export const annotationTextQuoteSchema = z.object({
+  exact: z.string().min(1).max(20_000),
+  prefix: z.string().max(2_000),
+  suffix: z.string().max(2_000),
+  fingerprint: sha256Schema,
+});
+export type AnnotationTextQuote = z.infer<typeof annotationTextQuoteSchema>;
+
+export const annotationAnchorSchema = z.object({
+  pageNumber: z.number().int().positive(),
+  pageSize: pdfPageSizeSchema,
+  rect: pdfRectSchema.nullable().default(null),
+  quads: z.array(pdfQuadSchema).max(512).default([]),
+  textQuote: annotationTextQuoteSchema.nullable().default(null),
+  assetHash: sha256Schema,
+  editionId: researchIdSchema.nullable().default(null),
+});
+export type AnnotationAnchor = z.infer<typeof annotationAnchorSchema>;
+
+export const annotationSchema = z.object({
+  id: researchIdSchema,
+  assetId: researchIdSchema,
+  editionId: researchIdSchema.nullable(),
+  contextId: researchIdSchema.nullable(),
+  kind: z.enum(ANNOTATION_KINDS),
+  pageNumber: z.number().int().positive(),
+  anchor: annotationAnchorSchema,
+  body: z.string().max(100_000).nullable(),
+  color: z.string().trim().min(1).max(64).nullable(),
+  status: z.enum(ANNOTATION_STATUSES),
+  revision: z.number().int().positive(),
+  createdAt: instantSchema,
+  updatedAt: instantSchema,
+  deletedAt: instantSchema.nullable(),
+});
+export type Annotation = z.infer<typeof annotationSchema>;
+
+export const createAnnotationInputSchema = z.object({
+  contextId: researchIdSchema.nullable().default(null),
+  kind: z.enum(ANNOTATION_KINDS),
+  anchor: annotationAnchorSchema,
+  body: z.string().max(100_000).nullable().default(null),
+  color: z.string().trim().min(1).max(64).nullable().default(null),
+});
+export type CreateAnnotationInput = z.infer<typeof createAnnotationInputSchema>;
+
+export const updateAnnotationInputSchema = z
+  .object({
+    kind: z.enum(ANNOTATION_KINDS).optional(),
+    anchor: annotationAnchorSchema.optional(),
+    body: z.string().max(100_000).nullable().optional(),
+    color: z.string().trim().min(1).max(64).nullable().optional(),
+    expectedRevision: z.number().int().positive(),
+  })
+  .refine((value) => Object.keys(value).some((key) => key !== 'expectedRevision'), '没有批注变更');
+export type UpdateAnnotationInput = z.infer<typeof updateAnnotationInputSchema>;
+
+export const annotationRevisionInputSchema = z.object({
+  expectedRevision: z.number().int().positive(),
+});
+export type AnnotationRevisionInput = z.infer<typeof annotationRevisionInputSchema>;
+
+export const annotationRevisionSchema = z.object({
+  id: researchIdSchema,
+  annotationId: researchIdSchema,
+  revision: z.number().int().positive(),
+  snapshot: annotationSchema,
+  reason: z.enum(['update', 'delete', 'restore', 'move-context']),
+  createdAt: instantSchema,
+});
+export type AnnotationRevision = z.infer<typeof annotationRevisionSchema>;
 
 export const portableExportOptionsSchema = z.object({
   includeManagedFiles: z.boolean().default(false),

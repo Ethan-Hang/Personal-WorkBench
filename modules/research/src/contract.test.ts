@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   RESEARCH_API_V1,
+  annotationAnchorSchema,
   assetLocationViewSchema,
+  createAnnotationInputSchema,
   importItemViewSchema,
   metadataAssertionViewSchema,
+  pageTextSearchResponseSchema,
   readerManifestSchema,
+  readingContextCatalogSchema,
   saveReaderStateInputSchema,
+  textIndexJobSchema,
   workDetailViewSchema,
   workViewSchema,
 } from './contract.js';
@@ -23,6 +28,50 @@ describe('research contract', () => {
       '/api/research/v1/assets/asset-1/reader',
     );
     expect(RESEARCH_API_V1.assetContent('asset-1')).toBe('/api/research/v1/assets/asset-1/content');
+    expect(RESEARCH_API_V1.annotation('annotation-1')).toBe(
+      '/api/research/v1/annotations/annotation-1',
+    );
+    expect(RESEARCH_API_V1.assetTextIndexStart('asset-1')).toBe(
+      '/api/research/v1/assets/asset-1/text-index/start',
+    );
+  });
+
+  it('批注契约显式区分通用层并保留跨版本锚点', () => {
+    expect(
+      readingContextCatalogSchema.parse({
+        general: { kind: 'general', id: 'general', name: '通用批注' },
+        contexts: [],
+      }),
+    ).toMatchObject({ general: { id: 'general' } });
+    const anchor = annotationAnchorSchema.parse({
+      pageNumber: 4,
+      pageSize: { width: 612, height: 792 },
+      rect: null,
+      quads: [{ x1: 1, y1: 2, x2: 3, y2: 2, x3: 1, y3: 1, x4: 3, y4: 1 }],
+      textQuote: {
+        exact: 'quoted text',
+        prefix: 'before',
+        suffix: 'after',
+        fingerprint: 'b'.repeat(64),
+      },
+      assetHash: 'a'.repeat(64),
+      editionId: 'edition-1',
+    });
+    expect(
+      createAnnotationInputSchema.parse({
+        contextId: null,
+        kind: 'highlight',
+        anchor,
+      }),
+    ).toMatchObject({
+      contextId: null,
+      anchor: {
+        pageNumber: 4,
+        assetHash: 'a'.repeat(64),
+        editionId: 'edition-1',
+        textQuote: { fingerprint: 'b'.repeat(64) },
+      },
+    });
   });
 
   it('阅读器 manifest 不暴露本地路径并携带可恢复状态', () => {
@@ -54,6 +103,42 @@ describe('research contract', () => {
       state: { pageNumber: 7, rotation: 90, lastContextId: null },
     });
     expect(JSON.stringify(manifest)).not.toContain('/Users/');
+  });
+
+  it('页级索引显式区分 OCR 建议并返回可定位搜索结果', () => {
+    expect(
+      textIndexJobSchema.parse({
+        assetId: 'asset-1',
+        status: 'ocr-recommended',
+        nextPage: 11,
+        totalPages: 10,
+        indexedPages: 10,
+        textCharacters: 0,
+        assetHash: 'a'.repeat(64),
+        parserVersion: 'pdfjs-test',
+        errorCode: 'OCR_RECOMMENDED',
+        createdAt: instant,
+        updatedAt: instant,
+        completedAt: null,
+      }),
+    ).toMatchObject({ status: 'ocr-recommended', textCharacters: 0 });
+    expect(
+      pageTextSearchResponseSchema.parse({
+        results: [
+          {
+            assetId: 'asset-1',
+            displayName: 'paper.pdf',
+            pageNumber: 3,
+            source: 'pdf',
+            snippet: 'matched page text',
+            matchStart: 0,
+            matchEnd: 7,
+            pageSize: { width: 612, height: 792 },
+            position: { x: 72, y: 700, width: 50, height: 12 },
+          },
+        ],
+      }).results[0],
+    ).toMatchObject({ pageNumber: 3, position: { x: 72, y: 700 } });
   });
 
   it('未保存阅读状态使用 revision 0，不伪造持久化时间', () => {

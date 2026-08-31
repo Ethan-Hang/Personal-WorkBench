@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { Button, IconAlertCircle } from '@workbench/ui';
-import { useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { fetchReaderManifest } from '../api.js';
 import { ReaderTabs } from './ReaderTabs.js';
 import { ReaderWorkspace } from './ReaderWorkspace.js';
@@ -24,6 +24,7 @@ function initialSession(assetId: string): ReaderTabSession {
 
 export function ResearchReaderPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { assetId = '' } = useParams<{ assetId: string }>();
   const [session, setSession] = useState(() => initialSession(assetId));
   const manifestQueries = useQueries({
@@ -74,9 +75,10 @@ export function ResearchReaderPage() {
   );
   const activeQuery = queryByAssetId.get(assetId);
   const back = () => navigate('/research');
-  const activate = (nextAssetId: string) => {
+  const activate = (nextAssetId: string, pageNumber?: number) => {
     setSession((current) => activateReaderTab(current, nextAssetId, Date.now()));
-    navigate(`/research/read/${encodeURIComponent(nextAssetId)}`);
+    const params = pageNumber ? `?page=${pageNumber}` : '';
+    navigate(`/research/read/${encodeURIComponent(nextAssetId)}${params}`);
   };
   const close = (closingAssetId: string) => {
     const next = closeReaderTab(session, closingAssetId, Date.now());
@@ -94,7 +96,7 @@ export function ResearchReaderPage() {
       <ReaderTabs
         activeAssetId={assetId}
         tabs={session.tabs}
-        onActivate={activate}
+        onActivate={(nextAssetId) => activate(nextAssetId)}
         onClose={close}
       />
       <div className="relative min-h-0 flex-1">
@@ -104,7 +106,18 @@ export function ResearchReaderPage() {
           const active = tab.assetId === assetId;
           return (
             <div key={tab.assetId} className={active ? 'h-full' : 'hidden'}>
-              <ReaderWorkspace active={active} manifest={manifest} onBack={back} />
+              <ReaderWorkspace
+                active={active}
+                manifest={manifest}
+                openingCollectionId={active ? searchParams.get('collectionId') : null}
+                openingPageNumber={
+                  active && Number(searchParams.get('page')) > 0
+                    ? Number(searchParams.get('page'))
+                    : null
+                }
+                onBack={back}
+                onOpenAsset={activate}
+              />
             </div>
           );
         })}

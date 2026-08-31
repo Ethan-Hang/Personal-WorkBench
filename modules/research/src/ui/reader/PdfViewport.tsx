@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { ReaderLayout } from '../../contract.js';
+import type { Annotation, AnnotationAnchor, AnnotationKind, ReaderLayout } from '../../contract.js';
 import { PdfPage } from './PdfPage.js';
+import type { ReaderAnnotationTool } from './annotation/tools.js';
 import {
   buildPageLayout,
   computeVirtualWindow,
@@ -18,6 +19,11 @@ export function PdfViewport({
   pageOffsetRatio,
   rotation,
   zoom,
+  annotations,
+  annotationTool,
+  assetHash,
+  editionId,
+  onCreateAnnotation,
   onPosition,
 }: {
   document: PDFDocumentProxy;
@@ -27,12 +33,20 @@ export function PdfViewport({
   pageOffsetRatio: number;
   rotation: number;
   zoom: number;
+  annotations: Annotation[];
+  annotationTool: ReaderAnnotationTool;
+  assetHash: string;
+  editionId: string | null;
+  onCreateAnnotation: (kind: AnnotationKind, anchor: AnnotationAnchor) => void;
   onPosition: (position: { pageNumber: number; pageOffsetRatio: number }) => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number | null>(null);
   const positionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const navigationPageRef = useRef(0);
+  const navigationPositionRef = useRef<{
+    pageNumber: number;
+    pageOffsetRatio: number;
+  } | null>(null);
   const measurementKey = `${documentId}:${rotation}:${zoom}`;
   const [measurements, setMeasurements] = useState<{
     key: string;
@@ -105,19 +119,27 @@ export function PdfViewport({
   }, []);
 
   useEffect(() => {
-    navigationPageRef.current = 0;
+    navigationPositionRef.current = null;
   }, [documentId, layout, rotation, zoom]);
 
   useEffect(() => {
     const root = rootRef.current;
-    if (!root || layout !== 'continuous' || navigationPageRef.current === pageNumber) return;
+    const navigation = navigationPositionRef.current;
+    if (
+      !root ||
+      layout !== 'continuous' ||
+      (navigation?.pageNumber === pageNumber &&
+        Math.abs(navigation.pageOffsetRatio - pageOffsetRatio) < 0.001)
+    ) {
+      return;
+    }
     const scrollTop = scrollTopForPosition(
       geometry,
       pageNumber,
       pageOffsetRatio,
       Math.max(1, root.clientHeight),
     );
-    navigationPageRef.current = pageNumber;
+    navigationPositionRef.current = { pageNumber, pageOffsetRatio };
     root.scrollTop = scrollTop;
     setViewport({ scrollTop, height: Math.max(1, root.clientHeight) });
   }, [geometry, layout, pageNumber, pageOffsetRatio]);
@@ -143,7 +165,7 @@ export function PdfViewport({
         nextViewport.scrollTop,
         nextViewport.height,
       );
-      navigationPageRef.current = position.pageNumber;
+      navigationPositionRef.current = position;
       if (positionTimerRef.current) clearTimeout(positionTimerRef.current);
       positionTimerRef.current = setTimeout(() => onPosition(position), 120);
     });
@@ -162,6 +184,11 @@ export function PdfViewport({
           pageNumber={pageNumber}
           rotation={rotation}
           zoom={zoom}
+          annotations={annotations.filter((annotation) => annotation.pageNumber === pageNumber)}
+          annotationTool={annotationTool}
+          assetHash={assetHash}
+          editionId={editionId}
+          onCreateAnnotation={onCreateAnnotation}
           onSize={onSize}
         />
       </div>
@@ -190,6 +217,13 @@ export function PdfViewport({
               pageNumber={page.pageNumber}
               rotation={rotation}
               zoom={zoom}
+              annotations={annotations.filter(
+                (annotation) => annotation.pageNumber === page.pageNumber,
+              )}
+              annotationTool={annotationTool}
+              assetHash={assetHash}
+              editionId={editionId}
+              onCreateAnnotation={onCreateAnnotation}
               onSize={onSize}
             />
           </div>

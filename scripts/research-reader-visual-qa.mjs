@@ -23,7 +23,7 @@ function parseArgs(argv) {
       console.log(`Research reader visual QA
 
 Usage:
-  node scripts/research-reader-visual-qa.mjs [--phase b1] [--output PATH] [--keep-data] [--serve]
+  node scripts/research-reader-visual-qa.mjs [--phase b1|b2] [--output PATH] [--keep-data] [--serve]
 
 Environment:
   RESEARCH_READER_BROWSER  Edge/Chrome executable override`);
@@ -32,7 +32,7 @@ Environment:
       throw new Error(`unknown argument: ${value}`);
     }
   }
-  if (!options.phase) throw new Error('--phase must not be empty');
+  if (!['b1', 'b2'].includes(options.phase)) throw new Error('--phase must be b1 or b2');
   return options;
 }
 
@@ -204,9 +204,86 @@ async function seedPdf(apiBase, bytes, fileName, title) {
   }
   return {
     assetId: attachment.assetId,
+    contentHash: attachment.asset.contentHash,
     locationPath: location.resolvedPath,
     workId: committed.workId,
   };
+}
+
+async function seedB2Data(apiBase, asset) {
+  const contexts = [];
+  for (const [name, color] of [
+    ['Visual review A', '#2563eb'],
+    ['Visual review B', '#7c3aed'],
+  ]) {
+    contexts.push(
+      await requestJson(`${apiBase}/api/research/v1/reading-contexts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description: 'B2 visual QA', color }),
+      }),
+    );
+  }
+  const collection = await requestJson(`${apiBase}/api/research/v1/collections`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Visual QA collection' }),
+  });
+  await requestJson(`${apiBase}/api/research/v1/collections/${collection.id}/reading-context`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contextId: contexts[0].id }),
+  });
+  const baseAnchor = {
+    pageNumber: 1,
+    pageSize: { width: 612, height: 792 },
+    textQuote: null,
+    assetHash: asset.contentHash,
+    editionId: null,
+  };
+  const annotations = [
+    {
+      contextId: null,
+      kind: 'highlight',
+      anchor: {
+        ...baseAnchor,
+        rect: null,
+        quads: [{ x1: 72, y1: 725, x2: 260, y2: 725, x3: 72, y3: 705, x4: 260, y4: 705 }],
+      },
+      body: '这是一条用于验证窄屏换行、长正文排版和批注列表滚动的说明。它只属于通用层，不应因为切换命名上下文而消失。',
+      color: '#facc15',
+    },
+    {
+      contextId: contexts[0].id,
+      kind: 'underline',
+      anchor: {
+        ...baseAnchor,
+        rect: null,
+        quads: [{ x1: 72, y1: 700, x2: 280, y2: 700, x3: 72, y3: 680, x4: 280, y4: 680 }],
+      },
+      body: 'context A note',
+      color: '#2563eb',
+    },
+    {
+      contextId: contexts[1].id,
+      kind: 'area',
+      anchor: {
+        ...baseAnchor,
+        rect: { x: 310, y: 610, width: 120, height: 80 },
+        quads: [],
+      },
+      body: 'context B area',
+      color: '#7c3aed',
+    },
+  ];
+  for (const annotation of annotations) {
+    await requestJson(`${apiBase}/api/research/v1/assets/${asset.assetId}/annotations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(annotation),
+    });
+  }
+  return { contexts, collection, annotations };
 }
 
 function findBrowserExecutable() {
@@ -305,6 +382,302 @@ async function connectCdp(webSocketUrl) {
   };
 }
 
+async function evaluateValue(cdp, expression) {
+  const evaluated = await cdp.send('Runtime.evaluate', { expression, returnByValue: true });
+  if (evaluated.exceptionDetails) {
+    throw new Error(
+      evaluated.exceptionDetails.exception?.description ?? 'browser evaluation failed',
+    );
+  }
+  return evaluated.result?.value;
+}
+
+async function waitForExpression(cdp, expression, message, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await evaluateValue(cdp, expression)) === true) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(message);
+}
+
+async function dispatchKey(cdp, key, code, windowsVirtualKeyCode) {
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'rawKeyDown',
+    key,
+    code,
+    windowsVirtualKeyCode,
+  });
+  await cdp.send('Input.dispatchKeyEvent', {
+    type: 'keyUp',
+    key,
+    code,
+    windowsVirtualKeyCode,
+  });
+}
+
+async function drag(cdp, startX, startY, endX, endY) {
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: startX,
+    y: startY,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+  for (let step = 1; step <= 5; step += 1) {
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: startX + ((endX - startX) * step) / 5,
+      y: startY + ((endY - startY) * step) / 5,
+      button: 'left',
+      buttons: 1,
+    });
+  }
+  await cdp.send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: endX,
+    y: endY,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+}
+
+async function visibleTextRect(cdp) {
+  return evaluateValue(
+    cdp,
+    `(() => {
+      const span = Array.from(document.querySelectorAll('.textLayer span')).find((element) => {
+        const bounds = element.getBoundingClientRect();
+        return bounds.width > 20 && bounds.height > 0 && bounds.right > 0 && bounds.bottom > 0 &&
+          bounds.left < innerWidth && bounds.top < innerHeight;
+      });
+      if (!span) return null;
+      const bounds = span.getBoundingClientRect();
+      return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+    })()`,
+  );
+}
+
+async function verifyB2Interactions(cdp, width, height) {
+  await waitForExpression(
+    cdp,
+    `document.querySelectorAll('[data-annotation-id]').length >= 2`,
+    'seeded annotations were not rendered',
+  );
+  await evaluateValue(
+    cdp,
+    `(() => {
+      const label = Array.from(document.querySelectorAll('label')).find((candidate) =>
+        candidate.textContent?.includes('Visual review B'));
+      const checkbox = label?.querySelector('input[type="checkbox"]');
+      if (!checkbox) return false;
+      if (!checkbox.checked) checkbox.click();
+      return true;
+    })()`,
+  );
+  await waitForExpression(
+    cdp,
+    `document.querySelectorAll('[data-annotation-id]').length >= 3`,
+    'second named annotation layer did not become visible',
+  );
+  const initialOverlays = await evaluateValue(
+    cdp,
+    `document.querySelectorAll('[data-annotation-id]').length`,
+  );
+
+  await dispatchKey(cdp, 'h', 'KeyH', 72);
+  await waitForExpression(
+    cdp,
+    `Array.from(document.querySelectorAll('button')).some((node) =>
+      node.textContent?.trim() === '高亮' && node.getAttribute('aria-pressed') === 'true')`,
+    'highlight tool did not activate',
+  );
+  await evaluateValue(cdp, `window.getSelection()?.removeAllRanges()`);
+  const textRect = await visibleTextRect(cdp);
+  if (!textRect) throw new Error('B2 text annotation has no visible text span');
+  const textY = Math.min(height - 1, Math.max(0, textRect.y + textRect.height / 2));
+  await drag(
+    cdp,
+    Math.max(0, textRect.x) + 2,
+    textY,
+    Math.min(width, textRect.x + textRect.width) - 2,
+    textY,
+  );
+  await waitForExpression(
+    cdp,
+    `document.querySelectorAll('[data-annotation-id]').length > ${initialOverlays}`,
+    'text highlight was not created through the browser',
+  );
+  const afterHighlight = await evaluateValue(
+    cdp,
+    `document.querySelectorAll('[data-annotation-id]').length`,
+  );
+
+  await dispatchKey(cdp, 'a', 'KeyA', 65);
+  await waitForExpression(
+    cdp,
+    `Array.from(document.querySelectorAll('button')).some((node) =>
+      node.textContent?.trim() === '区域' && node.getAttribute('aria-pressed') === 'true')`,
+    'area tool did not activate',
+  );
+  const pageBounds = await evaluateValue(
+    cdp,
+    `(() => {
+      const page = document.querySelector('[aria-label="第 1 页"]');
+      if (!page) return null;
+      const bounds = page.getBoundingClientRect();
+      return { left: bounds.left, top: bounds.top, right: bounds.right, bottom: bounds.bottom };
+    })()`,
+  );
+  if (!pageBounds) throw new Error('B2 area annotation page is unavailable');
+  const startX = Math.max(0, pageBounds.left + 300);
+  const startY = Math.max(0, pageBounds.top + 180);
+  await drag(cdp, startX, startY, startX + 90, startY + 70);
+  await waitForExpression(
+    cdp,
+    `document.querySelectorAll('[data-annotation-id]').length > ${afterHighlight}`,
+    'area annotation was not created through the browser',
+  );
+
+  const beforeZoom = await evaluateValue(
+    cdp,
+    `(() => {
+      const node = document.querySelector('[data-annotation-id]');
+      if (!node) return null;
+      const bounds = node.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height };
+    })()`,
+  );
+  await evaluateValue(cdp, `document.querySelector('button[aria-label="放大"]')?.click()`);
+  await waitForExpression(
+    cdp,
+    `(() => {
+      const node = document.querySelector('[data-annotation-id]');
+      return node && node.getBoundingClientRect().width > ${beforeZoom.width * 1.04};
+    })()`,
+    'annotation did not redraw after zoom',
+  );
+
+  const layerBeforeKeyboard = await evaluateValue(
+    cdp,
+    `document.querySelector('[title^="当前写入层"]')?.textContent?.trim() ?? ''`,
+  );
+  await dispatchKey(cdp, ']', 'BracketRight', 221);
+  await waitForExpression(
+    cdp,
+    `document.querySelector('[title^="当前写入层"]')?.textContent?.trim() !== ${JSON.stringify(
+      layerBeforeKeyboard,
+    )}`,
+    'keyboard layer switching did not update the write layer',
+  );
+  await evaluateValue(
+    cdp,
+    `(() => {
+      const label = Array.from(document.querySelectorAll('label')).find((candidate) =>
+        candidate.textContent?.includes('Visual review A'));
+      const radio = label?.querySelector('input[type="radio"]');
+      if (!radio) return false;
+      radio.click();
+      return true;
+    })()`,
+  );
+  await waitForExpression(
+    cdp,
+    `document.body.innerText.includes('写入：Visual review A')`,
+    'named write layer did not activate',
+  );
+  await evaluateValue(
+    cdp,
+    `(() => {
+      const label = Array.from(document.querySelectorAll('label')).find((candidate) =>
+        candidate.textContent?.includes('Visual review B'));
+      const checkbox = label?.querySelector('input[type="checkbox"]');
+      if (!checkbox) return false;
+      checkbox.click();
+      return true;
+    })()`,
+  );
+  await waitForExpression(
+    cdp,
+    `!Array.from(document.querySelectorAll('article')).some((node) =>
+      node.textContent?.includes('context B area'))`,
+    'named context visibility did not change',
+  );
+
+  await evaluateValue(
+    cdp,
+    `Array.from(document.querySelectorAll('[role="tab"]')).find((node) => node.textContent?.trim() === '正文')?.click()`,
+  );
+  await waitForExpression(
+    cdp,
+    `document.querySelector('input[placeholder="搜索 PDF 正文"]') !== null`,
+    'page text search panel did not open',
+  );
+  await waitForExpression(
+    cdp,
+    `document.body.innerText.includes('索引完成')`,
+    'page text index did not complete in the browser flow',
+    20_000,
+  );
+  await evaluateValue(
+    cdp,
+    `(() => {
+      const input = document.querySelector('input[placeholder="搜索 PDF 正文"]');
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'searchable');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`,
+  );
+  await waitForExpression(
+    cdp,
+    `document.querySelector('input[placeholder="搜索 PDF 正文"]')?.value === 'searchable'`,
+    'page text search input did not update',
+  );
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  await evaluateValue(
+    cdp,
+    `document.querySelector('input[placeholder="搜索 PDF 正文"]')?.form?.requestSubmit()`,
+  );
+  await waitForExpression(
+    cdp,
+    `Array.from(document.querySelectorAll('button')).some((node) =>
+      node.textContent?.includes('第 1 页') && node.textContent?.includes('searchable'))`,
+    'page text search result did not render',
+  );
+
+  return {
+    initialOverlays,
+    finalOverlays: await evaluateValue(
+      cdp,
+      `document.querySelectorAll('[data-annotation-id]').length`,
+    ),
+    textHighlightCreated: true,
+    areaCreated: true,
+    zoomRedraw: true,
+    layerKeyboard: true,
+    pageTextSearch: true,
+  };
+}
+
+async function openB2SidePanel(cdp) {
+  const visible = await evaluateValue(cdp, `document.body.innerText.includes('阅读面板')`);
+  if (!visible) {
+    await evaluateValue(
+      cdp,
+      `Array.from(document.querySelectorAll('button')).find((node) =>
+        node.textContent?.trim() === '导航与批注')?.click()`,
+    );
+    await waitForExpression(
+      cdp,
+      `document.body.innerText.includes('阅读面板')`,
+      'reader side panel did not open',
+    );
+  }
+}
+
 async function captureCase({
   browser,
   outputRoot,
@@ -315,6 +688,9 @@ async function captureCase({
   height,
   expected,
   verifySelection = false,
+  verifyB2 = false,
+  openB2Panel = false,
+  verifyEmptyB2 = false,
 }) {
   const screenshotPath = path.join(outputRoot, `${id}-${width}.png`);
   const profilePath = path.join(profileRoot, `${id}-${width}`);
@@ -377,6 +753,7 @@ async function captureCase({
     }
     let selectedText = null;
     let copiedText = null;
+    let b2Checks = null;
     if (verifySelection) {
       const selectionDeadline = Date.now() + 10_000;
       let rect = null;
@@ -464,6 +841,15 @@ async function captureCase({
       copiedText = String(copied.result?.value ?? '');
       if (copiedText !== selectedText) throw new Error(`${id} selected PDF text was not copied`);
     }
+    if (openB2Panel || verifyB2) await openB2SidePanel(cdp);
+    if (verifyEmptyB2) {
+      await waitForExpression(
+        cdp,
+        `document.body.innerText.includes('当前可见图层还没有匹配批注。')`,
+        'empty annotation state did not render',
+      );
+    }
+    if (verifyB2) b2Checks = await verifyB2Interactions(cdp, width, height);
     const captured = await cdp.send('Page.captureScreenshot', {
       format: 'png',
       fromSurface: true,
@@ -476,7 +862,7 @@ async function captureCase({
         `${id} screenshot size ${png.width}x${png.height}, expected ${width}x${height}`,
       );
     }
-    return { id, width, height, screenshotPath, selectedText, copiedText, ...png };
+    return { id, width, height, screenshotPath, selectedText, copiedText, b2Checks, ...png };
   } finally {
     cdp?.close();
     await stopProcess(browserProcess);
@@ -558,19 +944,48 @@ async function main() {
       'reader-encrypted.pdf',
       'Reader Encrypted State',
     );
+    const b2Seed = options.phase === 'b2' ? await seedB2Data(apiBase, normal) : null;
+    const empty =
+      options.phase === 'b2'
+        ? await seedPdf(
+            apiBase,
+            makeTextPdf({ pageCount: 2, textPrefix: 'Research Reader Empty State' }),
+            'reader-empty-state.pdf',
+            'Reader Empty State',
+          )
+        : null;
     const captures = [];
     for (const width of [1440, 1024, 768, 390]) {
+      const readerQuery = b2Seed ? `?collectionId=${encodeURIComponent(b2Seed.collection.id)}` : '';
       captures.push(
         await captureCase({
           browser,
           outputRoot,
           profileRoot,
-          url: `${webBase}/research/read/${encodeURIComponent(normal.assetId)}`,
+          url: `${webBase}/research/read/${encodeURIComponent(normal.assetId)}${readerQuery}`,
           id: 'normal',
           width,
           height: 900,
           expected: { kind: 'selector', value: '[aria-label="第 1 页"]' },
           verifySelection: width === 1440,
+          verifyB2: options.phase === 'b2' && width === 1440,
+          openB2Panel: options.phase === 'b2',
+        }),
+      );
+    }
+    if (empty) {
+      captures.push(
+        await captureCase({
+          browser,
+          outputRoot,
+          profileRoot,
+          url: `${webBase}/research/read/${encodeURIComponent(empty.assetId)}`,
+          id: 'empty',
+          width: 1024,
+          height: 900,
+          expected: { kind: 'selector', value: '[aria-label="第 1 页"]' },
+          openB2Panel: true,
+          verifyEmptyB2: true,
         }),
       );
     }
@@ -617,6 +1032,10 @@ async function main() {
     } finally {
       await rename(missingPath, normal.locationPath);
     }
+    await waitForUrl(
+      `${apiBase}/api/research/v1/assets/${encodeURIComponent(normal.assetId)}/reader`,
+      serverProcess,
+    );
     captures.push(
       await captureCase({
         browser,

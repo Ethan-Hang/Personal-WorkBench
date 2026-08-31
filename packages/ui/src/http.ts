@@ -57,6 +57,6 @@ export async function apiRequest(url: string, init: RequestInit = {}): Promise<u
 }
 
 /** `POST` / `PATCH` / `PUT` 的 JSON body 快捷构造。 */
-export function jsonBody(method: 'POST' | 'PATCH' | 'PUT', body: unknown): RequestInit {
+export function jsonBody(method: 'POST' | 'PATCH' | 'PUT' | 'DELETE', body: unknown): RequestInit {
   return { method, body: JSON.stringify(body) };
 }

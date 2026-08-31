@@ -4,6 +4,7 @@ import type { ResolvedReaderContent } from './content-source.js';
 
 const content: ResolvedReaderContent = {
   assetId: 'asset-1',
+  filePath: '/private/test.pdf',
   contentHash: 'a'.repeat(64),
   byteSize: 100,
   mimeType: 'application/pdf',

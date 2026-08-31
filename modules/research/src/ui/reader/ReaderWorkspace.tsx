@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   GlobalWorkerOptions,
   PasswordResponses,
@@ -7,12 +8,45 @@ import {
 } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { Button, IconAlertCircle } from '@workbench/ui';
-import type { ReaderManifest, ReaderStatePosition } from '../../contract.js';
+import type {
+  Annotation,
+  AnnotationAnchor,
+  AnnotationKind,
+  PageTextSearchResult,
+  ReaderManifest,
+  ReaderStatePosition,
+} from '../../contract.js';
+import {
+  deleteResearchAnnotation,
+  fetchAnnotations,
+  fetchCollectionReadingContext,
+  fetchCollections,
+  fetchPageTextSearch,
+  fetchReadingContexts,
+  fetchTextIndexJob,
+  patchAnnotation,
+  postAnnotation,
+  postReadingContext,
+  postCancelTextIndex,
+  postPauseTextIndex,
+  postRebuildTextIndex,
+  postResumeTextIndex,
+  postStartTextIndex,
+  postRestoreAnnotation,
+  putCollectionReadingContext,
+} from '../api.js';
 import { PasswordPrompt } from './PasswordPrompt.js';
 import { PdfViewport } from './PdfViewport.js';
 import { pdfPageCache } from './page-cache.js';
 import { ReaderSidePanel, type ReaderOutlineItem } from './ReaderSidePanel.js';
+import type { TextIndexControl, TextSearchScope } from './ReaderSearchPanel.js';
 import { ReaderToolbar } from './ReaderToolbar.js';
+import { annotationPageOffsetRatio } from './anchor.js';
+import {
+  annotationToolForKey,
+  cycleReaderLayer,
+  type ReaderAnnotationTool,
+} from './annotation/tools.js';
 import { clampPage, clampZoom, nextRotation } from './reader-controls.js';
 import { useReaderStatePersistence } from './session.js';
 
@@ -57,12 +91,19 @@ function messageForPdfError(error: unknown): string {
 export function ReaderWorkspace({
   active = true,
   manifest,
+  openingCollectionId = null,
+  openingPageNumber = null,
   onBack,
+  onOpenAsset,
 }: {
   active?: boolean;
   manifest: ReaderManifest;
+  openingCollectionId?: string | null;
+  openingPageNumber?: number | null;
   onBack: () => void;
+  onOpenAsset: (assetId: string, pageNumber: number) => void;
 }) {
+  const queryClient = useQueryClient();
   const [document, setDocument] = useState<PDFDocumentProxy | null>(null);
   const [progress, setProgress] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,8 +112,203 @@ export function ReaderWorkspace({
   const [sidePanelOpen, setSidePanelOpen] = useState(
     () => typeof window !== 'undefined' && window.innerWidth >= 1024,
   );
+  const [annotationTool, setAnnotationTool] = useState<ReaderAnnotationTool>('cursor');
+  const [activeContextId, setActiveContextId] = useState<string | null>(
+    manifest.state.lastContextId,
+  );
+  const [visibleContextIds, setVisibleContextIds] = useState<Set<string>>(
+    () => new Set(manifest.state.lastContextId ? [manifest.state.lastContextId] : []),
+  );
+  const [includeGeneral, setIncludeGeneral] = useState(true);
+  const [annotationError, setAnnotationError] = useState<string | null>(null);
+  const [undoAnnotation, setUndoAnnotation] = useState<Annotation | null>(null);
+  const [textSearchQuery, setTextSearchQuery] = useState('');
+  const [textSearchScope, setTextSearchScope] = useState<TextSearchScope>('document');
+  const autoIndexStartedRef = useRef(false);
   const [documentCacheId] = useState(() => `${manifest.assetId}:${++readerWorkspaceSequence}`);
   const readerState = useReaderStatePersistence(manifest.state);
+  const contextsQuery = useQuery({
+    queryKey: ['research', 'reading-contexts', 'active'],
+    queryFn: () => fetchReadingContexts('active'),
+  });
+  const collectionsQuery = useQuery({
+    queryKey: ['research', 'collections'],
+    queryFn: fetchCollections,
+  });
+  const openingContextQuery = useQuery({
+    queryKey: ['research', 'collection-reading-context', openingCollectionId],
+    queryFn: () => fetchCollectionReadingContext(openingCollectionId!),
+    enabled: openingCollectionId !== null,
+  });
+  const contexts = contextsQuery.data?.contexts ?? [];
+  const visibleContextKey = [...visibleContextIds].sort().join(',');
+  const annotationsQuery = useQuery({
+    queryKey: [
+      'research',
+      'reader-annotations',
+      manifest.assetId,
+      visibleContextKey,
+      includeGeneral,
+    ],
+    queryFn: () =>
+      fetchAnnotations(manifest.assetId, {
+        contextIds: [...visibleContextIds].sort(),
+        includeGeneral,
+      }),
+  });
+  const textIndexQuery = useQuery({
+    queryKey: ['research', 'text-index', manifest.assetId],
+    queryFn: () => fetchTextIndexJob(manifest.assetId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'queued' || status === 'running' ? 750 : false;
+    },
+  });
+  const pageSearchQuery = useQuery({
+    queryKey: [
+      'research',
+      'page-text-search',
+      textSearchQuery,
+      textSearchScope === 'document' ? manifest.assetId : null,
+    ],
+    queryFn: () =>
+      fetchPageTextSearch(textSearchQuery, {
+        ...(textSearchScope === 'document' ? { assetId: manifest.assetId } : {}),
+        limit: 50,
+      }),
+    enabled: textSearchQuery.length > 0,
+    refetchInterval:
+      textIndexQuery.data?.status === 'queued' || textIndexQuery.data?.status === 'running'
+        ? 1_000
+        : false,
+  });
+
+  const invalidateAnnotations = () =>
+    queryClient.invalidateQueries({
+      queryKey: ['research', 'reader-annotations', manifest.assetId],
+    });
+  const createAnnotationMutation = useMutation({
+    mutationFn: ({ kind, anchor }: { kind: AnnotationKind; anchor: AnnotationAnchor }) =>
+      postAnnotation(manifest.assetId, {
+        contextId: activeContextId,
+        kind,
+        anchor,
+        body: null,
+        color:
+          kind === 'highlight'
+            ? '#facc15'
+            : kind === 'underline'
+              ? '#2563eb'
+              : kind === 'strikeout'
+                ? '#dc2626'
+                : '#7c3aed',
+      }),
+    onSuccess: () => {
+      setAnnotationError(null);
+      setUndoAnnotation(null);
+      void invalidateAnnotations();
+    },
+    onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '创建批注失败'),
+  });
+  const updateAnnotationMutation = useMutation({
+    mutationFn: ({
+      annotation,
+      changes,
+    }: {
+      annotation: Annotation;
+      changes: { body: string | null; color: string | null };
+    }) =>
+      patchAnnotation(annotation.id, {
+        ...changes,
+        expectedRevision: annotation.revision,
+      }),
+    onSuccess: () => {
+      setAnnotationError(null);
+      void invalidateAnnotations();
+    },
+    onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '保存批注失败'),
+  });
+  const deleteAnnotationMutation = useMutation({
+    mutationFn: (annotation: Annotation) =>
+      deleteResearchAnnotation(annotation.id, annotation.revision),
+    onSuccess: (annotation) => {
+      setAnnotationError(null);
+      setUndoAnnotation(annotation);
+      void invalidateAnnotations();
+    },
+    onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '删除批注失败'),
+  });
+  const restoreAnnotationMutation = useMutation({
+    mutationFn: (annotation: Annotation) =>
+      postRestoreAnnotation(annotation.id, annotation.revision),
+    onSuccess: () => {
+      setAnnotationError(null);
+      setUndoAnnotation(null);
+      void invalidateAnnotations();
+    },
+    onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '恢复批注失败'),
+  });
+  const createContextMutation = useMutation({
+    mutationFn: (name: string) => postReadingContext({ name, description: null, color: null }),
+    onSuccess: (context) => {
+      setActiveContextId(context.id);
+      setVisibleContextIds((current) => new Set(current).add(context.id));
+      setAnnotationError(null);
+      void queryClient.invalidateQueries({ queryKey: ['research', 'reading-contexts'] });
+    },
+    onError: (cause) =>
+      setAnnotationError(cause instanceof Error ? cause.message : '创建上下文失败'),
+  });
+  const bindCollectionMutation = useMutation({
+    mutationFn: ({ collectionId, contextId }: { collectionId: string; contextId: string | null }) =>
+      putCollectionReadingContext(collectionId, contextId),
+    onSuccess: () => setAnnotationError(null),
+    onError: (cause) => setAnnotationError(cause instanceof Error ? cause.message : '绑定目录失败'),
+  });
+  const textIndexMutation = useMutation({
+    mutationFn: (control: TextIndexControl) => {
+      const pageNumber = readerState.position.pageNumber;
+      if (control === 'start') return postStartTextIndex(manifest.assetId, pageNumber);
+      if (control === 'pause') return postPauseTextIndex(manifest.assetId);
+      if (control === 'cancel') return postCancelTextIndex(manifest.assetId);
+      if (control === 'resume') return postResumeTextIndex(manifest.assetId, pageNumber);
+      return postRebuildTextIndex(manifest.assetId, pageNumber);
+    },
+    onSuccess: (job) => {
+      setAnnotationError(null);
+      queryClient.setQueryData(['research', 'text-index', manifest.assetId], job);
+      void queryClient.invalidateQueries({ queryKey: ['research', 'page-text-search'] });
+    },
+    onError: (cause) =>
+      setAnnotationError(cause instanceof Error ? cause.message : '正文索引操作失败'),
+  });
+  const controlTextIndex = textIndexMutation.mutate;
+  const annotationPending =
+    createAnnotationMutation.isPending ||
+    updateAnnotationMutation.isPending ||
+    deleteAnnotationMutation.isPending ||
+    restoreAnnotationMutation.isPending ||
+    createContextMutation.isPending ||
+    bindCollectionMutation.isPending;
+
+  useEffect(() => {
+    const contexts = contextsQuery.data?.contexts;
+    if (!contexts) return;
+    setActiveContextId((current) =>
+      current && !contexts.some((context) => context.id === current) ? null : current,
+    );
+    setVisibleContextIds(
+      (current) =>
+        new Set([...current].filter((id) => contexts.some((context) => context.id === id))),
+    );
+  }, [contextsQuery.data?.contexts]);
+
+  useEffect(() => {
+    const contextId = openingContextQuery.data?.context?.id;
+    if (!contextId) return;
+    setActiveContextId(contextId);
+    setVisibleContextIds((current) => new Set(current).add(contextId));
+  }, [openingContextQuery.data?.context?.id]);
 
   useEffect(() => {
     const desktop = window.matchMedia('(min-width: 1024px)');
@@ -128,6 +364,23 @@ export function ReaderWorkspace({
     };
   }, [documentCacheId, manifest.assetId, manifest.contentUrl]);
 
+  useEffect(() => {
+    if (
+      !active ||
+      !document ||
+      !textIndexQuery.isSuccess ||
+      textIndexQuery.data !== null ||
+      autoIndexStartedRef.current
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      autoIndexStartedRef.current = true;
+      controlTextIndex('start');
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [active, controlTextIndex, document, textIndexQuery.data, textIndexQuery.isSuccess]);
+
   const updatePosition = readerState.updatePosition;
   const update = useCallback(
     (changes: Partial<ReaderStatePosition>) => {
@@ -146,22 +399,86 @@ export function ReaderWorkspace({
     [document?.numPages, update],
   );
   const setZoom = useCallback((zoom: number) => update({ zoom: clampZoom(zoom) }), [update]);
+  const setActiveContext = useCallback(
+    (contextId: string | null) => {
+      setActiveContextId(contextId);
+      if (contextId) setVisibleContextIds((current) => new Set(current).add(contextId));
+      else setIncludeGeneral(true);
+      update({ lastContextId: contextId });
+    },
+    [update],
+  );
+  const locateAnnotation = useCallback(
+    (annotation: Annotation) => {
+      update({
+        pageNumber: annotation.pageNumber,
+        pageOffsetRatio: annotationPageOffsetRatio(
+          annotation.anchor,
+          readerState.position.rotation,
+        ),
+      });
+    },
+    [readerState.position.rotation, update],
+  );
+  const locateTextResult = useCallback(
+    (result: PageTextSearchResult) => {
+      if (result.assetId !== manifest.assetId) {
+        onOpenAsset(result.assetId, result.pageNumber);
+        return;
+      }
+      update({
+        pageNumber: result.pageNumber,
+        pageOffsetRatio:
+          result.position && result.pageSize
+            ? annotationPageOffsetRatio(
+                { pageSize: result.pageSize, rect: result.position, quads: [] },
+                readerState.position.rotation,
+              )
+            : 0.1,
+      });
+    },
+    [manifest.assetId, onOpenAsset, readerState.position.rotation, update],
+  );
+
+  useEffect(() => {
+    if (!active || openingPageNumber === null) return;
+    setPage(openingPageNumber);
+  }, [active, openingPageNumber, setPage]);
+
+  useEffect(() => {
+    if (!active || readerState.position.lastContextId === activeContextId) return;
+    update({ lastContextId: activeContextId });
+  }, [active, activeContextId, readerState.position.lastContextId, update]);
 
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target;
-      if (
+      const editingText =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
+        (target instanceof HTMLElement && target.isContentEditable);
+      if (
+        (editingText && event.key !== 'Escape') ||
         event.metaKey ||
         event.ctrlKey ||
         event.altKey
       ) {
         return;
       }
-      if (event.key === 'PageUp') setPage(readerState.position.pageNumber - 1);
+      if (event.key === 'Escape') {
+        setAnnotationTool('cursor');
+        setSidePanelOpen(false);
+      } else if (event.key === '[' || event.key === ']') {
+        setActiveContext(
+          cycleReaderLayer(
+            activeContextId,
+            contexts.map((context) => context.id),
+            event.key === ']' ? 1 : -1,
+          ),
+        );
+      } else if (event.key === 'PageUp') setPage(readerState.position.pageNumber - 1);
       else if (event.key === 'PageDown') setPage(readerState.position.pageNumber + 1);
       else if (event.key === 'Home') setPage(1);
       else if (event.key === 'End') setPage(document?.numPages ?? 1);
@@ -170,19 +487,36 @@ export function ReaderWorkspace({
       else if (event.key.toLowerCase() === 'r') {
         update({ rotation: nextRotation(readerState.position.rotation) });
       } else {
-        return;
+        const tool = annotationToolForKey(event.key);
+        if (tool) setAnnotationTool(tool);
+        else return;
       }
       event.preventDefault();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [active, document?.numPages, readerState.position, setPage, setZoom, update]);
+  }, [
+    active,
+    activeContextId,
+    contexts,
+    document?.numPages,
+    readerState.position,
+    setActiveContext,
+    setPage,
+    setZoom,
+    update,
+  ]);
   const saveLabel = useMemo(() => {
     if (readerState.status === 'saving') return '保存中';
     if (readerState.status === 'saved') return `已保存 · v${readerState.revision}`;
     if (readerState.status === 'error') return '保存失败';
     return readerState.revision > 0 ? `已保存 · v${readerState.revision}` : '尚未保存';
   }, [readerState.revision, readerState.status]);
+  const annotations = annotationsQuery.data ?? [];
+  const activeLayerName =
+    activeContextId === null
+      ? '通用批注'
+      : (contexts.find((context) => context.id === activeContextId)?.name ?? '上下文不可用');
 
   return (
     <section className="relative flex h-full min-h-[calc(100vh-9rem)] flex-col overflow-hidden bg-surface">
@@ -210,6 +544,9 @@ export function ReaderWorkspace({
       </header>
 
       <ReaderToolbar
+        activeLayerName={activeLayerName}
+        annotationPending={annotationPending}
+        annotationTool={annotationTool}
         layout={readerState.position.layout}
         pageNumber={readerState.position.pageNumber}
         pageCount={document?.numPages ?? 0}
@@ -220,6 +557,7 @@ export function ReaderWorkspace({
         onPage={setPage}
         onRotate={() => update({ rotation: nextRotation(readerState.position.rotation) })}
         onSidePanel={() => setSidePanelOpen((value) => !value)}
+        onAnnotationTool={setAnnotationTool}
         onZoom={setZoom}
       />
 
@@ -233,6 +571,11 @@ export function ReaderWorkspace({
             pageOffsetRatio={readerState.position.pageOffsetRatio}
             rotation={readerState.position.rotation}
             zoom={readerState.position.zoom}
+            annotations={annotations}
+            annotationTool={annotationTool}
+            assetHash={manifest.contentHash}
+            editionId={manifest.editionId}
+            onCreateAnnotation={(kind, anchor) => createAnnotationMutation.mutate({ kind, anchor })}
             onPosition={(position) => update(position)}
           />
         ) : document ? (
@@ -265,10 +608,67 @@ export function ReaderWorkspace({
 
         {document && sidePanelOpen && (
           <div className="absolute inset-y-0 right-0 z-20 shadow-xl lg:static lg:shadow-none">
-            <ReaderSidePanel outline={outline} pageCount={document.numPages} onPage={setPage} />
+            <ReaderSidePanel
+              outline={outline}
+              pageCount={document.numPages}
+              contexts={contexts}
+              annotations={annotations}
+              activeContextId={activeContextId}
+              visibleContextIds={visibleContextIds}
+              includeGeneral={includeGeneral}
+              collections={(collectionsQuery.data?.collections ?? []).map((collection) => ({
+                id: collection.id,
+                name: collection.name,
+              }))}
+              busy={annotationPending}
+              textIndexJob={textIndexQuery.data ?? null}
+              textSearchQuery={textSearchQuery}
+              textSearchScope={textSearchScope}
+              textSearchResults={pageSearchQuery.data ?? []}
+              textIndexBusy={textIndexMutation.isPending}
+              textSearching={pageSearchQuery.isFetching}
+              textSearchError={
+                pageSearchQuery.error instanceof Error ? pageSearchQuery.error.message : null
+              }
+              undoLabel={undoAnnotation ? '恢复刚删除的批注' : null}
+              onPage={setPage}
+              onLocateAnnotation={locateAnnotation}
+              onActiveContext={setActiveContext}
+              onToggleContext={(contextId) => {
+                if (contextId === activeContextId) return;
+                setVisibleContextIds((current) => {
+                  const next = new Set(current);
+                  if (next.has(contextId)) next.delete(contextId);
+                  else next.add(contextId);
+                  return next;
+                });
+              }}
+              onToggleGeneral={() =>
+                activeContextId !== null && setIncludeGeneral((value) => !value)
+              }
+              onCreateContext={(name) => createContextMutation.mutate(name)}
+              onBindCollection={(collectionId, contextId) =>
+                bindCollectionMutation.mutate({ collectionId, contextId })
+              }
+              onUpdateAnnotation={(annotation, changes) =>
+                updateAnnotationMutation.mutate({ annotation, changes })
+              }
+              onDeleteAnnotation={(annotation) => deleteAnnotationMutation.mutate(annotation)}
+              onUndo={() => undoAnnotation && restoreAnnotationMutation.mutate(undoAnnotation)}
+              onTextSearch={setTextSearchQuery}
+              onTextSearchScope={setTextSearchScope}
+              onTextIndexControl={controlTextIndex}
+              onLocateTextResult={locateTextResult}
+            />
           </div>
         )}
       </div>
+
+      {annotationError && (
+        <div className="absolute bottom-4 left-1/2 z-30 -translate-x-1/2 border border-critical/30 bg-surface px-3 py-2 text-xs text-critical shadow-lg">
+          {annotationError}
+        </div>
+      )}
 
       {passwordRequest && (
         <PasswordPrompt

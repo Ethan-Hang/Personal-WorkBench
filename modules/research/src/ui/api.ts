@@ -2,6 +2,8 @@ import type { z } from 'zod';
 import { apiRequest, jsonBody } from '@workbench/ui';
 import {
   RESEARCH_API_V1,
+  annotationRevisionSchema,
+  annotationSchema,
   bulkWorkPreviewSchema,
   bulkWorkResultSchema,
   attachmentDeletionPreviewSchema,
@@ -19,13 +21,18 @@ import {
   pickPdfResponseSchema,
   portableExportJobSchema,
   portableExportPreviewSchema,
+  pageTextSearchResponseSchema,
   relinkLocationResponseSchema,
   readerManifestSchema,
   readerStateSchema,
+  readingContextCatalogSchema,
+  readingContextSchema,
+  collectionReadingContextSchema,
   searchIndexRebuildResponseSchema,
   tagCandidatesResponseSchema,
   tagDeletionPreviewSchema,
   tagViewSchema,
+  textIndexJobSchema,
   tagsResponseSchema,
   workDetailViewSchema,
   workMergePreviewSchema,
@@ -33,6 +40,8 @@ import {
   type AddLocalAttachmentInput,
   type BulkWorkActionInput,
   type ConfirmImportInput,
+  type CreateAnnotationInput,
+  type CreateReadingContextInput,
   type CreateManualWorkInput,
   type CreateSavedQueryInput,
   type CreateTagInput,
@@ -47,13 +56,21 @@ import {
   type PortableExportJob,
   type PortableExportPreview,
   type PortableExportPreviewInput,
+  type PageTextSearchResult,
   type StartPortableExportInput,
   type StructuredSearchInput,
+  type TextIndexJob,
   type RelinkLocationResponse,
   type ReaderManifest,
   type ReaderState,
+  type Annotation,
+  type AnnotationRevision,
+  type CollectionReadingContext,
+  type ReadingContext,
+  type ReadingContextCatalog,
   type SaveReaderStateInput,
   type SystemView,
+  type UpdateAnnotationInput,
   type UpdateCollectionInput,
   type UpdateTagInput,
   type UpdateWorkMetadataInput,
@@ -96,6 +113,161 @@ export async function putReaderState(
   return readerStateSchema.parse(
     await apiRequest(RESEARCH_API_V1.readerState(assetId), jsonBody('PUT', input)),
   );
+}
+
+export async function fetchTextIndexJob(assetId: string): Promise<TextIndexJob | null> {
+  const response = (await apiRequest(RESEARCH_API_V1.assetTextIndex(assetId))) as { job: unknown };
+  return textIndexJobSchema.nullable().parse(response.job);
+}
+
+async function postTextIndexAction(
+  url: string,
+  priorityPage?: number | null,
+): Promise<TextIndexJob> {
+  return textIndexJobSchema.parse(
+    await apiRequest(
+      url,
+      priorityPage === undefined ? { method: 'POST' } : jsonBody('POST', { priorityPage }),
+    ),
+  );
+}
+
+export async function postStartTextIndex(
+  assetId: string,
+  priorityPage: number,
+): Promise<TextIndexJob> {
+  return postTextIndexAction(RESEARCH_API_V1.assetTextIndexStart(assetId), priorityPage);
+}
+
+export async function postPauseTextIndex(assetId: string): Promise<TextIndexJob> {
+  return postTextIndexAction(RESEARCH_API_V1.assetTextIndexPause(assetId));
+}
+
+export async function postCancelTextIndex(assetId: string): Promise<TextIndexJob> {
+  return postTextIndexAction(RESEARCH_API_V1.assetTextIndexCancel(assetId));
+}
+
+export async function postResumeTextIndex(
+  assetId: string,
+  priorityPage: number,
+): Promise<TextIndexJob> {
+  return postTextIndexAction(RESEARCH_API_V1.assetTextIndexResume(assetId), priorityPage);
+}
+
+export async function postRebuildTextIndex(
+  assetId: string,
+  priorityPage: number,
+): Promise<TextIndexJob> {
+  return postTextIndexAction(RESEARCH_API_V1.assetTextIndexRebuild(assetId), priorityPage);
+}
+
+export async function fetchPageTextSearch(
+  query: string,
+  options: { assetId?: string; limit?: number } = {},
+): Promise<PageTextSearchResult[]> {
+  const params = new URLSearchParams({ query });
+  if (options.assetId) params.set('assetId', options.assetId);
+  if (options.limit) params.set('limit', String(options.limit));
+  return pageTextSearchResponseSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.pageTextSearch}?${params.toString()}`),
+  ).results;
+}
+
+export async function fetchReadingContexts(
+  status: 'active' | 'archived' | 'all' = 'active',
+): Promise<ReadingContextCatalog> {
+  const params = new URLSearchParams({ status });
+  return readingContextCatalogSchema.parse(
+    await apiRequest(`${RESEARCH_API_V1.readingContexts}?${params.toString()}`),
+  );
+}
+
+export async function postReadingContext(
+  input: CreateReadingContextInput,
+): Promise<ReadingContext> {
+  return readingContextSchema.parse(
+    await apiRequest(RESEARCH_API_V1.readingContexts, jsonBody('POST', input)),
+  );
+}
+
+export async function fetchCollectionReadingContext(
+  collectionId: string,
+): Promise<CollectionReadingContext> {
+  return collectionReadingContextSchema.parse(
+    await apiRequest(RESEARCH_API_V1.collectionReadingContext(collectionId)),
+  );
+}
+
+export async function putCollectionReadingContext(
+  collectionId: string,
+  contextId: string | null,
+): Promise<CollectionReadingContext> {
+  return collectionReadingContextSchema.parse(
+    await apiRequest(
+      RESEARCH_API_V1.collectionReadingContext(collectionId),
+      jsonBody('PUT', { contextId }),
+    ),
+  );
+}
+
+export async function fetchAnnotations(
+  assetId: string,
+  options: {
+    contextIds: string[];
+    includeGeneral: boolean;
+    includeDeleted?: boolean;
+  },
+): Promise<Annotation[]> {
+  const params = new URLSearchParams({
+    includeGeneral: String(options.includeGeneral),
+    includeDeleted: String(options.includeDeleted ?? false),
+  });
+  if (options.contextIds.length > 0) params.set('contextIds', options.contextIds.join(','));
+  return annotationSchema
+    .array()
+    .parse(await apiRequest(`${RESEARCH_API_V1.assetAnnotations(assetId)}?${params.toString()}`));
+}
+
+export async function postAnnotation(
+  assetId: string,
+  input: CreateAnnotationInput,
+): Promise<Annotation> {
+  return annotationSchema.parse(
+    await apiRequest(RESEARCH_API_V1.assetAnnotations(assetId), jsonBody('POST', input)),
+  );
+}
+
+export async function patchAnnotation(
+  id: string,
+  input: UpdateAnnotationInput,
+): Promise<Annotation> {
+  return annotationSchema.parse(
+    await apiRequest(RESEARCH_API_V1.annotation(id), jsonBody('PATCH', input)),
+  );
+}
+
+export async function deleteResearchAnnotation(
+  id: string,
+  expectedRevision: number,
+): Promise<Annotation> {
+  return annotationSchema.parse(
+    await apiRequest(RESEARCH_API_V1.annotation(id), jsonBody('DELETE', { expectedRevision })),
+  );
+}
+
+export async function postRestoreAnnotation(
+  id: string,
+  expectedRevision: number,
+): Promise<Annotation> {
+  return annotationSchema.parse(
+    await apiRequest(RESEARCH_API_V1.annotationRestore(id), jsonBody('POST', { expectedRevision })),
+  );
+}
+
+export async function fetchAnnotationRevisions(id: string): Promise<AnnotationRevision[]> {
+  return annotationRevisionSchema
+    .array()
+    .parse(await apiRequest(RESEARCH_API_V1.annotationRevisions(id)));
 }
 
 export async function postPortableExportPreview(

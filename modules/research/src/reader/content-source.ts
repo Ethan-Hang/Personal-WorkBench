@@ -11,6 +11,8 @@ export interface ReaderContentRange {
 
 export interface ResolvedReaderContent {
   assetId: string;
+  /** 只供同一服务进程中的隔离 worker 使用，绝不进入 API 响应。 */
+  filePath: string;
   contentHash: string;
   byteSize: number;
   mimeType: 'application/pdf';
@@ -86,6 +88,7 @@ export class ReaderContentSource {
         const attachment = asset.attachments[0] ?? null;
         return {
           assetId: asset.id,
+          filePath,
           contentHash: asset.contentHash,
           byteSize: asset.byteSize,
           mimeType: 'application/pdf',

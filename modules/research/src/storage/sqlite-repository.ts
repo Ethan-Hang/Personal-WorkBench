@@ -58,6 +58,22 @@ import type {
   WorkRecord,
 } from '../server/repository.js';
 import type {
+  AnnotationRepository,
+  AnnotationListQuery,
+  AnnotationDraft,
+  AnnotationChanges,
+  AnnotationRevisionDraft,
+  ChangeAnnotationResult,
+  CollectionContextRecord,
+  CollectionContextWriteResult,
+  CreateAnnotationResult,
+  ReadingContextArchiveResult,
+  ReadingContextChanges,
+  ReadingContextDraft,
+  ReadingContextWriteResult,
+  RestoreAnnotationDraft,
+} from '../annotation/repository.js';
+import type {
   AssetState,
   AttachmentRole,
   AttachmentStatus,
@@ -67,12 +83,27 @@ import type {
   IdentifierScheme,
   LocationState,
   MetadataSourceKind,
+  PageTextPosition,
+  PageTextSearchQuery,
+  PageTextSearchResult,
   ReaderLayout,
   ReaderRotation,
   StorageMode,
   WorkStatus,
   WorkType,
   WorkRelationKind,
+} from '../contract.js';
+import {
+  annotationAnchorSchema,
+  annotationRevisionSchema,
+  annotationSchema,
+  readingContextSchema,
+  type Annotation,
+  type AnnotationRevision,
+  type ReadingContext,
+  type ReadingContextArchiveStrategy,
+  type ReadingContextDeletionPreview,
+  type ReadingContextStatus,
 } from '../contract.js';
 import type {
   ReaderAssetRecord,
@@ -81,6 +112,13 @@ import type {
   SaveReaderStateDraft,
   SaveReaderStateResult,
 } from '../reader/repository.js';
+import type {
+  PageTextDraft,
+  TextIndexJobDraft,
+  TextIndexJobRecord,
+  TextIndexRepository,
+  TextIndexStats,
+} from '../reader/text-index-repository.js';
 import {
   canonicalResearchLibrarySchema,
   type CanonicalResearchLibrary,
@@ -121,6 +159,73 @@ function toReaderState(row: Row): ReaderStateRecord {
     createdAt: text(row, 'created_at'),
     updatedAt: text(row, 'updated_at'),
   };
+}
+
+function toTextIndexJob(row: Row): TextIndexJobRecord {
+  return {
+    assetId: text(row, 'asset_id'),
+    status: text(row, 'status') as TextIndexJobRecord['status'],
+    nextPage: integer(row, 'next_page'),
+    totalPages: integer(row, 'total_pages'),
+    assetHash: text(row, 'asset_hash'),
+    parserVersion: text(row, 'parser_version'),
+    errorCode: nullableText(row, 'error_code'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    completedAt: nullableText(row, 'completed_at'),
+  };
+}
+
+function toReadingContext(row: Row): ReadingContext {
+  return readingContextSchema.parse({
+    id: text(row, 'id'),
+    name: text(row, 'name'),
+    description: nullableText(row, 'description'),
+    color: nullableText(row, 'color'),
+    status: text(row, 'status'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    archivedAt: nullableText(row, 'archived_at'),
+  });
+}
+
+function toAnnotation(row: Row): Annotation {
+  const anchor = annotationAnchorSchema.parse(JSON.parse(text(row, 'anchor_json')));
+  return annotationSchema.parse({
+    id: text(row, 'id'),
+    assetId: text(row, 'asset_id'),
+    editionId: nullableText(row, 'edition_id'),
+    contextId: nullableText(row, 'context_id'),
+    kind: text(row, 'kind'),
+    pageNumber: integer(row, 'page_number'),
+    anchor,
+    body: nullableText(row, 'body'),
+    color: nullableText(row, 'color'),
+    status: text(row, 'status'),
+    revision: integer(row, 'revision'),
+    createdAt: text(row, 'created_at'),
+    updatedAt: text(row, 'updated_at'),
+    deletedAt: nullableText(row, 'deleted_at'),
+  });
+}
+
+function toAnnotationRevision(row: Row): AnnotationRevision {
+  return annotationRevisionSchema.parse({
+    id: text(row, 'id'),
+    annotationId: text(row, 'annotation_id'),
+    revision: integer(row, 'revision'),
+    snapshot: JSON.parse(text(row, 'snapshot_json')),
+    reason: text(row, 'reason'),
+    createdAt: text(row, 'created_at'),
+  });
+}
+
+function isUniqueConstraint(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    String((error as Error & { code?: unknown }).code).startsWith('SQLITE_CONSTRAINT_UNIQUE')
+  );
 }
 
 function toExportJob(row: Row): ExportJobRecord {
@@ -460,6 +565,57 @@ function ftsPrefixQuery(value: string): string {
     .join(' AND ');
 }
 
+function pageTextMatch(
+  row: Row,
+  query: string,
+): Pick<PageTextSearchResult, 'snippet' | 'matchStart' | 'matchEnd' | 'pageSize' | 'position'> {
+  const content = text(row, 'text_content');
+  const normalizedContent = content.toLocaleLowerCase();
+  const normalizedQuery = normalizeSearchText(query);
+  const tokens = normalizedQuery.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  let matchStart = normalizedContent.indexOf(normalizedQuery);
+  let matchLength = normalizedQuery.length;
+  if (matchStart < 0) {
+    const token = tokens.find((candidate) => normalizedContent.includes(candidate));
+    matchStart = token ? normalizedContent.indexOf(token) : 0;
+    matchLength = token?.length ?? 0;
+  }
+  const matchEnd = Math.max(matchStart, matchStart + matchLength);
+  const snippetStart = Math.max(0, matchStart - 90);
+  const snippetEnd = Math.min(content.length, Math.max(matchEnd + 90, snippetStart + 180));
+  const rawPositions = nullableText(row, 'position_json');
+  let positions: PageTextPosition[] = [];
+  let pageSize: PageTextSearchResult['pageSize'] = null;
+  if (rawPositions) {
+    try {
+      const parsed = JSON.parse(rawPositions) as
+        | PageTextPosition[]
+        | { pageSize?: PageTextSearchResult['pageSize']; positions?: PageTextPosition[] };
+      if (Array.isArray(parsed)) positions = parsed;
+      else {
+        positions = parsed.positions ?? [];
+        pageSize = parsed.pageSize ?? null;
+      }
+    } catch {
+      positions = [];
+    }
+  }
+  const located = positions.find(
+    (position) => position.end > matchStart && position.start < Math.max(matchEnd, matchStart + 1),
+  );
+  return {
+    snippet: `${snippetStart > 0 ? '…' : ''}${content.slice(snippetStart, snippetEnd)}${
+      snippetEnd < content.length ? '…' : ''
+    }`,
+    matchStart,
+    matchEnd,
+    pageSize,
+    position: located
+      ? { x: located.x, y: located.y, width: located.width, height: located.height }
+      : null,
+  };
+}
+
 function trigrams(value: string): Set<string> {
   const padded = `  ${value}  `;
   const result = new Set<string>();
@@ -535,7 +691,9 @@ function decodeAdvancedCursor(cursor: string): { version: 1; sort: string; id: s
 }
 
 /** SQLite 只存在于 storage 适配器内，连接在组合根按当前账号动态注入。 */
-export class SqliteResearchRepository implements ResearchRepository, ReaderRepository {
+export class SqliteResearchRepository
+  implements ResearchRepository, ReaderRepository, AnnotationRepository, TextIndexRepository
+{
   constructor(
     private readonly getSqlite: () => Database.Database,
     private readonly clock: () => string = defaultClock,
@@ -543,6 +701,68 @@ export class SqliteResearchRepository implements ResearchRepository, ReaderRepos
 
   private get sqlite(): Database.Database {
     return this.getSqlite();
+  }
+
+  private insertAnnotationRevision(
+    annotation: Annotation,
+    revisionId: string,
+    reason: AnnotationRevision['reason'],
+    timestamp: string,
+  ): void {
+    this.sqlite
+      .prepare(
+        `INSERT INTO research_annotation_revisions
+         (id, annotation_id, revision, snapshot_json, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        revisionId,
+        annotation.id,
+        annotation.revision,
+        JSON.stringify(annotation),
+        reason,
+        timestamp,
+      );
+  }
+
+  private async changeAnnotationStatus(
+    id: string,
+    draft: AnnotationRevisionDraft,
+    status: Annotation['status'],
+    reason: 'delete' | 'restore',
+  ): Promise<ChangeAnnotationResult> {
+    return this.sqlite.transaction((): ChangeAnnotationResult => {
+      const currentRow = this.sqlite
+        .prepare('SELECT * FROM research_annotations WHERE id = ?')
+        .get(id) as Row | undefined;
+      if (!currentRow) return { kind: 'not-found' };
+      const current = toAnnotation(currentRow);
+      const wrongState =
+        reason === 'delete' ? current.status === 'deleted' : current.status !== 'deleted';
+      if (current.revision !== draft.expectedRevision || wrongState) {
+        return { kind: 'conflict', current };
+      }
+      const timestamp = this.clock();
+      this.insertAnnotationRevision(current, draft.revisionId, reason, timestamp);
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_annotations
+           SET status = ?, revision = revision + 1, updated_at = ?, deleted_at = ?
+           WHERE id = ? AND revision = ? RETURNING *`,
+        )
+        .get(
+          status,
+          timestamp,
+          status === 'deleted' ? timestamp : null,
+          id,
+          draft.expectedRevision,
+        ) as Row | undefined;
+      if (row) return { kind: 'saved', annotation: toAnnotation(row) };
+      const raced = this.sqlite
+        .prepare('SELECT * FROM research_annotations WHERE id = ?')
+        .get(id) as Row | undefined;
+      return raced ? { kind: 'conflict', current: toAnnotation(raced) } : { kind: 'not-found' };
+    })();
   }
 
   private readTagSummary(id: string): TagSummaryRecord | null {
@@ -852,6 +1072,597 @@ export class SqliteResearchRepository implements ResearchRepository, ReaderRepos
         ? { kind: 'conflict', current: toReaderState(raced) }
         : { kind: 'asset-not-found' };
     })();
+  }
+
+  async getTextIndexJob(assetId: string): Promise<TextIndexJobRecord | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_text_index_jobs WHERE asset_id = ?')
+      .get(assetId) as Row | undefined;
+    return row ? toTextIndexJob(row) : null;
+  }
+
+  async resetTextIndexJob(draft: TextIndexJobDraft): Promise<TextIndexJobRecord> {
+    return this.sqlite.transaction(() => {
+      const timestamp = this.clock();
+      this.sqlite.prepare('DELETE FROM research_page_text WHERE asset_id = ?').run(draft.assetId);
+      const row = this.sqlite
+        .prepare(
+          `INSERT INTO research_text_index_jobs
+           (asset_id, status, next_page, total_pages, asset_hash, parser_version,
+            error_code, created_at, updated_at, completed_at)
+           VALUES (?, 'queued', 1, 0, ?, ?, NULL, ?, ?, NULL)
+           ON CONFLICT(asset_id) DO UPDATE SET
+             status = 'queued', next_page = 1, total_pages = 0,
+             asset_hash = excluded.asset_hash, parser_version = excluded.parser_version,
+             error_code = NULL, created_at = excluded.created_at,
+             updated_at = excluded.updated_at, completed_at = NULL
+           RETURNING *`,
+        )
+        .get(draft.assetId, draft.assetHash, draft.parserVersion, timestamp, timestamp) as Row;
+      return toTextIndexJob(row);
+    })();
+  }
+
+  async queueTextIndexJob(assetId: string): Promise<TextIndexJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_text_index_jobs
+         SET status = 'queued', error_code = NULL, updated_at = ?, completed_at = NULL
+         WHERE asset_id = ? RETURNING *`,
+      )
+      .get(this.clock(), assetId) as Row | undefined;
+    return row ? toTextIndexJob(row) : null;
+  }
+
+  async setTextIndexJobStatus(
+    assetId: string,
+    status: TextIndexJobRecord['status'],
+    errorCode: string | null = null,
+  ): Promise<TextIndexJobRecord | null> {
+    const timestamp = this.clock();
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_text_index_jobs
+         SET status = ?, error_code = ?, updated_at = ?,
+             completed_at = CASE WHEN ? = 'completed' THEN ? ELSE NULL END
+         WHERE asset_id = ? RETURNING *`,
+      )
+      .get(status, errorCode, timestamp, status, timestamp, assetId) as Row | undefined;
+    return row ? toTextIndexJob(row) : null;
+  }
+
+  async setTextIndexTotalPages(
+    assetId: string,
+    totalPages: number,
+  ): Promise<TextIndexJobRecord | null> {
+    const row = this.sqlite
+      .prepare(
+        `UPDATE research_text_index_jobs
+         SET total_pages = ?, updated_at = ?
+         WHERE asset_id = ? AND status = 'running' RETURNING *`,
+      )
+      .get(totalPages, this.clock(), assetId) as Row | undefined;
+    return row ? toTextIndexJob(row) : null;
+  }
+
+  async commitPageText(draft: PageTextDraft): Promise<TextIndexJobRecord | null> {
+    return this.sqlite.transaction(() => {
+      const currentRow = this.sqlite
+        .prepare('SELECT * FROM research_text_index_jobs WHERE asset_id = ?')
+        .get(draft.assetId) as Row | undefined;
+      if (!currentRow || text(currentRow, 'status') !== 'running') {
+        return currentRow ? toTextIndexJob(currentRow) : null;
+      }
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_page_text
+           (asset_id, page_number, source, content_hash, text_content, position_json,
+            generator, generator_version, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(asset_id, page_number) DO UPDATE SET
+             source = excluded.source, content_hash = excluded.content_hash,
+             text_content = excluded.text_content, position_json = excluded.position_json,
+             generator = excluded.generator, generator_version = excluded.generator_version,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          draft.assetId,
+          draft.pageNumber,
+          draft.source,
+          draft.contentHash,
+          draft.textContent,
+          JSON.stringify({ pageSize: draft.pageSize, positions: draft.positions }),
+          draft.generator,
+          draft.generatorVersion,
+          timestamp,
+          timestamp,
+        );
+      let nextPage = integer(currentRow, 'next_page');
+      const indexed = this.sqlite
+        .prepare(
+          `SELECT page_number FROM research_page_text
+           WHERE asset_id = ? AND page_number >= ? AND content_hash = ?
+             AND generator = ? AND generator_version = ?
+           ORDER BY page_number`,
+        )
+        .all(
+          draft.assetId,
+          nextPage,
+          draft.contentHash,
+          draft.generator,
+          draft.generatorVersion,
+        ) as Array<{ page_number: number }>;
+      for (const page of indexed) {
+        if (page.page_number < nextPage) continue;
+        if (page.page_number !== nextPage) break;
+        nextPage += 1;
+      }
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_text_index_jobs
+           SET next_page = ?, total_pages = ?, updated_at = ?
+           WHERE asset_id = ? AND status = 'running' RETURNING *`,
+        )
+        .get(nextPage, draft.totalPages, timestamp, draft.assetId) as Row | undefined;
+      return row ? toTextIndexJob(row) : null;
+    })();
+  }
+
+  async getTextIndexStats(assetId: string): Promise<TextIndexStats> {
+    const row = this.sqlite
+      .prepare(
+        `SELECT COUNT(*) AS indexed_pages,
+                COALESCE(SUM(length(text_content)), 0) AS text_characters,
+                COALESCE(SUM(CASE WHEN trim(text_content) <> '' THEN 1 ELSE 0 END), 0)
+                  AS non_empty_pages
+         FROM research_page_text WHERE asset_id = ?`,
+      )
+      .get(assetId) as Row;
+    return {
+      indexedPages: integer(row, 'indexed_pages'),
+      textCharacters: integer(row, 'text_characters'),
+      nonEmptyPages: integer(row, 'non_empty_pages'),
+    };
+  }
+
+  async clearPageText(assetId: string): Promise<void> {
+    this.sqlite.prepare('DELETE FROM research_page_text WHERE asset_id = ?').run(assetId);
+  }
+
+  async markRunningTextIndexJobsInterrupted(): Promise<string[]> {
+    return this.sqlite.transaction(() => {
+      const rows = this.sqlite
+        .prepare(
+          "SELECT asset_id FROM research_text_index_jobs WHERE status IN ('queued', 'running', 'interrupted') ORDER BY created_at, asset_id",
+        )
+        .all() as Array<{ asset_id: string }>;
+      if (rows.length > 0) {
+        this.sqlite
+          .prepare(
+            `UPDATE research_text_index_jobs
+             SET status = 'interrupted', error_code = 'PROCESS_RESTARTED', updated_at = ?
+             WHERE status = 'running'`,
+          )
+          .run(this.clock());
+      }
+      return rows.map((row) => row.asset_id);
+    })();
+  }
+
+  async searchPageText(query: PageTextSearchQuery): Promise<PageTextSearchResult[]> {
+    const match = ftsPrefixQuery(normalizeSearchText(query.query));
+    if (!match) return [];
+    const rows = this.sqlite
+      .prepare(
+        `SELECT pt.*,
+                COALESCE((
+                  SELECT attachment.display_name FROM research_attachments attachment
+                  WHERE attachment.asset_id = pt.asset_id AND attachment.status = 'active'
+                  ORDER BY CASE attachment.role WHEN 'primary-pdf' THEN 0 ELSE 1 END,
+                           attachment.created_at, attachment.id LIMIT 1
+                ), 'document.pdf') AS display_name,
+                bm25(research_page_text_fts) AS rank
+         FROM research_page_text_fts
+         JOIN research_page_text pt ON pt.rowid = research_page_text_fts.rowid
+         JOIN research_assets asset ON asset.id = pt.asset_id AND asset.state = 'active'
+         WHERE research_page_text_fts MATCH ?
+           AND (? IS NULL OR pt.asset_id = ?)
+         ORDER BY rank, pt.asset_id, pt.page_number
+         LIMIT ?`,
+      )
+      .all(match, query.assetId ?? null, query.assetId ?? null, query.limit) as Row[];
+    return rows.map((row) => ({
+      assetId: text(row, 'asset_id'),
+      displayName: text(row, 'display_name'),
+      pageNumber: integer(row, 'page_number'),
+      source: text(row, 'source') as PageTextSearchResult['source'],
+      ...pageTextMatch(row, query.query),
+    }));
+  }
+
+  async listReadingContexts(status: ReadingContextStatus | 'all'): Promise<ReadingContext[]> {
+    const rows =
+      status === 'all'
+        ? this.sqlite
+            .prepare(
+              `SELECT * FROM research_reading_contexts
+               ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END, updated_at DESC, id`,
+            )
+            .all()
+        : this.sqlite
+            .prepare(
+              `SELECT * FROM research_reading_contexts
+               WHERE status = ? ORDER BY updated_at DESC, id`,
+            )
+            .all(status);
+    return (rows as Row[]).map(toReadingContext);
+  }
+
+  async getReadingContext(id: string): Promise<ReadingContext | null> {
+    const row = this.sqlite
+      .prepare('SELECT * FROM research_reading_contexts WHERE id = ?')
+      .get(id) as Row | undefined;
+    return row ? toReadingContext(row) : null;
+  }
+
+  async createReadingContext(draft: ReadingContextDraft): Promise<ReadingContextWriteResult> {
+    try {
+      const timestamp = this.clock();
+      const row = this.sqlite
+        .prepare(
+          `INSERT INTO research_reading_contexts
+           (id, name, normalized_name, description, color, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'active', ?, ?) RETURNING *`,
+        )
+        .get(
+          draft.id,
+          draft.name,
+          draft.normalizedName,
+          draft.description,
+          draft.color,
+          timestamp,
+          timestamp,
+        ) as Row;
+      return { kind: 'saved', context: toReadingContext(row) };
+    } catch (error) {
+      if (isUniqueConstraint(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async updateReadingContext(
+    id: string,
+    changes: ReadingContextChanges,
+  ): Promise<ReadingContextWriteResult> {
+    try {
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_reading_contexts
+           SET name = ?, normalized_name = ?, description = ?, color = ?, updated_at = ?
+           WHERE id = ? RETURNING *`,
+        )
+        .get(
+          changes.name,
+          changes.normalizedName,
+          changes.description,
+          changes.color,
+          this.clock(),
+          id,
+        ) as Row | undefined;
+      return row ? { kind: 'saved', context: toReadingContext(row) } : { kind: 'not-found' };
+    } catch (error) {
+      if (isUniqueConstraint(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async previewReadingContextArchive(id: string): Promise<ReadingContextDeletionPreview | null> {
+    const context = await this.getReadingContext(id);
+    if (!context) return null;
+    const annotations = this.sqlite
+      .prepare(
+        `SELECT COUNT(*) AS annotation_count,
+                COALESCE(SUM(CASE WHEN status = 'deleted' THEN 1 ELSE 0 END), 0) AS deleted_count
+         FROM research_annotations WHERE context_id = ?`,
+      )
+      .get(id) as { annotation_count: number; deleted_count: number };
+    const collections = this.sqlite
+      .prepare('SELECT COUNT(*) AS count FROM research_collection_contexts WHERE context_id = ?')
+      .get(id) as { count: number };
+    return {
+      context,
+      annotationCount: annotations.annotation_count,
+      activeAnnotationCount: annotations.annotation_count - annotations.deleted_count,
+      deletedAnnotationCount: annotations.deleted_count,
+      collectionCount: collections.count,
+    };
+  }
+
+  async archiveReadingContext(
+    id: string,
+    strategy: ReadingContextArchiveStrategy,
+    revisionId: () => string,
+  ): Promise<ReadingContextArchiveResult> {
+    return this.sqlite.transaction((): ReadingContextArchiveResult => {
+      const contextRow = this.sqlite
+        .prepare('SELECT * FROM research_reading_contexts WHERE id = ?')
+        .get(id) as Row | undefined;
+      if (!contextRow) return { kind: 'not-found' };
+      const timestamp = this.clock();
+      let movedAnnotations = 0;
+      if (strategy === 'move-to-general') {
+        const rows = this.sqlite
+          .prepare('SELECT * FROM research_annotations WHERE context_id = ? ORDER BY id')
+          .all(id) as Row[];
+        const insertRevision = this.sqlite.prepare(
+          `INSERT INTO research_annotation_revisions
+           (id, annotation_id, revision, snapshot_json, reason, created_at)
+           VALUES (?, ?, ?, ?, 'move-context', ?)`,
+        );
+        const move = this.sqlite.prepare(
+          `UPDATE research_annotations
+           SET context_id = NULL, revision = revision + 1, updated_at = ?
+           WHERE id = ? AND revision = ?`,
+        );
+        for (const row of rows) {
+          const annotation = toAnnotation(row);
+          insertRevision.run(
+            revisionId(),
+            annotation.id,
+            annotation.revision,
+            JSON.stringify(annotation),
+            timestamp,
+          );
+          movedAnnotations += move.run(timestamp, annotation.id, annotation.revision).changes;
+        }
+      }
+      this.sqlite.prepare('DELETE FROM research_collection_contexts WHERE context_id = ?').run(id);
+      this.sqlite
+        .prepare(
+          `UPDATE research_asset_reader_state
+           SET last_context_id = NULL, revision = revision + 1, updated_at = ?
+           WHERE last_context_id = ?`,
+        )
+        .run(timestamp, id);
+      const archived = this.sqlite
+        .prepare(
+          `UPDATE research_reading_contexts
+           SET status = 'archived', archived_at = COALESCE(archived_at, ?), updated_at = ?
+           WHERE id = ? RETURNING *`,
+        )
+        .get(timestamp, timestamp, id) as Row;
+      return {
+        kind: 'archived',
+        result: { context: toReadingContext(archived), movedAnnotations },
+      };
+    })();
+  }
+
+  async restoreReadingContext(id: string): Promise<ReadingContextWriteResult> {
+    try {
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_reading_contexts
+           SET status = 'active', archived_at = NULL, updated_at = ?
+           WHERE id = ? RETURNING *`,
+        )
+        .get(this.clock(), id) as Row | undefined;
+      return row ? { kind: 'saved', context: toReadingContext(row) } : { kind: 'not-found' };
+    } catch (error) {
+      if (isUniqueConstraint(error)) return { kind: 'conflict' };
+      throw error;
+    }
+  }
+
+  async getCollectionContext(collectionId: string): Promise<CollectionContextRecord | null> {
+    const collection = this.sqlite
+      .prepare('SELECT id FROM research_collections WHERE id = ?')
+      .get(collectionId) as { id: string } | undefined;
+    if (!collection) return null;
+    const row = this.sqlite
+      .prepare(
+        `SELECT c.*, cc.updated_at AS binding_updated_at
+         FROM research_collection_contexts cc
+         JOIN research_reading_contexts c ON c.id = cc.context_id
+         WHERE cc.collection_id = ?`,
+      )
+      .get(collectionId) as Row | undefined;
+    return {
+      collectionId,
+      context: row ? toReadingContext(row) : null,
+      updatedAt: row ? text(row, 'binding_updated_at') : null,
+    };
+  }
+
+  async setCollectionContext(
+    collectionId: string,
+    contextId: string | null,
+  ): Promise<CollectionContextWriteResult> {
+    return this.sqlite.transaction((): CollectionContextWriteResult => {
+      const collection = this.sqlite
+        .prepare('SELECT id FROM research_collections WHERE id = ?')
+        .get(collectionId) as { id: string } | undefined;
+      if (!collection) return { kind: 'collection-not-found' };
+      if (contextId === null) {
+        this.sqlite
+          .prepare('DELETE FROM research_collection_contexts WHERE collection_id = ?')
+          .run(collectionId);
+        return {
+          kind: 'saved',
+          binding: { collectionId, context: null, updatedAt: null },
+        };
+      }
+      const contextRow = this.sqlite
+        .prepare("SELECT * FROM research_reading_contexts WHERE id = ? AND status = 'active'")
+        .get(contextId) as Row | undefined;
+      if (!contextRow) return { kind: 'context-not-found' };
+      const timestamp = this.clock();
+      this.sqlite
+        .prepare(
+          `INSERT INTO research_collection_contexts
+           (collection_id, context_id, created_at, updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(collection_id) DO UPDATE SET
+             context_id = excluded.context_id, updated_at = excluded.updated_at`,
+        )
+        .run(collectionId, contextId, timestamp, timestamp);
+      return {
+        kind: 'saved',
+        binding: { collectionId, context: toReadingContext(contextRow), updatedAt: timestamp },
+      };
+    })();
+  }
+
+  async getAnnotationAssetIdentity(assetId: string) {
+    const asset = this.sqlite
+      .prepare("SELECT id, content_hash FROM research_assets WHERE id = ? AND state = 'active'")
+      .get(assetId) as { id: string; content_hash: string } | undefined;
+    if (!asset) return null;
+    const editions = this.sqlite
+      .prepare(
+        `SELECT DISTINCT edition_id FROM research_attachments
+         WHERE asset_id = ? AND status = 'active' ORDER BY edition_id`,
+      )
+      .all(assetId) as Array<{ edition_id: string }>;
+    return {
+      assetId: asset.id,
+      contentHash: asset.content_hash,
+      editionIds: editions.map((edition) => edition.edition_id),
+    };
+  }
+
+  async listAnnotations(query: AnnotationListQuery): Promise<Annotation[]> {
+    if (!query.includeGeneral && query.contextIds.length === 0) return [];
+    const params: unknown[] = [query.assetId];
+    let layerClause = 'context_id IS NULL';
+    if (query.contextIds.length > 0) {
+      params.push(...query.contextIds);
+      const named = `context_id IN (${query.contextIds.map(() => '?').join(', ')})`;
+      layerClause = query.includeGeneral ? `(context_id IS NULL OR ${named})` : named;
+    }
+    const statusClause = query.includeDeleted ? '' : "AND status <> 'deleted'";
+    return (
+      this.sqlite
+        .prepare(
+          `SELECT * FROM research_annotations
+           WHERE asset_id = ? AND ${layerClause} ${statusClause}
+           ORDER BY page_number, updated_at, id`,
+        )
+        .all(...params) as Row[]
+    ).map(toAnnotation);
+  }
+
+  async getAnnotation(id: string): Promise<Annotation | null> {
+    const row = this.sqlite.prepare('SELECT * FROM research_annotations WHERE id = ?').get(id) as
+      Row | undefined;
+    return row ? toAnnotation(row) : null;
+  }
+
+  async createAnnotation(draft: AnnotationDraft): Promise<CreateAnnotationResult> {
+    return this.sqlite.transaction((): CreateAnnotationResult => {
+      const asset = this.sqlite
+        .prepare("SELECT id FROM research_assets WHERE id = ? AND state = 'active'")
+        .get(draft.assetId) as { id: string } | undefined;
+      if (!asset) return { kind: 'asset-not-found' };
+      if (draft.contextId !== null) {
+        const context = this.sqlite
+          .prepare("SELECT id FROM research_reading_contexts WHERE id = ? AND status = 'active'")
+          .get(draft.contextId) as { id: string } | undefined;
+        if (!context) return { kind: 'context-not-found' };
+      }
+      const timestamp = this.clock();
+      const row = this.sqlite
+        .prepare(
+          `INSERT INTO research_annotations
+           (id, asset_id, edition_id, context_id, kind, page_number, anchor_json, body, color,
+            status, revision, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) RETURNING *`,
+        )
+        .get(
+          draft.id,
+          draft.assetId,
+          draft.editionId,
+          draft.contextId,
+          draft.kind,
+          draft.pageNumber,
+          JSON.stringify(draft.anchor),
+          draft.body,
+          draft.color,
+          draft.status,
+          timestamp,
+          timestamp,
+        ) as Row;
+      return { kind: 'created', annotation: toAnnotation(row) };
+    })();
+  }
+
+  async updateAnnotation(id: string, changes: AnnotationChanges): Promise<ChangeAnnotationResult> {
+    return this.sqlite.transaction((): ChangeAnnotationResult => {
+      const currentRow = this.sqlite
+        .prepare('SELECT * FROM research_annotations WHERE id = ?')
+        .get(id) as Row | undefined;
+      if (!currentRow) return { kind: 'not-found' };
+      const current = toAnnotation(currentRow);
+      if (current.revision !== changes.expectedRevision || current.status === 'deleted') {
+        return { kind: 'conflict', current };
+      }
+      const timestamp = this.clock();
+      this.insertAnnotationRevision(current, changes.revisionId, 'update', timestamp);
+      const row = this.sqlite
+        .prepare(
+          `UPDATE research_annotations
+           SET edition_id = ?, kind = ?, page_number = ?, anchor_json = ?, body = ?, color = ?,
+               status = ?, revision = revision + 1, updated_at = ?, deleted_at = NULL
+           WHERE id = ? AND revision = ? RETURNING *`,
+        )
+        .get(
+          changes.editionId,
+          changes.kind,
+          changes.pageNumber,
+          JSON.stringify(changes.anchor),
+          changes.body,
+          changes.color,
+          changes.status,
+          timestamp,
+          id,
+          changes.expectedRevision,
+        ) as Row | undefined;
+      if (row) return { kind: 'saved', annotation: toAnnotation(row) };
+      const raced = this.sqlite
+        .prepare('SELECT * FROM research_annotations WHERE id = ?')
+        .get(id) as Row | undefined;
+      return raced ? { kind: 'conflict', current: toAnnotation(raced) } : { kind: 'not-found' };
+    })();
+  }
+
+  async deleteAnnotation(
+    id: string,
+    draft: AnnotationRevisionDraft,
+  ): Promise<ChangeAnnotationResult> {
+    return this.changeAnnotationStatus(id, draft, 'deleted', 'delete');
+  }
+
+  async restoreAnnotation(
+    id: string,
+    draft: RestoreAnnotationDraft,
+  ): Promise<ChangeAnnotationResult> {
+    return this.changeAnnotationStatus(id, draft, draft.status, 'restore');
+  }
+
+  async listAnnotationRevisions(id: string): Promise<AnnotationRevision[] | null> {
+    const annotation = this.sqlite
+      .prepare('SELECT id FROM research_annotations WHERE id = ?')
+      .get(id) as { id: string } | undefined;
+    if (!annotation) return null;
+    return (
+      this.sqlite
+        .prepare(
+          `SELECT * FROM research_annotation_revisions
+           WHERE annotation_id = ? ORDER BY revision DESC, created_at DESC, id`,
+        )
+        .all(id) as Row[]
+    ).map(toAnnotationRevision);
   }
 
   async findAssetUsages(assetId: string): Promise<AssetUsage[]> {

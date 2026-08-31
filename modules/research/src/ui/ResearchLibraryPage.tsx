@@ -409,7 +409,10 @@ export function ResearchLibraryPage() {
       void run(() => postCheckLocation(id), '文件状态已更新');
     },
     onOpenReader: (assetId: string) => {
-      navigate(`/research/read/${encodeURIComponent(assetId)}`);
+      const params = new URLSearchParams();
+      if (selectedCollectionId) params.set('collectionId', selectedCollectionId);
+      const query = params.toString();
+      navigate(`/research/read/${encodeURIComponent(assetId)}${query ? `?${query}` : ''}`);
     },
     onRelinkLocation: (id: string) => {
       const path = window.prompt('输入新的本机文件路径');
