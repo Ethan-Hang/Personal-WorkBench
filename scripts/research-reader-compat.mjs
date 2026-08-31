@@ -111,13 +111,60 @@ async function run(command, args) {
   return { durationMs: Date.now() - startedAt, output };
 }
 
+async function runAll(options) {
+  const stamp = new Date().toISOString().replaceAll(/[^0-9A-Za-z]+/g, '-');
+  const outputRoot = path.resolve(
+    options.output ?? path.join(repoRoot, 'test-results', 'research-reader', `compat-all-${stamp}`),
+  );
+  await mkdir(outputRoot, { recursive: true });
+  const phaseResults = [];
+  for (const phase of ['b1', 'b2', 'b3']) {
+    const phaseOutput = path.join(outputRoot, phase);
+    const args = [
+      path.join(scriptDir, 'research-reader-compat.mjs'),
+      '--phase',
+      phase,
+      '--output',
+      phaseOutput,
+    ];
+    if (options.browser) args.push('--browser');
+    if (phase === 'b1') {
+      for (const filePath of options.pdfPaths) args.push('--pdf', path.resolve(filePath));
+      if (options.scannedPdf) args.push('--pdf', path.resolve(options.scannedPdf));
+    }
+    if (phase === 'b3' && options.ocr) args.push('--ocr');
+    if (phase === 'b3' && options.scannedPdf) {
+      args.push('--scanned-pdf', path.resolve(options.scannedPdf));
+    }
+    const execution = await run(process.execPath, args);
+    const result = JSON.parse(await readFile(path.join(phaseOutput, 'result.json'), 'utf8'));
+    phaseResults.push({ phase, durationMs: execution.durationMs, result });
+  }
+  const result = {
+    status: 'passed',
+    phase: 'all',
+    generatedAt: new Date().toISOString(),
+    environment: phaseResults[0]?.result.environment ?? null,
+    corpus: [...new Set(phaseResults.flatMap((phase) => phase.result.corpus ?? []))],
+    conditions: {
+      visualProfiles: options.browser ? 'fresh profile per viewport and state' : 'not-run',
+      lifecycle: options.browser ? '20 rounds in one browser process' : 'not-run',
+    },
+    phases: phaseResults.map((phase) => ({
+      phase: phase.phase,
+      status: phase.result.status,
+      durationMs: phase.durationMs,
+      evidence: path.relative(repoRoot, path.join(outputRoot, phase.phase, 'result.json')),
+    })),
+    modules: phaseResults.flatMap((phase) => phase.result.modules ?? []),
+  };
+  await writeFile(path.join(outputRoot, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
+  console.log(JSON.stringify(result, null, 2));
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (!['b1', 'b2', 'b3'].includes(options.phase)) {
-    throw new Error(
-      `${options.phase} compatibility modules are enabled when that phase is implemented`,
-    );
-  }
+  if (options.phase === 'all') return runAll(options);
   const stamp = new Date().toISOString().replaceAll(/[^0-9A-Za-z]+/g, '-');
   const outputRoot = path.resolve(
     options.output ?? path.join(repoRoot, 'test-results', 'research-reader', `compat-${stamp}`),

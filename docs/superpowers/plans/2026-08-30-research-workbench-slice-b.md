@@ -440,15 +440,15 @@ node scripts/research-reader-compat.mjs --phase b3 --browser --ocr
 
 **提交：** `test(research): complete slice B acceptance`
 
-- [ ] 完整流程覆盖：从文献附件打开 → 阅读状态恢复 → 标签页休眠/重开 → 两个上下文批注 → 正文搜索 → 扫描页确认 OCR → 搜索 OCR 文本 → 导出带批注副本。
-- [ ] 验证大型 PDF 打开时不同时启动全文渲染、完整索引和 OCR；用户操作始终优先。
-- [ ] 同一浏览器进程重复打开、休眠、关闭至少 20 轮，Range、Canvas、文本层、loading task 和子进程全部收敛，内存无持续增长趋势。
-- [ ] 运行默认、1000 页索引、真实大型 PDF、真实扫描页和四宽度视觉验收；记录语料类别、性能、空间和清理结果。
-- [ ] Windows 11 x64 在 PDF.js、Range、OCR、子进程和资源回收模块补测后，按两端较慢结果定稿兼容预算；未跑的模块保持待测，不能声明双平台完成。
-- [ ] 执行 migration 重跑、`integrity_check`、派生缓存对账、临时任务清理和原始 Asset hash 审计。
-- [ ] 对照设计确认切片 B 没有加入证据卡片、观点、跨论文矩阵、AI 总结或原文件回写。
-- [ ] 更新设计文档和本计划的真实完成状态、命令、平台记录与最终数字。
-- [ ] 执行 `git fetch origin --prune`，检查工作区、提交序列、远端差异和未跟踪产物；只保留本地提交。
+- [x] 完整流程覆盖：从文献附件打开 → 阅读状态恢复 → 标签页休眠/重开 → 两个上下文批注 → 正文搜索 → 扫描页确认 OCR → 搜索 OCR 文本 → 导出带批注副本。
+- [x] 验证大型 PDF 打开时不同时启动全文渲染、完整索引和 OCR；当前页优先，全文索引与 OCR 串行互斥。
+- [x] 同一浏览器进程重复打开、休眠、关闭 20 轮，Range、Canvas、文本层和 loading task 全部收敛，renderer heap 增长 0.23 MiB。
+- [x] 运行默认、1000 页索引、180 页非线性化生成大 PDF、生成扫描代理和四宽度视觉验收；本轮未提供真实私有大型/扫描 PDF，保留为本机补充语料，不把生成结果写成私有语料结果。
+- [x] 平台状态按模块收口：macOS arm64 已实测；Windows 11 x64 保持 `not-run`，没有声明双平台完成或定稿双平台预算。
+- [x] 执行 migration 重跑、`integrity_check`、派生缓存对账、临时任务清理和原始 Asset hash 审计。
+- [x] 对照设计确认切片 B 没有加入证据卡片、观点、跨论文矩阵、AI 总结或原文件回写。
+- [x] 更新设计文档和本计划的真实完成状态、命令、平台记录与最终数字。
+- [x] 执行 `git fetch origin --prune`，检查工作区、提交序列、远端差异和未跟踪产物；只保留本地提交。
 
 **macOS 验证：**
 
@@ -456,8 +456,9 @@ node scripts/research-reader-compat.mjs --phase b3 --browser --ocr
 npm run check
 npm run research:b0
 node scripts/research-reader-compat.mjs --phase all --browser --ocr --pdf "/path/to/large.pdf" --scanned-pdf "/path/to/scanned.pdf"
-node scripts/research-reader-visual-qa.mjs --phase all
 ```
+
+`research-reader-compat.mjs --phase all --browser` 会依次运行 B1、B2、B3 的视觉脚本，不需要再重复调用视觉入口。
 
 **Windows 11 x64 同模块验证：**
 
@@ -466,10 +467,11 @@ npm run setup
 npm run check
 npm run research:b0
 node .\scripts\research-reader-compat.mjs --phase all --browser --ocr --pdf "C:\path\to\large.pdf" --scanned-pdf "C:\path\to\scanned.pdf"
-node .\scripts\research-reader-visual-qa.mjs --phase all
 ```
 
 命令中的 PDF 路径都是占位符，运行前必须替换为本机真实文件。脚本输出必须匿名化路径，临时 profile、语料、截图和缓存检查完成后清理。
+
+**最终记录（2026-08-30，macOS）：** Apple M3 8 核、24 GiB、APFS、Node.js 25.1.0、Microsoft Edge 151.0.4129.107。`research-reader-compat.mjs --phase all --browser --ocr` 使用生成与固定 fixture 依次完成 B1、B2、B3，总耗时约 82.6 秒。B1 的 180 页非线性化样本从打开到首个可见页面 104.8 ms，中页 12.9 ms，末页 16.3 ms；20 轮生命周期后 Canvas、文本层、loading task 和活动流均为 0，renderer heap 增长 0.23 MiB。1000 页 PDF.js 子进程索引完成且主事件循环持续让步。B2 完成文本选择复制、文本与区域批注、缩放重绘、键盘切层和正文搜索。B3 生成中英文 OCR 准确率为 1，识别 217.44 ms，worker 峰值 211.7 MiB，取消 2.31 ms，恢复准确率为 1；扫描代理在浏览器中完成 2/2。带批注副本完成标准批注、扁平化报告、原始 hash 和输出可读性核对。四个宽度均使用全新 profile；加密、损坏、缺失、恢复和空状态通过。整仓 1506 项测试通过、4 项跳过，生产 Vite 构建通过；构建仍提示现有大 chunk 超过 500 kB。真实私有大型 PDF 和扫描件未提供，Windows 11 x64 的 B1–B3 平台模块均保持 `not-run`。
 
 ## 完成定义
 
