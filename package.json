@@ -22,6 +22,7 @@
     "test": "vitest run",
     "check": "npm run format:check && npm run typecheck && npm run lint && npm run test",
     "db:generate": "drizzle-kit generate --config packages/data/drizzle.config.ts",
+    "cache:clean": "npm cache clean --force && npm cache verify",
     "prepare": "husky"
   },
   "devDependencies": {

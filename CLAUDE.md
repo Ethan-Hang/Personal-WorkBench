@@ -70,6 +70,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | `npx vitest run <路径>`        | 跑单个测试文件，例如 `npx vitest run packages/core/src/time.test.ts`                  |
 | `npx vitest run -t "<用例名>"` | 按用例名筛选                                                                          |
 | `npm run db:generate`          | 改完 `packages/data/src/schema.ts` 后生成迁移                                         |
+| `npm run cache:clean`          | 清空并校验 npm 缓存（装依赖报损坏 / tarball 校验失败时用）                            |
 
 本地数据在 `data/local/accounts/<账号 id>/workbench.db`（已 gitignore），默认账号是
 `local-default`。删掉整个 `data/local/` 即可从空库重来。账号根目录由 `WORKBENCH_DATA_DIR`

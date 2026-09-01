@@ -7,6 +7,9 @@
 ```bash
 npm run setup
 npm run dev
+
+# 清空并校验 npm 缓存（装依赖报损坏或校验失败时用）
+npm run cache:clean
 ```
 
 打开 http://localhost:5173
@@ -33,6 +36,7 @@ npm run dev
 | `npm run test`        | 运行全部 Vitest 自动化测试 (800+ tests)                       |
 | `npm run format`      | 使用 Prettier 自动格式化代码                                  |
 | `npm run db:generate` | 改完 `packages/data/src/schema.ts` 后生成迁移                 |
+| `npm run cache:clean` | 清空并校验 npm 缓存（装依赖报损坏或校验失败时用）             |
 
 ## 数据存储
 
